@@ -1,0 +1,12 @@
+[project]
+name = "biasbuster"
+version = "0.1.0"
+description = "Toolkit for building curated training datasets to fine-tune LLMs for detecting bias in biomedical abstracts"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx",
+    "pandas",
+    "tqdm",
+    "anthropic",
+]
