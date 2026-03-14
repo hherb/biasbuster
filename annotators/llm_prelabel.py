@@ -118,17 +118,32 @@ class LLMAnnotator:
         api_key: Optional[str] = None,
         model: str = "claude-sonnet-4-20250514",
         max_tokens: int = 4000,
-    ):
+        max_retries: int = 3,
+    ) -> None:
+        """Initialise the annotator.
+
+        Args:
+            api_key: Anthropic API key. Falls back to ANTHROPIC_API_KEY env var.
+            model: Claude model identifier.
+            max_tokens: Maximum tokens per annotation response.
+            max_retries: Number of retries for transient API failures.
+        """
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self.model = model
         self.max_tokens = max_tokens
+        self.max_retries = max_retries
         self.client: Optional[anthropic.AsyncAnthropic] = None
 
-    async def __aenter__(self):
-        self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
+    async def __aenter__(self) -> "LLMAnnotator":
+        """Create the Anthropic async client with built-in retry."""
+        self.client = anthropic.AsyncAnthropic(
+            api_key=self.api_key,
+            max_retries=self.max_retries,
+        )
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args) -> None:
+        """Close the Anthropic client."""
         if self.client:
             await self.client.close()
 

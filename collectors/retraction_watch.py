@@ -23,129 +23,17 @@ from typing import Optional
 
 import httpx
 
+from utils.retry import fetch_with_retry
+
 logger = logging.getLogger(__name__)
 
 
-# ---- Standalone PubMed XML parsing functions ----
+# Re-export XML parsing functions for backwards compatibility
+from collectors.pubmed_xml import parse_pubmed_xml, parse_pubmed_xml_batch
 
-def parse_pubmed_xml(xml_text: str) -> Optional[dict]:
-    """Parse a single PubMed XML response."""
-    import xml.etree.ElementTree as ET
-    try:
-        root = ET.fromstring(xml_text)
-        article = root.find(".//PubmedArticle")
-        if article is None:
-            return None
-        return _extract_article_data(article)
-    except ET.ParseError as e:
-        logger.warning(f"XML parse error: {e}")
-        return None
-
-
-def parse_pubmed_xml_batch(xml_text: str) -> dict[str, dict]:
-    """Parse batch PubMed XML response. Returns {pmid: article_dict}."""
-    import xml.etree.ElementTree as ET
-    results = {}
-    try:
-        root = ET.fromstring(xml_text)
-        for article in root.findall(".//PubmedArticle"):
-            data = _extract_article_data(article)
-            if data and data.get("pmid"):
-                results[data["pmid"]] = data
-    except ET.ParseError as e:
-        logger.warning(f"XML parse error: {e}")
-    return results
-
-
-def _extract_article_data(article) -> Optional[dict]:
-    """Extract key fields from a PubmedArticle XML element."""
-    try:
-        medline = article.find(".//MedlineCitation")
-        if medline is None:
-            return None
-
-        pmid_el = medline.find("PMID")
-        pmid = pmid_el.text if pmid_el is not None else ""
-
-        art = medline.find(".//Article")
-        if art is None:
-            return None
-
-        title_el = art.find("ArticleTitle")
-        title = title_el.text if title_el is not None else ""
-
-        # Abstract - may have multiple AbstractText elements (structured)
-        abstract_parts = []
-        abstract_el = art.find("Abstract")
-        if abstract_el is not None:
-            for at in abstract_el.findall("AbstractText"):
-                label = at.get("Label", "")
-                text = "".join(at.itertext())
-                if label:
-                    abstract_parts.append(f"{label}: {text}")
-                else:
-                    abstract_parts.append(text)
-
-        abstract = "\n".join(abstract_parts)
-
-        # Journal
-        journal_el = art.find(".//Journal/Title")
-        journal = journal_el.text if journal_el is not None else ""
-
-        # Year
-        year_el = medline.find(".//DateCompleted/Year")
-        if year_el is None:
-            year_el = art.find(".//Journal/JournalIssue/PubDate/Year")
-        year = int(year_el.text) if year_el is not None else None
-
-        # Authors with affiliations
-        authors = []
-        for author in art.findall(".//Author"):
-            last = author.find("LastName")
-            first = author.find("ForeName")
-            affils = [a.text for a in author.findall(".//Affiliation") if a.text]
-            authors.append({
-                "last": last.text if last is not None else "",
-                "first": first.text if first is not None else "",
-                "affiliations": affils,
-            })
-
-        # Funding / grants
-        grants = []
-        for grant in medline.findall(".//Grant"):
-            gid = grant.find("GrantID")
-            agency = grant.find("Agency")
-            grants.append({
-                "id": gid.text if gid is not None else "",
-                "agency": agency.text if agency is not None else "",
-            })
-
-        # DOI
-        doi = ""
-        for eid in art.findall(".//ELocationID"):
-            if eid.get("EIdType") == "doi":
-                doi = eid.text or ""
-
-        # MeSH terms
-        mesh_terms = []
-        for mesh in medline.findall(".//MeshHeading/DescriptorName"):
-            if mesh.text:
-                mesh_terms.append(mesh.text)
-
-        return {
-            "pmid": pmid,
-            "doi": doi,
-            "title": title,
-            "abstract": abstract,
-            "journal": journal,
-            "year": year,
-            "authors": authors,
-            "grants": grants,
-            "mesh_terms": mesh_terms,
-        }
-    except Exception as e:
-        logger.warning(f"Article extraction error: {e}")
-        return None
+# Default timeouts (seconds)
+DEFAULT_REQUEST_TIMEOUT = 30.0
+BULK_DOWNLOAD_TIMEOUT = 120.0
 
 
 @dataclass
@@ -165,18 +53,27 @@ class RetractedPaper:
 class RetractionWatchCollector:
     """Collect retracted papers with their abstracts for training data."""
 
-    def __init__(self, mailto: str, ncbi_api_key: str = ""):
+    def __init__(self, mailto: str, ncbi_api_key: str = "") -> None:
+        """Initialise the collector with contact info and optional NCBI key.
+
+        Args:
+            mailto: Contact email required by Crossref and NCBI polite-access
+                    policies.
+            ncbi_api_key: Optional NCBI API key for higher PubMed rate limits.
+        """
         self.mailto = mailto
         self.ncbi_api_key = ncbi_api_key
         self.crossref_base = "https://api.crossref.org/v1"
         self.pubmed_base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
         self.client: Optional[httpx.AsyncClient] = None
 
-    async def __aenter__(self):
-        self.client = httpx.AsyncClient(timeout=30.0)
+    async def __aenter__(self) -> "RetractionWatchCollector":
+        """Create the shared ``httpx.AsyncClient`` used for all requests."""
+        self.client = httpx.AsyncClient(timeout=DEFAULT_REQUEST_TIMEOUT)
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args) -> None:
+        """Close the underlying HTTP client gracefully."""
         if self.client:
             await self.client.aclose()
 
@@ -205,8 +102,10 @@ class RetractionWatchCollector:
             if subject_filter:
                 params["filter"] += f",subject:{subject_filter}"
 
-            resp = await self.client.get(
-                f"{self.crossref_base}/works", params=params
+            url = f"{self.crossref_base}/works"
+            resp = await fetch_with_retry(
+                self.client, "GET", url,
+                params=params, max_retries=3, base_delay=1.0,
             )
             if resp.status_code != 200:
                 logger.error(f"Crossref API error: {resp.status_code}")
@@ -222,7 +121,7 @@ class RetractionWatchCollector:
             if not cursor:
                 break
 
-            # Rate limiting
+            # Crossref polite-pool delay between paginated requests
             await asyncio.sleep(0.5)
 
         logger.info(f"Fetched {len(papers)} retracted papers from Crossref")
@@ -238,7 +137,11 @@ class RetractionWatchCollector:
         url = f"https://api.labs.crossref.org/data/retractionwatch?{self.mailto}"
         logger.info(f"Downloading Retraction Watch CSV (this may take a while)...")
 
-        resp = await self.client.get(url, timeout=120.0)
+        resp = await fetch_with_retry(
+            self.client, "GET", url,
+            timeout=httpx.Timeout(BULK_DOWNLOAD_TIMEOUT),
+            max_retries=3, base_delay=1.0,
+        )
         if resp.status_code != 200:
             logger.error(f"Failed to download RW CSV: {resp.status_code}")
             return []
@@ -260,8 +163,10 @@ class RetractionWatchCollector:
             params["api_key"] = self.ncbi_api_key
 
         try:
-            resp = await self.client.get(
-                f"{self.pubmed_base}/efetch.fcgi", params=params
+            url = f"{self.pubmed_base}/efetch.fcgi"
+            resp = await fetch_with_retry(
+                self.client, "GET", url,
+                params=params, max_retries=3, base_delay=1.0,
             )
             if resp.status_code == 200:
                 return self._parse_pubmed_xml(resp.text)
@@ -287,8 +192,10 @@ class RetractionWatchCollector:
                 params["api_key"] = self.ncbi_api_key
 
             try:
-                resp = await self.client.get(
-                    f"{self.pubmed_base}/efetch.fcgi", params=params
+                url = f"{self.pubmed_base}/efetch.fcgi"
+                resp = await fetch_with_retry(
+                    self.client, "GET", url,
+                    params=params, max_retries=3, base_delay=1.0,
                 )
                 if resp.status_code == 200:
                     batch_results = self._parse_pubmed_xml_batch(resp.text)
@@ -296,7 +203,8 @@ class RetractionWatchCollector:
             except Exception as e:
                 logger.warning(f"PubMed batch fetch failed: {e}")
 
-            await asyncio.sleep(0.35)  # Rate limit
+            # NCBI rate-limit: ~3 req/s without key, ~10 req/s with key
+            await asyncio.sleep(0.35)
 
         logger.info(f"Fetched {len(results)} abstracts from PubMed")
         return results
@@ -308,14 +216,16 @@ class RetractionWatchCollector:
             batch = dois[i : i + 100]
             ids_param = ",".join(batch)
             try:
-                resp = await self.client.get(
-                    "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/",
+                url = "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/"
+                resp = await fetch_with_retry(
+                    self.client, "GET", url,
                     params={
                         "ids": ids_param,
                         "format": "json",
                         "tool": "biasbuster",
                         "email": self.mailto,
                     },
+                    max_retries=3, base_delay=1.0,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -327,16 +237,31 @@ class RetractionWatchCollector:
             except Exception as e:
                 logger.warning(f"DOI-to-PMID conversion failed: {e}")
 
+            # NCBI rate-limit: ~3 req/s without key, ~10 req/s with key
             await asyncio.sleep(0.35)
 
         return doi_to_pmid_map
 
     def _parse_pubmed_xml(self, xml_text: str) -> Optional[dict]:
-        """Parse a single PubMed XML response."""
+        """Parse a single PubMed XML response.
+
+        Args:
+            xml_text: Raw XML from PubMed efetch.
+
+        Returns:
+            Article dict or None on failure.
+        """
         return parse_pubmed_xml(xml_text)
 
     def _parse_pubmed_xml_batch(self, xml_text: str) -> dict[str, dict]:
-        """Parse batch PubMed XML response."""
+        """Parse batch PubMed XML response.
+
+        Args:
+            xml_text: Raw XML from PubMed efetch (multiple articles).
+
+        Returns:
+            Dict mapping PMIDs to article dicts.
+        """
         return parse_pubmed_xml_batch(xml_text)
 
     async def collect_retracted_with_abstracts(
@@ -414,8 +339,10 @@ class RetractionWatchCollector:
                 params["api_key"] = self.ncbi_api_key
 
             try:
-                resp = await self.client.get(
-                    f"{self.pubmed_base}/esearch.fcgi", params=params
+                url = f"{self.pubmed_base}/esearch.fcgi"
+                resp = await fetch_with_retry(
+                    self.client, "GET", url,
+                    params=params, max_retries=3, base_delay=1.0,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -453,8 +380,10 @@ class RetractionWatchCollector:
                 pending_pmid_lookup = []
 
             if i % 10 == 0:
+                # Longer pause every 10th request to stay within Crossref polite limits
                 await asyncio.sleep(0.5)
             else:
+                # Short delay between consecutive PubMed esearch calls
                 await asyncio.sleep(0.15)
 
             if len(results) + len(already_collected) >= max_papers:
@@ -496,7 +425,7 @@ class RetractionWatchCollector:
                 merged.append(paper)
         return merged
 
-    def save_results(self, papers: list[RetractedPaper], output_path: Path):
+    def save_results(self, papers: list[RetractedPaper], output_path: Path) -> None:
         """Save collected papers as JSONL."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:

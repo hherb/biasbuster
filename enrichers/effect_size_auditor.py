@@ -162,6 +162,16 @@ def _find_matches(text: str, patterns: dict[str, list[str]]) -> dict[str, list[s
 
 from schemas import extract_abstract_sections as _extract_abstract_sections
 
+# ---- Scoring weights for bias score computation ----
+# Each weight represents the contribution to the 0-1 reporting bias score.
+SCORE_RELATIVE_ONLY = 0.4
+SCORE_RELATIVE_EMPHASISED = 0.2
+SCORE_PERCENT_REDUCTION_NO_CONTEXT = 0.15
+SCORE_NO_NNT = 0.1
+SCORE_NO_BASELINE_RISK = 0.1
+SCORE_NO_CI = 0.05
+SCORE_TITLE_RELATIVE = 0.1
+
 
 def audit_abstract(pmid: str, title: str, abstract: str) -> EffectSizeAudit:
     """
@@ -267,33 +277,33 @@ def audit_abstract(pmid: str, title: str, abstract: str) -> EffectSizeAudit:
     flags = []
 
     if audit.pattern == ReportingPattern.RELATIVE_ONLY:
-        score += 0.4
+        score += SCORE_RELATIVE_ONLY
         flags.append("RELATIVE_ONLY: No absolute measures reported alongside relative measures")
 
     if audit.pattern == ReportingPattern.RELATIVE_EMPHASISED:
-        score += 0.2
+        score += SCORE_RELATIVE_EMPHASISED
         flags.append("RELATIVE_EMPHASISED: Relative measures in conclusion without absolute context")
 
     if audit.has_percent_reduction and not has_any_absolute:
-        score += 0.15
+        score += SCORE_PERCENT_REDUCTION_NO_CONTEXT
         flags.append("PERCENT_REDUCTION_NO_CONTEXT: '% reduction' claim without baseline risk")
 
     if not audit.has_nnt and has_any_relative:
-        score += 0.1
+        score += SCORE_NO_NNT
         flags.append("NO_NNT: NNT not provided despite reporting relative benefit")
 
     if not audit.has_baseline_risk and has_any_relative:
-        score += 0.1
+        score += SCORE_NO_BASELINE_RISK
         flags.append("NO_BASELINE_RISK: Control group event rate not reported")
 
     if not audit.has_confidence_intervals and (has_any_relative or has_any_absolute):
-        score += 0.05
+        score += SCORE_NO_CI
         flags.append("NO_CI: Effect sizes reported without confidence intervals")
 
     if audit.effect_in_title and audit.pattern in (
         ReportingPattern.RELATIVE_ONLY, ReportingPattern.RELATIVE_EMPHASISED
     ):
-        score += 0.1
+        score += SCORE_TITLE_RELATIVE
         flags.append("TITLE_RELATIVE: Title promotes relative measure")
 
     audit.reporting_bias_score = min(score, 1.0)

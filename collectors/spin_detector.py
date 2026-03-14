@@ -24,6 +24,18 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
+# ---- Scoring constants ----
+# Weights for computing the overall spin score from individual flag severities
+SEVERITY_WEIGHTS: dict[str, float] = {"low": 0.1, "moderate": 0.2, "high": 0.35}
+SEVERITY_WEIGHT_DEFAULT: float = 0.15
+
+# Boutron classification thresholds (applied to overall_spin_score)
+BOUTRON_LOW_THRESHOLD: float = 0.2
+BOUTRON_MODERATE_THRESHOLD: float = 0.5
+
+# Max characters to keep from evidence text spans
+EVIDENCE_MAX_LENGTH: int = 200
+
 
 class SpinType(str, Enum):
     SECONDARY_FOCUS = "focus_on_secondary"
@@ -190,7 +202,7 @@ def screen_for_spin(pmid: str, title: str, abstract: str) -> SpinScreeningResult
             result.flags.append(SpinFlag(
                 spin_type=SpinType.BENEFIT_DESPITE_NS,
                 description="Conclusion claims benefit despite non-significant or unclear primary outcome",
-                evidence=match[:200],
+                evidence=match[:EVIDENCE_MAX_LENGTH],
                 severity="high",
                 section="conclusion",
             ))
@@ -202,7 +214,7 @@ def screen_for_spin(pmid: str, title: str, abstract: str) -> SpinScreeningResult
             spin_type=SpinType.TREND_EMPHASIS,
             description='Use of "trend" or "clinically meaningful" language, '
                         "potentially disguising non-significant results",
-            evidence=match[:200],
+            evidence=match[:EVIDENCE_MAX_LENGTH],
             severity="moderate",
             section="results" if match.lower() in (results_text or "").lower() else "other",
         ))
@@ -213,7 +225,7 @@ def screen_for_spin(pmid: str, title: str, abstract: str) -> SpinScreeningResult
         result.flags.append(SpinFlag(
             spin_type=SpinType.SUBGROUP_EMPHASIS,
             description="Subgroup or exploratory analysis emphasised in conclusions",
-            evidence=subgroup_in_conclusion[0][:200],
+            evidence=subgroup_in_conclusion[0][:EVIDENCE_MAX_LENGTH],
             severity="moderate" if result.primary_outcome_significant == "yes" else "high",
             section="conclusion",
         ))
@@ -224,7 +236,7 @@ def screen_for_spin(pmid: str, title: str, abstract: str) -> SpinScreeningResult
         result.flags.append(SpinFlag(
             spin_type=SpinType.WITHIN_GROUP,
             description="Within-group (pre-post) comparisons without between-group analysis",
-            evidence=within_matches[0][:200],
+            evidence=within_matches[0][:EVIDENCE_MAX_LENGTH],
             severity="moderate",
             section="results",
         ))
@@ -244,7 +256,7 @@ def screen_for_spin(pmid: str, title: str, abstract: str) -> SpinScreeningResult
             result.flags.append(SpinFlag(
                 spin_type=SpinType.CAUSAL_LANGUAGE,
                 description="Causal language used in conclusions of observational study",
-                evidence=causal_matches[0][:200],
+                evidence=causal_matches[0][:EVIDENCE_MAX_LENGTH],
                 severity="high",
                 section="conclusion",
             ))
@@ -255,7 +267,7 @@ def screen_for_spin(pmid: str, title: str, abstract: str) -> SpinScreeningResult
         result.flags.append(SpinFlag(
             spin_type=SpinType.CLINICAL_RECOMMENDATION,
             description="Clinical recommendation or practice change suggested from single study",
-            evidence=match[:200],
+            evidence=match[:EVIDENCE_MAX_LENGTH],
             severity="moderate",
             section="conclusion",
         ))
@@ -267,22 +279,24 @@ def screen_for_spin(pmid: str, title: str, abstract: str) -> SpinScreeningResult
             result.flags.append(SpinFlag(
                 spin_type=SpinType.TITLE_SPIN,
                 description="Title implies benefit not supported by primary outcome results",
-                evidence=title_benefit[0][:200],
+                evidence=title_benefit[0][:EVIDENCE_MAX_LENGTH],
                 severity="high",
                 section="title",
             ))
 
     # ---- 3. Compute overall score ----
-    severity_weights = {"low": 0.1, "moderate": 0.2, "high": 0.35}
-    score = sum(severity_weights.get(f.severity, 0.15) for f in result.flags)
+    score = sum(
+        SEVERITY_WEIGHTS.get(f.severity, SEVERITY_WEIGHT_DEFAULT)
+        for f in result.flags
+    )
     result.overall_spin_score = min(score, 1.0)
 
     # ---- 4. Boutron level classification ----
     if not result.flags:
         result.boutron_level = "none"
-    elif result.overall_spin_score < 0.2:
+    elif result.overall_spin_score < BOUTRON_LOW_THRESHOLD:
         result.boutron_level = "low"
-    elif result.overall_spin_score < 0.5:
+    elif result.overall_spin_score < BOUTRON_MODERATE_THRESHOLD:
         result.boutron_level = "moderate"
     else:
         result.boutron_level = "high"

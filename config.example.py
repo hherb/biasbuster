@@ -9,6 +9,12 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Config:
+    """Central configuration for the Bias Dataset Builder.
+
+    Contains all API endpoints, keys, rate limits, batch sizes, thresholds,
+    and output paths. Copy config.example.py to config.py and edit.
+    """
+
     # Crossref / Retraction Watch
     crossref_mailto: str = "your.email@example.com"  # Required for polite pool
     crossref_api_base: str = "https://api.crossref.org/v1"
@@ -40,9 +46,31 @@ class Config:
     # ORCID (for author affiliation verification)
     orcid_base: str = "https://pub.orcid.org/v3.0"
 
-    # Rate limiting
-    requests_per_second: float = 3.0  # Conservative default
-    ncbi_requests_per_second: float = 3.0  # 10/s with API key, 3/s without
+    # Retry / resilience
+    max_retries: int = 3
+    retry_base_delay: float = 1.0       # Seconds before first retry
+    retry_max_delay: float = 60.0       # Cap on exponential backoff
+
+    # Timeouts (seconds)
+    http_timeout: float = 30.0
+    http_timeout_long: float = 120.0    # For bulk downloads
+
+    # Rate limiting (seconds between requests)
+    crossref_rate_delay: float = 0.5
+    ncbi_rate_delay: float = 0.35       # 10/s with API key, 3/s without
+    ncbi_rate_delay_slow: float = 0.5   # For non-batch operations
+    ctgov_rate_delay: float = 0.5
+    orcid_rate_delay: float = 0.5
+    annotation_delay: float = 1.0       # Delay between Claude API calls
+
+    # Batch / page sizes
+    crossref_rows_per_page: int = 100
+    doi_batch_size: int = 100
+    ctgov_page_size_doi: int = 5
+    ctgov_page_size_title: int = 10
+    annotation_concurrency: int = 3
+    retraction_flush_every: int = 50    # Incremental save batch size
+    outcome_switching_check_limit: int = 100
 
     # Output
     output_dir: str = "dataset"
@@ -54,8 +82,31 @@ class Config:
     # Collection targets
     retraction_watch_max: int = 2000      # Max retracted papers to collect
     cochrane_rob_max: int = 1000           # Max Cochrane high-RoB studies
+    cochrane_max_reviews: int = 50         # Max Cochrane reviews to search
     spin_screening_max: int = 5000         # Max abstracts to screen for spin heuristics
     clean_examples_max: int = 500          # Negative examples (low-bias)
+    pubmed_rct_start_date: str = "2020/01/01"
+    cochrane_min_year: int = 2018
+
+    # Annotation limits per source (for cost control)
+    annotation_max_per_source: dict = field(default_factory=lambda: {
+        "high_suspicion": 500,
+        "retracted_papers": 200,
+        "cochrane_rob": 300,
+        "low_suspicion": 300,
+    })
+
+    # Enrichment thresholds
+    high_suspicion_threshold: float = 0.3
+    low_suspicion_threshold: float = 0.1
+
+    # Export
+    train_split: float = 0.8
+    val_split: float = 0.1
+    export_seed: int = 42
+
+    # Display / truncation
+    evidence_max_length: int = 200
 
     # Domains to focus on (MeSH terms for PubMed queries)
     focus_domains: list[str] = field(default_factory=lambda: [

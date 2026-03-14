@@ -18,6 +18,8 @@ from typing import Optional
 
 import httpx
 
+from utils.retry import fetch_with_retry
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,15 +105,23 @@ class AuthorCOIVerifier:
     ]
 
     def __init__(self, mailto: str = "", ncbi_api_key: str = ""):
+        """Initialize the verifier with optional API credentials.
+
+        Args:
+            mailto: Contact email for API courtesy headers.
+            ncbi_api_key: NCBI API key for higher PubMed rate limits.
+        """
         self.mailto = mailto
         self.ncbi_api_key = ncbi_api_key
         self.client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self):
+        """Create the shared async HTTP client and return the verifier."""
         self.client = httpx.AsyncClient(timeout=30.0)
         return self
 
     async def __aexit__(self, *args):
+        """Close the async HTTP client if open."""
         if self.client:
             await self.client.aclose()
 
@@ -179,8 +189,8 @@ class AuthorCOIVerifier:
         affiliations = []
         try:
             # Search ORCID by name
-            resp = await self.client.get(
-                "https://pub.orcid.org/v3.0/search/",
+            resp = await fetch_with_retry(
+                self.client, "GET", "https://pub.orcid.org/v3.0/search/",
                 params={"q": f'family-name:"{name.split()[-1]}" AND given-names:"{name.split()[0]}"'},
                 headers={"Accept": "application/json"},
             )
@@ -191,7 +201,8 @@ class AuthorCOIVerifier:
                     orcid_id = result.get("orcid-identifier", {}).get("path", "")
                     if orcid_id:
                         # Fetch employment details
-                        emp_resp = await self.client.get(
+                        emp_resp = await fetch_with_retry(
+                            self.client, "GET",
                             f"https://pub.orcid.org/v3.0/{orcid_id}/employments",
                             headers={"Accept": "application/json"},
                         )
@@ -227,8 +238,9 @@ class AuthorCOIVerifier:
         """
         grants = []
         try:
-            resp = await self.client.get(
-                f"https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+            resp = await fetch_with_retry(
+                self.client, "GET",
+                "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
                 params={
                     "query": f"EXT_ID:{pmid} AND SRC:MED",
                     "resultType": "core",
@@ -252,9 +264,13 @@ class AuthorCOIVerifier:
         return grants
 
     def classify_funding_source(self, grants: list[dict], affiliations: list[str]) -> str:
-        """
-        Classify whether funding is industry, public, mixed, or not reported.
-        Uses known pharma company patterns.
+        """Classify whether funding is industry, public, mixed, or not reported.
+
+        Checks grant agency names and author affiliations against known
+        pharmaceutical/device company patterns and public funder keywords.
+
+        Returns:
+            One of 'industry', 'public', 'mixed', 'unclear', or 'not_reported'.
         """
         has_industry = False
         has_public = False
@@ -290,7 +306,11 @@ class AuthorCOIVerifier:
             return "not_reported"
 
     def check_industry_affiliation(self, affiliations: list[dict]) -> list[str]:
-        """Check if any ORCID affiliations are pharmaceutical/device companies."""
+        """Check if any ORCID affiliations are pharmaceutical/device companies.
+
+        Returns:
+            List of organization names identified as industry affiliations.
+        """
         industry = []
         for aff in affiliations:
             org_name = aff.get("organization", "").lower()
@@ -406,9 +426,14 @@ class AuthorCOIVerifier:
 
 
 def generate_verification_guidance(report: PaperCOIReport) -> str:
-    """
-    Generate the verification guidance text that will be part of the training data.
-    The model should learn to produce this kind of actionable guidance.
+    """Generate the verification guidance text that will be part of the training data.
+
+    Produces a Markdown-formatted checklist of recommended verification steps
+    tailored to the paper's funding type and author COI findings. The trained
+    model should learn to produce this kind of actionable guidance.
+
+    Returns:
+        Markdown string with verification steps, sources, and limitations.
     """
     lines = ["## Recommended Verification Steps\n"]
 

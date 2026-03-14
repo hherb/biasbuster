@@ -231,8 +231,8 @@ def analyse_abstract_funding(abstract: str) -> dict:
 def analyse_funding(
     pmid: str,
     abstract: str,
-    pubmed_grants: list[dict] = None,
-    author_affiliations: list[str] = None,
+    pubmed_grants: Optional[list[dict]] = None,
+    author_affiliations: Optional[list[str]] = None,
     ctgov_sponsor: str = "",
     ctgov_sponsor_type: str = "",
 ) -> FundingAnalysis:

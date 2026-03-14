@@ -28,6 +28,8 @@ from typing import Optional
 
 import httpx
 
+from utils.retry import fetch_with_retry
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,15 +85,18 @@ class CochraneRoBCollector:
     EUROPMC_BASE = "https://www.ebi.ac.uk/europepmc/webservices/rest"
     PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
-    def __init__(self, ncbi_api_key: str = ""):
+    def __init__(self, ncbi_api_key: str = "") -> None:
+        """Initialise the collector with an optional NCBI API key for PubMed lookups."""
         self.ncbi_api_key = ncbi_api_key
         self.client: Optional[httpx.AsyncClient] = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "CochraneRoBCollector":
+        """Create the shared ``httpx.AsyncClient`` used for all HTTP requests."""
         self.client = httpx.AsyncClient(timeout=30.0)
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args) -> None:
+        """Close the underlying HTTP client."""
         if self.client:
             await self.client.aclose()
 
@@ -123,7 +128,8 @@ class CochraneRoBCollector:
 
         while len(reviews) < max_results:
             try:
-                resp = await self.client.get(
+                resp = await fetch_with_retry(
+                    self.client, "GET",
                     f"{self.EUROPMC_BASE}/search",
                     params={
                         "query": query,
@@ -178,7 +184,8 @@ class CochraneRoBCollector:
 
         try:
             # Fetch full-text XML from Europe PMC
-            resp = await self.client.get(
+            resp = await fetch_with_retry(
+                self.client, "GET",
                 f"{self.EUROPMC_BASE}/{pmcid}/fullTextXML",
             )
 
@@ -254,7 +261,8 @@ class CochraneRoBCollector:
 
         assessments = []
         try:
-            resp = await self.client.get(
+            resp = await fetch_with_retry(
+                self.client, "GET",
                 f"{self.EUROPMC_BASE}/{pmcid}/fullTextXML",
             )
 
@@ -333,8 +341,9 @@ class CochraneRoBCollector:
                 if self.ncbi_api_key:
                     params["api_key"] = self.ncbi_api_key
 
-                resp = await self.client.get(
-                    f"{self.PUBMED_BASE}/esearch.fcgi", params=params
+                resp = await fetch_with_retry(
+                    self.client, "GET",
+                    f"{self.PUBMED_BASE}/esearch.fcgi", params=params,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -418,9 +427,9 @@ class CochraneRoBCollector:
 
         return all_assessments
 
-    def save_results(self, assessments: list[RoBAssessment], output_path: str):
-        """Save as JSONL."""
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    def save_results(self, assessments: list[RoBAssessment], output_path: Path) -> None:
+        """Save RoB assessments as JSONL to *output_path*."""
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
             for a in assessments:
                 f.write(json.dumps(asdict(a)) + "\n")

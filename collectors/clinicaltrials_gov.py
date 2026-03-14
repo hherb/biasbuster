@@ -17,13 +17,15 @@ systematically documented outcome switching in top 5 medical journals.
 """
 
 import asyncio
-import json
 import logging
 import re
 from dataclasses import dataclass, field
 from typing import Optional
 
 import httpx
+
+from collectors.outcome_matching import extract_outcome_terms, extract_published_primary
+from utils.retry import fetch_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -119,21 +121,36 @@ class ClinicalTrialsGovCollector:
 
     BASE_URL = "https://clinicaltrials.gov/api/v2"
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialise the collector.
+
+        The HTTP client is created lazily when entering the async context
+        manager, so this constructor performs no I/O.
+        """
         self.client: Optional[httpx.AsyncClient] = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "ClinicalTrialsGovCollector":
+        """Create an ``httpx.AsyncClient`` and return the collector.
+
+        Use this class as an async context manager::
+
+            async with ClinicalTrialsGovCollector() as collector:
+                reg = await collector.fetch_study("NCT01105962")
+        """
         self.client = httpx.AsyncClient(timeout=30.0)
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args) -> None:
+        """Close the underlying HTTP client, releasing connection resources."""
         if self.client:
             await self.client.aclose()
 
     async def fetch_study(self, nct_id: str) -> Optional[TrialRegistration]:
         """Fetch a single study by NCT ID."""
         try:
-            resp = await self.client.get(
+            resp = await fetch_with_retry(
+                self.client,
+                "GET",
                 f"{self.BASE_URL}/studies/{nct_id}",
                 params={
                     "fields": (
@@ -169,7 +186,9 @@ class ClinicalTrialsGovCollector:
         try:
             # The v2 API doesn't directly search by DOI, but we can try
             # searching by the DOI in the references section
-            resp = await self.client.get(
+            resp = await fetch_with_retry(
+                self.client,
+                "GET",
                 f"{self.BASE_URL}/studies",
                 params={
                     "query.term": doi,
@@ -209,7 +228,9 @@ class ClinicalTrialsGovCollector:
 
         results = []
         try:
-            resp = await self.client.get(
+            resp = await fetch_with_retry(
+                self.client,
+                "GET",
                 f"{self.BASE_URL}/studies",
                 params={
                     "query.term": query,
@@ -367,7 +388,7 @@ class ClinicalTrialsGovCollector:
         primary_mentioned = []
         for outcome in registration.primary_outcomes:
             # Extract key terms from the outcome measure
-            outcome_terms = self._extract_outcome_terms(outcome.measure)
+            outcome_terms = extract_outcome_terms(outcome.measure)
             mentioned = any(
                 term.lower() in abstract_lower for term in outcome_terms
             )
@@ -389,7 +410,7 @@ class ClinicalTrialsGovCollector:
             )
 
         # Extract what appears to be the published primary outcome
-        published_primary = self._extract_published_primary(published_abstract)
+        published_primary = extract_published_primary(published_abstract)
         if published_primary:
             report.published_primary = published_primary
 
@@ -398,13 +419,13 @@ class ClinicalTrialsGovCollector:
             registered_terms = set()
             for outcome in report.registered_primary:
                 registered_terms.update(
-                    t.lower() for t in self._extract_outcome_terms(outcome)
+                    t.lower() for t in extract_outcome_terms(outcome)
                 )
 
             published_terms = set()
             for outcome in published_primary:
                 published_terms.update(
-                    t.lower() for t in self._extract_outcome_terms(outcome)
+                    t.lower() for t in extract_outcome_terms(outcome)
                 )
 
             overlap = registered_terms & published_terms
@@ -419,89 +440,6 @@ class ClinicalTrialsGovCollector:
                 report.matching_confidence = "medium"
 
         return report
-
-    def _extract_outcome_terms(self, outcome_text: str) -> list[str]:
-        """Extract clinically meaningful terms from an outcome description."""
-        # Remove common filler words
-        stopwords = {
-            "change", "from", "baseline", "in", "at", "the", "of", "and",
-            "or", "to", "as", "by", "with", "for", "on", "time", "rate",
-            "proportion", "percentage", "number", "score", "level", "levels",
-            "measured", "assessed", "defined", "weeks", "months", "years",
-            "week", "month", "year", "day", "days",
-        }
-
-        words = re.findall(r'\b[a-zA-Z]{3,}\b', outcome_text)
-        terms = [w for w in words if w.lower() not in stopwords]
-
-        # Also extract multi-word medical terms (simple bigrams)
-        bigrams = []
-        word_list = outcome_text.split()
-        for i in range(len(word_list) - 1):
-            bigram = f"{word_list[i]} {word_list[i+1]}".strip(".,;:()")
-            if len(bigram) > 5 and not all(w.lower() in stopwords for w in bigram.split()):
-                bigrams.append(bigram)
-
-        return terms + bigrams[:3]
-
-    def _extract_published_primary(self, abstract: str) -> list[str]:
-        """
-        Attempt to extract what the abstract declares as primary outcome.
-        Heuristic: look for "primary outcome", "primary endpoint", "primary end point".
-        """
-        patterns = [
-            r'[Pp]rimary\s+(?:outcome|endpoint|end\s*point|measure)\s+(?:was|were|is)\s+([^.]+)',
-            r'[Pp]rimary\s+(?:outcome|endpoint|end\s*point)\s*[:\-]\s*([^.]+)',
-            r'[Tt]he\s+primary\s+(?:outcome|endpoint)\s+(?:of\s+)?([^.]+)',
-        ]
-
-        results = []
-        for pattern in patterns:
-            matches = re.findall(pattern, abstract)
-            results.extend(matches)
-
-        return results[:3]  # Return at most 3 candidates
-
-
-async def batch_check_outcome_switching(
-    abstracts: list[dict],  # Each: {pmid, title, abstract, nct_id?}
-) -> list[OutcomeSwitchingReport]:
-    """
-    Check a batch of abstracts for outcome switching.
-    First tries to find NCT IDs in the abstracts, then queries CTgov.
-    """
-    async with ClinicalTrialsGovCollector() as collector:
-        reports = []
-
-        for item in abstracts:
-            nct_id = item.get("nct_id", "")
-            if not nct_id:
-                # Try to extract from abstract text
-                nct_id = await collector.extract_nct_from_abstract(
-                    item.get("abstract", "")
-                )
-
-            if not nct_id:
-                # Try title-based search
-                candidates = await collector.search_by_title_keywords(
-                    item.get("title", "")
-                )
-                if candidates:
-                    nct_id = candidates[0].nct_id
-
-            if nct_id:
-                report = await collector.detect_outcome_switching(
-                    nct_id=nct_id,
-                    published_abstract=item.get("abstract", ""),
-                    published_title=item.get("title", ""),
-                    pmid=item.get("pmid", ""),
-                    doi=item.get("doi", ""),
-                )
-                reports.append(report)
-
-            await asyncio.sleep(0.5)  # Rate limit
-
-        return reports
 
 
 if __name__ == "__main__":

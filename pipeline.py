@@ -23,7 +23,10 @@ import logging
 from datetime import date
 from pathlib import Path
 
+import httpx
+
 from config import Config
+from utils.retry import fetch_with_retry
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,9 +35,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def stage_collect(config: Config):
-    """
-    Stage 1: Collect candidate abstracts from multiple sources.
+async def stage_collect(config: Config) -> None:
+    """Collect candidate abstracts from multiple sources.
 
     Sources:
     - Retraction Watch (via Crossref) -> known-biased positive examples
@@ -57,6 +59,7 @@ async def stage_collect(config: Config):
         await collector.collect_retracted_with_abstracts(
             max_papers=config.retraction_watch_max,
             output_path=retracted_path,
+            flush_every=config.retraction_flush_every,
         )
 
     # 1b. PubMed RCTs for heuristic screening
@@ -70,7 +73,7 @@ async def stage_collect(config: Config):
     ) as collector:
         assessments = await collector.collect_rob_dataset(
             domains=config.focus_domains[:5],
-            max_reviews=50,
+            max_reviews=config.cochrane_max_reviews,
             max_studies=config.cochrane_rob_max,
         )
         collector.save_results(assessments, str(output_dir / "cochrane_rob.jsonl"))
@@ -78,15 +81,17 @@ async def stage_collect(config: Config):
     logger.info(f"Collection complete. Raw data in {output_dir}")
 
 
-async def collect_rcts_from_pubmed(config: Config, output_path: Path):
-    """
-    Search PubMed for recent RCTs in focus domains.
-    These will be screened by the effect size auditor.
+async def collect_rcts_from_pubmed(config: Config, output_path: Path) -> None:
+    """Search PubMed for recent RCTs in focus domains.
+
     Results are flushed to disk after each domain completes.
     Supports resuming: skips PMIDs already present in the output file.
+
+    Args:
+        config: Application configuration.
+        output_path: Path to write the JSONL output.
     """
-    import httpx
-    from collectors.retraction_watch import parse_pubmed_xml_batch
+    from collectors.pubmed_xml import parse_pubmed_xml_batch
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -109,13 +114,14 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path):
 
     total_saved = len(already_collected)
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=config.http_timeout) as client:
         for domain in config.focus_domains:
             end_date = date.today().strftime("%Y/%m/%d")
             query = (
                 f'"{domain}"[MeSH Terms] AND '
                 f'"randomized controlled trial"[Publication Type] AND '
-                f'"2020/01/01"[Date - Publication] : "{end_date}"[Date - Publication]'
+                f'"{config.pubmed_rct_start_date}"[Date - Publication] : '
+                f'"{end_date}"[Date - Publication]'
             )
 
             params = {
@@ -128,10 +134,14 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path):
             if config.ncbi_api_key:
                 params["api_key"] = config.ncbi_api_key
 
-            domain_articles = []
+            domain_articles: list[dict] = []
             try:
-                resp = await client.get(
-                    f"{config.pubmed_base}/esearch.fcgi", params=params
+                resp = await fetch_with_retry(
+                    client, "GET",
+                    f"{config.pubmed_base}/esearch.fcgi",
+                    params=params,
+                    max_retries=config.max_retries,
+                    base_delay=config.retry_base_delay,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -139,8 +149,9 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path):
                     logger.info(f"Found {len(pmids)} RCTs for '{domain}'")
 
                     # Fetch abstracts in batches
-                    for i in range(0, len(pmids), 200):
-                        batch = pmids[i : i + 200]
+                    batch_size = config.pubmed_fetch_batch
+                    for i in range(0, len(pmids), batch_size):
+                        batch = pmids[i : i + batch_size]
                         fetch_params = {
                             "db": "pubmed",
                             "id": ",".join(batch),
@@ -150,9 +161,12 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path):
                         if config.ncbi_api_key:
                             fetch_params["api_key"] = config.ncbi_api_key
 
-                        fetch_resp = await client.get(
+                        fetch_resp = await fetch_with_retry(
+                            client, "GET",
                             f"{config.pubmed_base}/efetch.fcgi",
                             params=fetch_params,
+                            max_retries=config.max_retries,
+                            base_delay=config.retry_base_delay,
                         )
                         if fetch_resp.status_code == 200:
                             articles = parse_pubmed_xml_batch(fetch_resp.text)
@@ -163,7 +177,7 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path):
                             ]
                             domain_articles.extend(new_articles)
 
-                        await asyncio.sleep(0.35)
+                        await asyncio.sleep(config.ncbi_rate_delay)
 
             except Exception as e:
                 logger.warning(f"PubMed search failed for '{domain}': {e}")
@@ -180,17 +194,16 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path):
                     f"({total_saved} total so far)"
                 )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(config.ncbi_rate_delay_slow)
 
     logger.info(f"Saved {total_saved} RCT abstracts to {output_path}")
 
 
-async def stage_enrich(config: Config):
-    """
-    Stage 2: Enrich collected abstracts with heuristic analysis.
+async def stage_enrich(config: Config) -> None:
+    """Enrich collected abstracts with heuristic analysis.
 
-    - Effect size audit (relative vs absolute reporting)
-    - Author COI cross-referencing
+    Runs effect size audit, outcome switching detection, and copies
+    retracted papers and Cochrane RoB data to the enriched directory.
     """
     from enrichers.effect_size_auditor import audit_abstract, ReportingPattern
 
@@ -202,7 +215,7 @@ async def stage_enrich(config: Config):
     logger.info("=== Running effect size audit ===")
     rct_path = raw_dir / "rct_abstracts.jsonl"
     if rct_path.exists():
-        audited = []
+        audited: list[dict] = []
         with open(rct_path) as f:
             for line in f:
                 article = json.loads(line)
@@ -222,8 +235,14 @@ async def stage_enrich(config: Config):
                 audited.append(article)
 
         # Separate into high-suspicion and low-suspicion
-        high_suspicion = [a for a in audited if a["effect_size_audit"]["reporting_bias_score"] >= 0.3]
-        low_suspicion = [a for a in audited if a["effect_size_audit"]["reporting_bias_score"] < 0.1]
+        high_suspicion = [
+            a for a in audited
+            if a["effect_size_audit"]["reporting_bias_score"] >= config.high_suspicion_threshold
+        ]
+        low_suspicion = [
+            a for a in audited
+            if a["effect_size_audit"]["reporting_bias_score"] < config.low_suspicion_threshold
+        ]
 
         with open(output_dir / "high_suspicion.jsonl", "w") as f:
             for a in high_suspicion:
@@ -243,13 +262,13 @@ async def stage_enrich(config: Config):
     from collectors.clinicaltrials_gov import ClinicalTrialsGovCollector
     high_suspicion_path = output_dir / "high_suspicion.jsonl"
     if high_suspicion_path.exists():
-        items = []
+        items: list[dict] = []
         with open(high_suspicion_path) as f:
             for line in f:
                 items.append(json.loads(line))
 
         async with ClinicalTrialsGovCollector() as ctgov:
-            for item in items[:100]:  # Limit to avoid excessive API calls
+            for item in items[:config.outcome_switching_check_limit]:
                 abstract = item.get("abstract", "")
                 nct_id = await ctgov.extract_nct_from_abstract(abstract)
                 if nct_id:
@@ -267,7 +286,7 @@ async def stage_enrich(config: Config):
                         "sponsor_type": report.sponsor_type,
                         "evidence": report.evidence,
                     }
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(config.ctgov_rate_delay)
 
         # Re-write with enriched data
         with open(high_suspicion_path, "w") as f:
@@ -290,12 +309,11 @@ async def stage_enrich(config: Config):
         logger.info("Cochrane RoB assessments copied to enriched directory")
 
 
-async def stage_annotate(config: Config):
-    """
-    Stage 3: Pre-label with Claude API.
+async def stage_annotate(config: Config) -> None:
+    """Pre-label abstracts with Claude API for structured bias assessment.
 
-    Sends high-suspicion and retracted abstracts for structured assessment.
-    Low-suspicion abstracts are also annotated (as negative examples).
+    Sends high-suspicion, retracted, Cochrane, and low-suspicion abstracts.
+    Outputs JSONL + CSV for human review.
     """
     from annotators.llm_prelabel import LLMAnnotator
 
@@ -306,14 +324,21 @@ async def stage_annotate(config: Config):
     async with LLMAnnotator(
         api_key=config.anthropic_api_key,
         model=config.annotation_model,
+        max_tokens=config.annotation_max_tokens,
     ) as annotator:
-        for source_file in ["high_suspicion.jsonl", "retracted_papers.jsonl", "cochrane_rob.jsonl", "low_suspicion.jsonl"]:
+        source_files = [
+            "high_suspicion.jsonl",
+            "retracted_papers.jsonl",
+            "cochrane_rob.jsonl",
+            "low_suspicion.jsonl",
+        ]
+        for source_file in source_files:
             source_path = enriched_dir / source_file
             if not source_path.exists():
                 continue
 
             logger.info(f"=== Annotating {source_file} ===")
-            items = []
+            items: list[dict] = []
             with open(source_path) as f:
                 for line in f:
                     data = json.loads(line)
@@ -324,22 +349,22 @@ async def stage_annotate(config: Config):
                         "metadata": data,
                     })
 
-            # Limit batch size for cost control
-            max_per_source = {
-                "high_suspicion.jsonl": 500,
-                "retracted_papers.jsonl": 200,
-                "cochrane_rob.jsonl": 300,
-                "low_suspicion.jsonl": 300,  # Negative examples
-            }
-            items = items[: max_per_source.get(source_file, 200)]
+            # Limit batch size for cost control (from config)
+            source_key = source_file.replace(".jsonl", "")
+            max_items = config.annotation_max_per_source.get(source_key, 200)
+            items = items[:max_items]
 
-            annotations = await annotator.annotate_batch(items)
+            annotations = await annotator.annotate_batch(
+                items,
+                concurrency=config.annotation_concurrency,
+                delay=config.annotation_delay,
+            )
 
             # Merge original abstract text into annotations
             abstract_map = {item["pmid"]: item["abstract"] for item in items}
             for ann in annotations:
                 ann["abstract_text"] = abstract_map.get(ann.get("pmid", ""), "")
-                ann["source"] = source_file.replace(".jsonl", "")
+                ann["source"] = source_key
 
             output_name = source_file.replace(".jsonl", "_annotated.jsonl")
             annotator.save_annotations(annotations, output_dir / output_name)
@@ -349,11 +374,11 @@ async def stage_annotate(config: Config):
             annotator.generate_review_csv(annotations, output_dir / csv_name)
 
 
-async def stage_export(config: Config):
-    """
-    Stage 4: Export validated annotations for fine-tuning.
+async def stage_export(config: Config) -> None:
+    """Export validated annotations for fine-tuning.
 
-    Reads human-validated annotations and exports in training format.
+    Reads human-validated annotations and exports in training format
+    with configurable train/val/test splits.
     """
     from export import export_dataset
 
@@ -361,7 +386,7 @@ async def stage_export(config: Config):
     output_dir = Path(config.export_dir)
 
     # Collect all validated annotations
-    all_annotations = []
+    all_annotations: list[dict] = []
     for path in labelled_dir.glob("*_annotated.jsonl"):
         with open(path) as f:
             for line in f:
@@ -383,10 +408,14 @@ async def stage_export(config: Config):
             output_dir=output_dir / output_fmt,
             fmt=output_fmt,
             include_thinking=True,
+            train_split=config.train_split,
+            val_split=config.val_split,
+            seed=config.export_seed,
         )
 
 
-def main():
+def main() -> None:
+    """CLI entry point for the pipeline orchestrator."""
     parser = argparse.ArgumentParser(description="Bias Detection Dataset Builder")
     parser.add_argument(
         "--stage",
@@ -410,7 +439,7 @@ def main():
     }
 
     if args.stage == "all":
-        async def run_all():
+        async def run_all() -> None:
             for name, stage_fn in stages.items():
                 logger.info(f"\n{'='*60}")
                 logger.info(f"STAGE: {name.upper()}")
