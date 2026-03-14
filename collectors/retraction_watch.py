@@ -343,11 +343,45 @@ class RetractionWatchCollector:
         self,
         max_papers: int = 1000,
         require_abstract: bool = True,
+        output_path: Optional[Path] = None,
+        flush_every: int = 50,
     ) -> list[RetractedPaper]:
         """
         Full pipeline: get retracted DOIs, convert to PMIDs, fetch abstracts.
         Returns RetractedPaper objects ready for bias labelling.
+
+        If output_path is provided, results are flushed to disk incrementally
+        every flush_every papers. Supports resuming: if the output file already
+        exists, previously collected DOIs are skipped.
         """
+        # Load checkpoint: find DOIs already collected
+        already_collected: set[str] = set()
+        if output_path:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            if output_path.exists():
+                with open(output_path) as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line)
+                            if record.get("doi"):
+                                already_collected.add(record["doi"])
+                        except json.JSONDecodeError:
+                            continue
+                if already_collected:
+                    logger.info(
+                        f"Resuming: found {len(already_collected)} papers "
+                        f"already in {output_path}"
+                    )
+
+        def _flush_batch(papers: list[RetractedPaper]):
+            """Append a batch of papers to the output file."""
+            if not output_path or not papers:
+                return
+            with open(output_path, "a") as f:
+                for paper in papers:
+                    f.write(json.dumps(asdict(paper)) + "\n")
+            logger.info(f"Flushed {len(papers)} papers to {output_path}")
+
         # Step 1: Get retraction data from Crossref
         crossref_data = await self.fetch_retractions_from_crossref(max_results=max_papers)
 
@@ -356,11 +390,17 @@ class RetractionWatchCollector:
         logger.info(f"Found {len(dois)} DOIs from retracted papers")
 
         # Step 2: Search PubMed for these DOIs to get PMIDs and abstracts
-        # (More reliable than the ID converter for batch lookups)
         results = []
+        pending_pmid_lookup = []  # Papers awaiting abstract fetch
+        skipped = 0
         for i, item in enumerate(crossref_data):
             doi = item.get("DOI", "")
             if not doi:
+                continue
+
+            # Skip already-collected DOIs (resume support)
+            if doi in already_collected:
+                skipped += 1
                 continue
 
             # Search PubMed by DOI
@@ -399,37 +439,62 @@ class RetractionWatchCollector:
                                 source = update.get("source", "")
                                 paper.retraction_source = source
 
-                        results.append(paper)
+                        pending_pmid_lookup.append(paper)
             except Exception as e:
                 logger.warning(f"Search failed for DOI {doi}: {e}")
+
+            # Fetch abstracts and flush in batches
+            if len(pending_pmid_lookup) >= flush_every:
+                batch_results = await self._fetch_and_merge_abstracts(
+                    pending_pmid_lookup, require_abstract
+                )
+                results.extend(batch_results)
+                _flush_batch(batch_results)
+                pending_pmid_lookup = []
 
             if i % 10 == 0:
                 await asyncio.sleep(0.5)
             else:
                 await asyncio.sleep(0.15)
 
-            if len(results) >= max_papers:
+            if len(results) + len(already_collected) >= max_papers:
                 break
 
-        # Step 3: Batch fetch abstracts
-        pmids_to_fetch = [p.pmid for p in results if p.pmid]
+        # Flush remaining
+        if pending_pmid_lookup:
+            batch_results = await self._fetch_and_merge_abstracts(
+                pending_pmid_lookup, require_abstract
+            )
+            results.extend(batch_results)
+            _flush_batch(batch_results)
+
+        if skipped:
+            logger.info(f"Skipped {skipped} already-collected papers")
+        logger.info(
+            f"Collected {len(results)} new papers "
+            f"({len(results) + len(already_collected)} total with checkpoint)"
+        )
+        return results
+
+    async def _fetch_and_merge_abstracts(
+        self,
+        papers: list[RetractedPaper],
+        require_abstract: bool,
+    ) -> list[RetractedPaper]:
+        """Batch fetch abstracts from PubMed and merge into paper objects."""
+        pmids_to_fetch = [p.pmid for p in papers if p.pmid]
         abstract_data = await self.fetch_pubmed_abstracts_batch(pmids_to_fetch)
 
-        # Merge abstracts back
-        final_results = []
-        for paper in results:
+        merged = []
+        for paper in papers:
             if paper.pmid in abstract_data:
                 article = abstract_data[paper.pmid]
                 paper.abstract = article.get("abstract", "")
                 paper.title = article.get("title", "") or paper.title
                 if require_abstract and not paper.abstract:
                     continue
-                final_results.append(paper)
-
-        logger.info(
-            f"Collected {len(final_results)} retracted papers with abstracts"
-        )
-        return final_results
+                merged.append(paper)
+        return merged
 
     def save_results(self, papers: list[RetractedPaper], output_path: Path):
         """Save collected papers as JSONL."""

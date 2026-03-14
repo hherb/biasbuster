@@ -49,14 +49,15 @@ async def stage_collect(config: Config):
 
     # 1a. Retracted papers (high-confidence positive examples)
     logger.info("=== Collecting retracted papers ===")
+    retracted_path = output_dir / "retracted_papers.jsonl"
     async with RetractionWatchCollector(
         mailto=config.crossref_mailto,
         ncbi_api_key=config.ncbi_api_key,
     ) as collector:
-        retracted = await collector.collect_retracted_with_abstracts(
-            max_papers=config.retraction_watch_max
+        await collector.collect_retracted_with_abstracts(
+            max_papers=config.retraction_watch_max,
+            output_path=retracted_path,
         )
-        collector.save_results(retracted, output_dir / "retracted_papers.jsonl")
 
     # 1b. PubMed RCTs for heuristic screening
     logger.info("=== Collecting RCT abstracts for screening ===")
@@ -81,12 +82,34 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path):
     """
     Search PubMed for recent RCTs in focus domains.
     These will be screened by the effect size auditor.
+    Results are flushed to disk after each domain completes.
+    Supports resuming: skips PMIDs already present in the output file.
     """
     import httpx
+    from collectors.retraction_watch import parse_pubmed_xml_batch
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load checkpoint: find PMIDs already collected
+    already_collected: set[str] = set()
+    if output_path.exists():
+        with open(output_path) as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                    if record.get("pmid"):
+                        already_collected.add(record["pmid"])
+                except json.JSONDecodeError:
+                    continue
+        if already_collected:
+            logger.info(
+                f"Resuming: found {len(already_collected)} RCTs "
+                f"already in {output_path}"
+            )
+
+    total_saved = len(already_collected)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        all_articles = []
-
         for domain in config.focus_domains:
             end_date = date.today().strftime("%Y/%m/%d")
             query = (
@@ -105,6 +128,7 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path):
             if config.ncbi_api_key:
                 params["api_key"] = config.ncbi_api_key
 
+            domain_articles = []
             try:
                 resp = await client.get(
                     f"{config.pubmed_base}/esearch.fcgi", params=params
@@ -131,23 +155,34 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path):
                             params=fetch_params,
                         )
                         if fetch_resp.status_code == 200:
-                            from collectors.retraction_watch import parse_pubmed_xml_batch
                             articles = parse_pubmed_xml_batch(fetch_resp.text)
-                            all_articles.extend(articles.values())
+                            # Skip already-collected PMIDs (resume support)
+                            new_articles = [
+                                a for a in articles.values()
+                                if a.get("pmid") not in already_collected
+                            ]
+                            domain_articles.extend(new_articles)
 
                         await asyncio.sleep(0.35)
 
             except Exception as e:
                 logger.warning(f"PubMed search failed for '{domain}': {e}")
 
+            # Flush this domain's results to disk
+            if domain_articles:
+                with open(output_path, "a") as f:
+                    for article in domain_articles:
+                        f.write(json.dumps(article) + "\n")
+                        already_collected.add(article.get("pmid", ""))
+                total_saved += len(domain_articles)
+                logger.info(
+                    f"Flushed {len(domain_articles)} new articles for '{domain}' "
+                    f"({total_saved} total so far)"
+                )
+
             await asyncio.sleep(0.5)
 
-        # Save
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            for article in all_articles:
-                f.write(json.dumps(article) + "\n")
-        logger.info(f"Saved {len(all_articles)} RCT abstracts to {output_path}")
+    logger.info(f"Saved {total_saved} RCT abstracts to {output_path}")
 
 
 async def stage_enrich(config: Config):
