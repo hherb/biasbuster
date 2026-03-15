@@ -41,7 +41,7 @@ def load_annotations_for_review(
 
         rows.append({
             "pmid": pmid,
-            "title": str(ann.get("title", ""))[:100],
+            "title": str(ann.get("title", "")),
             "overall_severity": ann.get("overall_severity", ""),
             "overall_bias_probability": ann.get("overall_bias_probability", ""),
             "statistical_severity": stat.get("severity", "") if isinstance(stat, dict) else "",
@@ -49,7 +49,7 @@ def load_annotations_for_review(
             "spin_level": spin.get("spin_level", "") if isinstance(spin, dict) else "",
             "funding_type": coi.get("funding_type", "") if isinstance(coi, dict) else "",
             "confidence": ann.get("confidence", ""),
-            "reasoning_summary": str(ann.get("reasoning", ""))[:200],
+            "reasoning_summary": str(ann.get("reasoning", "")),
             "HUMAN_VALIDATED": "True" if review.get("validated") else "",
             "HUMAN_OVERRIDE_SEVERITY": review.get("override_severity") or "",
             "HUMAN_NOTES": review.get("notes") or "",
@@ -173,11 +173,10 @@ def create_app(db: Database, model_name: str) -> None:
             "resizable": True,
             "wrapHeaderText": True,
         },
-        "rowSelection": "single",
-        "animateRows": True,
+        "rowSelection": {"mode": "singleRow"},
         "enableCellTextSelection": True,
         "tooltipShowDelay": 300,
-        "getRowStyle": """params => {
+        ":getRowStyle": """params => {
             if (params.data.HUMAN_VALIDATED === 'True')
                 return {'background-color': '#e8f5e9'};
             if (params.data.HUMAN_OVERRIDE_SEVERITY)
@@ -223,7 +222,7 @@ def create_app(db: Database, model_name: str) -> None:
     with ui.row().classes("q-px-md q-py-sm items-center gap-2"):
         filter_input = ui.input(
             "Quick filter...",
-            on_change=lambda e: grid.call_api_method(
+            on_change=lambda e: grid.run_grid_method(
                 "setGridOption", "quickFilterText", e.value
             ),
         ).classes("w-64")
@@ -231,7 +230,7 @@ def create_app(db: Database, model_name: str) -> None:
             "Clear",
             on_click=lambda: (
                 filter_input.set_value(""),
-                grid.call_api_method("setGridOption", "quickFilterText", ""),
+                grid.run_grid_method("setGridOption", "quickFilterText", ""),
             ),
         ).props("flat size=sm")
 
@@ -241,7 +240,7 @@ def create_app(db: Database, model_name: str) -> None:
             current = filter_input.value
             if current == "__unvalidated__":
                 filter_input.set_value("")
-                grid.call_api_method("setGridOption", "quickFilterText", "")
+                grid.run_grid_method("setGridOption", "quickFilterText", "")
             else:
                 unvalidated = [
                     r for r in state["rows"]
@@ -325,9 +324,18 @@ def create_app(db: Database, model_name: str) -> None:
         data = e.args
         if data is None:
             return
-        row_data = data.get("data") if isinstance(data, dict) else None
-        if row_data is None:
+        # Ignore deselection events (fires for previous row)
+        if not data.get("selected"):
             return
+        event_row = data.get("data") if isinstance(data, dict) else None
+        if event_row is None:
+            return
+        # Look up full row from Python state (event data may be truncated)
+        pmid = event_row.get("pmid", "")
+        row_data = next(
+            (r for r in state["rows"] if r.get("pmid") == pmid),
+            event_row,
+        )
 
         detail_label.visible = False
         detail_container.clear()
@@ -391,8 +399,8 @@ def create_app(db: Database, model_name: str) -> None:
     async def jump_to_next_unvalidated():
         for i, row in enumerate(state["rows"]):
             if row.get("HUMAN_VALIDATED") != "True":
-                grid.call_api_method("ensureIndexVisible", i, "middle")
-                grid.call_api_method("selectIndex", i)
+                grid.run_grid_method("ensureIndexVisible", i, "middle")
+                grid.run_grid_method("selectIndex", i)
                 return
         ui.notify("All rows have been validated!", type="info")
 
