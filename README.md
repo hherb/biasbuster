@@ -28,6 +28,10 @@ bias_dataset_builder/
 │   ├── comparison.py          # Statistical comparison + report generation (JSON/MD/CSV)
 │   ├── run.py                 # CLI entry point (--model-a / --model-b)
 │   └── selftest.py            # Self-test with synthetic data
+├── utils/
+│   ├── completeness_checker.py # Check labelling coverage per model
+│   ├── agreement_analyzer.py   # Inter-model agreement metrics
+│   └── review_gui.py           # NiceGUI web-based CSV review tool
 ├── config.py                  # Configuration and API keys
 ├── pipeline.py                # Orchestration pipeline
 └── export.py                  # Export to fine-tuning formats (Alpaca, ShareGPT)
@@ -144,6 +148,87 @@ flowchart TD
 ```
 
 Human review (editing the CSV) is a manual step between annotate and export.
+
+## Dataset Utilities
+
+Three tools support the human-review workflow between annotation and export.
+
+### Completeness Checker
+
+Reports labelling coverage — how many enriched abstracts each model has annotated,
+and which PMIDs are missing.
+
+```bash
+# Show completion table for all models
+uv run python -m utils.completeness_checker
+
+# List individual missing PMIDs
+uv run python -m utils.completeness_checker --show-missing
+
+# Check specific models only
+uv run python -m utils.completeness_checker --models anthropic,deepseek
+```
+
+Example output:
+
+```
+Source                    |            anthropic |             deepseek
+-----------------------------------------------------------------------
+cochrane_rob              |     6/6     (100.0%) |     6/6     (100.0%)
+high_suspicion            |   386/394   ( 98.0%) |   372/394   ( 94.4%)
+low_suspicion             |   295/2733  ( 10.8%) |   290/2733  ( 10.6%)
+retracted_papers          |   199/514   ( 38.7%) |   200/514   ( 38.9%)
+-----------------------------------------------------------------------
+TOTAL                     |   886/3647  ( 24.3%) |   868/3647  ( 23.8%)
+```
+
+### Inter-Model Agreement Analyzer
+
+Compares two models' annotations on shared PMIDs — per-dimension severity
+agreement, Cohen's weighted kappa, flag-level agreement, and the most divergent
+cases. Lighter-weight than the full evaluation pipeline (no ground truth needed).
+
+```bash
+# Default: compare anthropic vs deepseek
+uv run python -m utils.agreement_analyzer
+
+# Specify models and save report
+uv run python -m utils.agreement_analyzer --model-a anthropic --model-b deepseek --output report.md
+
+# Show more divergent cases
+uv run python -m utils.agreement_analyzer --top-divergent 20
+```
+
+Reports overall severity kappa, per-dimension exact/within-one agreement,
+flag-level agreement rates (e.g. `relative_only`, `spin_level`, `funding_type`),
+probability MAE and Pearson r, and the top most-divergent cases ranked by
+bias probability difference.
+
+### CSV Review GUI
+
+Web-based tool for reviewing and validating annotation CSVs. Opens in your
+browser with an editable AG Grid table. Built with NiceGUI.
+
+```bash
+# Open a specific review CSV
+uv run python -m utils.review_gui dataset/labelled/anthropic/high_suspicion_review.csv
+
+# Browse available CSVs interactively
+uv run python -m utils.review_gui
+
+# Use a different port
+uv run python -m utils.review_gui --port 9090
+```
+
+Features:
+- **In-grid editing** of `HUMAN_VALIDATED`, `HUMAN_OVERRIDE_SEVERITY`, and
+  `HUMAN_NOTES` columns (double-click to edit)
+- **Color-coded rows**: green for validated, yellow for overridden severity
+- **Quick filter** and column sorting
+- **"Next Unvalidated"** button to jump to the next unreviewed row
+- **Detail panel** showing full reasoning text on row selection
+- **Atomic save** (writes to temp file, then renames) to prevent data loss
+- **Stats bar** showing validation progress
 
 ## Evaluation Harness
 
