@@ -188,6 +188,13 @@ class LLMAnnotator:
                     if block.type == "text"
                 )
 
+                if not text.strip():
+                    logger.warning(
+                        f"PMID {pmid}: empty text response "
+                        f"(stop_reason={message.stop_reason}, "
+                        f"content_types={[b.type for b in message.content]})"
+                    )
+
                 assessment = parse_llm_json(text, pmid=pmid)
                 if assessment is not None:
                     assessment["pmid"] = pmid

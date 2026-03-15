@@ -150,6 +150,10 @@ def parse_llm_json(text: str, pmid: str = "") -> dict | None:
     """
     text = strip_markdown_fences(text)
 
+    if not text.strip():
+        logger.warning(f"PMID {pmid}: model returned empty response")
+        return None
+
     # Try direct parse first
     try:
         return json.loads(text)
@@ -163,8 +167,10 @@ def parse_llm_json(text: str, pmid: str = "") -> dict | None:
         logger.info(f"JSON repaired successfully for PMID {pmid}")
         return result
     except json.JSONDecodeError as e:
-        logger.warning(f"JSON repair failed for PMID {pmid}: {e}")
-        logger.debug(f"Raw response: {text[:500]}")
+        logger.warning(
+            f"JSON repair failed for PMID {pmid}: {e}\n"
+            f"  Raw response (first 300 chars): {text[:300]}"
+        )
         return None
 
 
