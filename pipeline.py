@@ -336,8 +336,11 @@ async def stage_annotate(config: Config, models: Optional[list[str]] = None) -> 
         "low_suspicion.jsonl",
     ]
 
+    from annotators import is_retraction_notice
+
     # Load items once (shared across models)
     all_items: dict[str, list[dict]] = {}
+    total_filtered = 0
     for source_file in source_files:
         source_path = enriched_dir / source_file
         if not source_path.exists():
@@ -346,15 +349,27 @@ async def stage_annotate(config: Config, models: Optional[list[str]] = None) -> 
         with open(source_path) as f:
             for line in f:
                 data = json.loads(line)
+                title = data.get("title", "")
+                abstract = data.get("abstract", "")
+                # Skip bare retraction/withdrawal notices — no content to assess
+                if is_retraction_notice(title, abstract, data):
+                    total_filtered += 1
+                    continue
                 items.append({
                     "pmid": data.get("pmid", ""),
-                    "title": data.get("title", ""),
-                    "abstract": data.get("abstract", ""),
+                    "title": title,
+                    "abstract": abstract,
                     "metadata": data,
                 })
         source_key = source_file.replace(".jsonl", "")
         max_items = config.annotation_max_per_source.get(source_key, 200)
         all_items[source_file] = items[:max_items]
+
+    if total_filtered:
+        logger.info(
+            f"Filtered {total_filtered} retraction/withdrawal notices "
+            f"(no assessable content)"
+        )
 
     for model_name in models:
         annotator = _create_annotator(config, model_name)

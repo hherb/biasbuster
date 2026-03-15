@@ -115,6 +115,69 @@ KEY PRINCIPLES:
 4. Be calibrated. Not every industry-funded study is biased. Not every study
    reporting only relative measures is intentionally misleading. Assess the totality.
 
+5. RETRACTION NOTICES vs RETRACTED PAPERS:
+   - Bare retraction/withdrawal notices (e.g., "This article has been
+     retracted…") should never reach this annotator — they are filtered
+     upstream. If one slips through, set all severities to "none" with
+     overall_bias_probability 0.0 and note "retraction notice, no content."
+   - If the abstract IS the original trial content but metadata indicates the
+     paper was later retracted, assess the abstract content normally. The
+     retraction status is relevant context but does not automatically make
+     every dimension "critical" — assess what is actually present in the text.
+     These papers are valuable because their flaws were serious enough to
+     warrant retraction.
+
+6. ABSOLUTE vs RELATIVE MEASURES — operational definitions:
+   - "relative_only" = TRUE only when effect sizes are expressed SOLELY as
+     relative measures (RR, OR, HR, RRR, "50% reduction") AND no absolute
+     information is provided anywhere in the abstract.
+   - "relative_only" = FALSE if ANY of the following appear:
+     • Raw event counts in both arms (e.g., "92 of 109 vs 20 of 56")
+     • Percentages in both arms (e.g., "84% vs 36%")
+     • Absolute risk difference or NNT
+     • Baseline/control arm event rate
+   - "baseline_risk_reported" = TRUE if the control/placebo arm rate is
+     stated numerically (percentage, proportion, or count/denominator).
+   - "nnt_reported" = TRUE only if NNT is explicitly stated.
+   - "absolute_reported" = TRUE if ARR, absolute risk difference, NNT, or
+     raw event rates in both arms are present.
+
+7. SURROGATE vs PATIENT-CENTRED OUTCOMES:
+   - Patient-centred: mortality, overall survival, quality of life,
+     functional status, symptom burden, major clinical events (MI, stroke,
+     bleeding requiring transfusion), patient-reported outcomes.
+   - Surrogate: lab values, imaging markers, biomarkers, process measures
+     (dose modifications, treatment completion), physiological parameters
+     (blood pressure, platelet count), response rates without survival data.
+   - Composite: multiple components combined — flag composite_not_disaggregated
+     if individual component results are not reported.
+   - When uncertain, classify as "surrogate" and set
+     surrogate_without_validation = true, noting the ambiguity in evidence_quotes.
+
+8. METHODOLOGY — threshold guidance:
+   - short_follow_up: TRUE when follow-up duration is insufficient to capture
+     the primary outcome's clinically meaningful timeframe. Rules of thumb:
+     • Chronic diseases (cardiovascular, diabetes, cancer survival): <12 months
+     • Acute conditions / symptom relief: <4 weeks
+     • Chemotherapy toxicity / dose modifications: <4 cycles or <3 months
+     • Surgical outcomes: <30 days for complications, <6 months for functional
+   - enrichment_design: TRUE when the study selects patients who already
+     responded to or tolerated the treatment (run-in responders, prior-use
+     requirement), limiting generalisability. NOT triggered by standard
+     inclusion/exclusion criteria (age, diagnosis, lab thresholds).
+   - per_protocol_only: TRUE when results are reported only for the
+     per-protocol population with no mention of ITT / mITT analysis.
+
+9. CONFLICT OF INTEREST — what counts as disclosed:
+   - coi_disclosed = TRUE only if the abstract explicitly states author-level
+     conflicts (employment, consulting, advisory, equity) OR explicitly states
+     "no conflicts of interest."
+   - Naming a funding source alone (e.g., "Funded by Amgen") is NOT sufficient
+     for coi_disclosed = TRUE — that is captured by funding_type and
+     funding_disclosed_in_abstract.
+   - industry_author_affiliations = TRUE if any author's listed affiliation
+     is a pharmaceutical, device, or biotech company.
+
 Respond ONLY with the JSON object. No preamble, no markdown fences."""
 
 

@@ -69,6 +69,45 @@ The model is trained on a multi-dimensional bias assessment:
    - Per-protocol only (no ITT)
    - Premature stopping
 
+## Retracted Papers Strategy
+
+Retracted papers are handled in two distinct ways:
+
+- **Retraction notices** (bare "This article has been retracted" text with no
+  original research content) are **filtered out** before annotation. The
+  `is_retraction_notice()` function in `annotators/__init__.py` detects these
+  by title/abstract patterns and length heuristics. They have no assessable
+  content for bias detection.
+
+- **Original papers that were later retracted** are high-value training examples.
+  Their flaws were serious enough to warrant retraction, making them excellent
+  ground truth for bias assessment. The retraction watch collector follows the
+  Crossref `update-to` relationship from retraction notices back to the original
+  paper's DOI and fetches the original abstract from PubMed.
+
+The annotation system prompt (principle 5 in `ANNOTATION_SYSTEM_PROMPT`) instructs
+models to assess retracted papers on their actual content rather than
+automatically assigning "critical" severity based on retraction status alone.
+
+## Annotation Prompt — Operational Definitions
+
+The annotation system prompt in `annotators/llm_prelabel.py` includes detailed
+operational definitions (principles 5–9) that resolve ambiguities causing
+inter-model disagreement:
+
+| Principle | Topic | Key Clarification |
+|-----------|-------|-------------------|
+| 5 | Retraction notices | Bare notices → skip; original content with retraction metadata → assess normally |
+| 6 | Absolute vs relative | Raw event rates in both arms (e.g. "84% vs 36%") count as absolute measures |
+| 7 | Surrogate vs patient-centred | Process measures (dose modifications, lab values) are surrogates; mortality/QoL/functional status are patient-centred |
+| 8 | Methodology thresholds | Domain-specific follow-up adequacy cutoffs (e.g. <12 months for chronic disease = short) |
+| 9 | COI disclosure | Funding source alone is insufficient for `coi_disclosed = true`; requires explicit author-level COI statements |
+
+These definitions were added after observing ~55% disagreement between Claude and
+DeepSeek on 898 shared annotations, driven primarily by ambiguous handling of
+retraction notices, relative/absolute measure classification, and methodology
+severity thresholds.
+
 ## Verification Sources (for model training)
 
 The model should learn WHERE to look for corroboration:
