@@ -40,7 +40,7 @@ class Config:
 
     # Anthropic API (for pre-labelling)
     anthropic_api_key: str = ""  # Set via env var ANTHROPIC_API_KEY preferred
-    annotation_model: str = "claude-sonnet-4-20250514"
+    annotation_model: str = "claude-sonnet-4-6"
     annotation_max_tokens: int = 4000
 
     # DeepSeek API (alternative annotator for comparison)
