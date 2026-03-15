@@ -102,7 +102,7 @@ uv run python pipeline.py --stage export
 ### Pipeline Flow
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph Collect
         C1[Crossref / Retraction Watch]
         C2[PubMed RCTs by MeSH]
