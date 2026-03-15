@@ -224,9 +224,9 @@ async def stage_enrich(config: Config) -> None:
             for line in f:
                 article = json.loads(line)
                 audit = audit_abstract(
-                    pmid=article.get("pmid", ""),
-                    title=article.get("title", ""),
-                    abstract=article.get("abstract", ""),
+                    pmid=article.get("pmid") or "",
+                    title=article.get("title") or "",
+                    abstract=article.get("abstract") or "",
                 )
                 article["effect_size_audit"] = {
                     "pattern": audit.pattern.value,

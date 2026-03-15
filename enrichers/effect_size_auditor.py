@@ -173,7 +173,7 @@ SCORE_NO_CI = 0.05
 SCORE_TITLE_RELATIVE = 0.1
 
 
-def audit_abstract(pmid: str, title: str, abstract: str) -> EffectSizeAudit:
+def audit_abstract(pmid: str, title: str = "", abstract: str = "") -> EffectSizeAudit:
     """
     Perform heuristic effect-size reporting analysis on a single abstract.
 
@@ -182,6 +182,8 @@ def audit_abstract(pmid: str, title: str, abstract: str) -> EffectSizeAudit:
     that are likely to exhibit relative-only reporting bias.
     """
     audit = EffectSizeAudit(pmid=pmid)
+    title = title or ""
+    abstract = abstract or ""
     full_text = f"{title}\n{abstract}"
 
     # Find relative measures
