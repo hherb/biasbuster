@@ -1,0 +1,693 @@
+"""
+SQLite Database Backend
+
+Single source of truth for all pipeline data: papers, enrichments,
+annotations, and human reviews. Replaces the previous JSONL file-based
+storage with schema-enforced uniqueness, atomic updates, and flexible
+SQL queries.
+
+Usage:
+    from database import Database
+
+    db = Database("dataset/biasbuster.db")
+    db.initialize()
+    db.insert_paper({"pmid": "123", "title": "...", ...})
+    db.close()
+"""
+
+import csv
+import json
+import logging
+import sqlite3
+from pathlib import Path
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+SCHEMA_SQL = """
+-- Core paper table: single source of truth for all papers
+CREATE TABLE IF NOT EXISTS papers (
+    pmid TEXT PRIMARY KEY,
+    doi TEXT,
+    title TEXT NOT NULL DEFAULT '',
+    abstract TEXT NOT NULL DEFAULT '',
+    journal TEXT,
+    year INTEGER,
+    authors JSON,
+    grants JSON,
+    mesh_terms JSON,
+    subjects JSON,
+    source TEXT NOT NULL,
+    collected_at TEXT DEFAULT (datetime('now')),
+
+    -- Retraction-specific
+    retraction_doi TEXT,
+    retraction_reasons JSON,
+    retraction_source TEXT,
+
+    -- Cochrane RoB-specific
+    cochrane_review_pmid TEXT,
+    overall_rob TEXT,
+    randomization_bias TEXT,
+    deviation_bias TEXT,
+    missing_outcome_bias TEXT,
+    measurement_bias TEXT,
+    reporting_bias TEXT,
+    domain TEXT
+);
+
+-- Enrichment data (one row per paper, added during enrich stage)
+CREATE TABLE IF NOT EXISTS enrichments (
+    pmid TEXT PRIMARY KEY REFERENCES papers(pmid),
+    suspicion_level TEXT,
+    reporting_bias_score REAL,
+    effect_size_audit JSON,
+    outcome_switching JSON,
+    enriched_at TEXT DEFAULT (datetime('now'))
+);
+
+-- LLM annotations (one row per paper per model)
+CREATE TABLE IF NOT EXISTS annotations (
+    pmid TEXT NOT NULL REFERENCES papers(pmid),
+    model_name TEXT NOT NULL,
+    annotation JSON NOT NULL,
+    overall_severity TEXT,
+    overall_bias_probability REAL,
+    confidence TEXT,
+    annotated_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (pmid, model_name)
+);
+
+-- Human review (one row per paper per model's annotation)
+CREATE TABLE IF NOT EXISTS human_reviews (
+    pmid TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    validated INTEGER DEFAULT 0,
+    override_severity TEXT,
+    notes TEXT,
+    reviewed_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (pmid, model_name),
+    FOREIGN KEY (pmid, model_name) REFERENCES annotations(pmid, model_name)
+);
+
+-- Indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_papers_source ON papers(source);
+CREATE INDEX IF NOT EXISTS idx_enrichments_suspicion ON enrichments(suspicion_level);
+CREATE INDEX IF NOT EXISTS idx_annotations_model ON annotations(model_name);
+CREATE INDEX IF NOT EXISTS idx_annotations_severity ON annotations(overall_severity);
+CREATE INDEX IF NOT EXISTS idx_human_reviews_validated ON human_reviews(validated);
+"""
+
+
+def _json_col(value) -> Optional[str]:
+    """Serialize a value to JSON for storage, or None if empty.
+
+    If value is already a string, validates it's valid JSON before storing.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        # Validate it's actually JSON, not an arbitrary string
+        try:
+            json.loads(value)
+            return value
+        except (json.JSONDecodeError, TypeError):
+            # Wrap plain strings as JSON
+            return json.dumps(value)
+    return json.dumps(value)
+
+
+def _json_load(value) -> Optional[list | dict]:
+    """Deserialize a JSON column, returning None if empty."""
+    if value is None:
+        return None
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+class Database:
+    """SQLite database backend for the bias detection pipeline."""
+
+    def __init__(self, db_path: str | Path = "dataset/biasbuster.db") -> None:
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(self.db_path))
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA foreign_keys=ON")
+
+    def close(self) -> None:
+        if self.conn:
+            self.conn.close()
+
+    def __enter__(self) -> "Database":
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
+
+    # ---- Schema management ----
+
+    def initialize(self) -> None:
+        """Create tables and indexes if they don't exist."""
+        self.conn.executescript(SCHEMA_SQL)
+        self.conn.commit()
+
+    # ---- Papers ----
+
+    def insert_paper(self, paper: dict) -> bool:
+        """Insert a paper. Returns True if newly inserted (not a duplicate)."""
+        pmid = str(paper.get("pmid", ""))
+        if not pmid:
+            return False
+        try:
+            cursor = self.conn.execute(
+                """INSERT OR IGNORE INTO papers
+                   (pmid, doi, title, abstract, journal, year,
+                    authors, grants, mesh_terms, subjects, source,
+                    retraction_doi, retraction_reasons, retraction_source,
+                    cochrane_review_pmid, overall_rob,
+                    randomization_bias, deviation_bias,
+                    missing_outcome_bias, measurement_bias,
+                    reporting_bias, domain)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    pmid,
+                    paper.get("doi"),
+                    paper.get("title", ""),
+                    paper.get("abstract", ""),
+                    paper.get("journal"),
+                    paper.get("year"),
+                    _json_col(paper.get("authors")),
+                    _json_col(paper.get("grants")),
+                    _json_col(paper.get("mesh_terms")),
+                    _json_col(paper.get("subjects")),
+                    paper.get("source", "unknown"),
+                    paper.get("retraction_doi"),
+                    _json_col(paper.get("retraction_reasons")),
+                    paper.get("retraction_source"),
+                    paper.get("cochrane_review_pmid"),
+                    paper.get("overall_rob"),
+                    paper.get("randomization_bias"),
+                    paper.get("deviation_bias"),
+                    paper.get("missing_outcome_bias"),
+                    paper.get("measurement_bias"),
+                    paper.get("reporting_bias"),
+                    paper.get("domain"),
+                ),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.warning(f"Failed to insert paper {pmid}: {e}")
+            return False
+
+    def insert_papers(self, papers: list[dict]) -> int:
+        """Bulk insert papers. Returns count of newly inserted rows."""
+        rows = []
+        for paper in papers:
+            pmid = str(paper.get("pmid", ""))
+            if not pmid:
+                continue
+            rows.append((
+                pmid,
+                paper.get("doi"),
+                paper.get("title", ""),
+                paper.get("abstract", ""),
+                paper.get("journal"),
+                paper.get("year"),
+                _json_col(paper.get("authors")),
+                _json_col(paper.get("grants")),
+                _json_col(paper.get("mesh_terms")),
+                _json_col(paper.get("subjects")),
+                paper.get("source", "unknown"),
+                paper.get("retraction_doi"),
+                _json_col(paper.get("retraction_reasons")),
+                paper.get("retraction_source"),
+                paper.get("cochrane_review_pmid"),
+                paper.get("overall_rob"),
+                paper.get("randomization_bias"),
+                paper.get("deviation_bias"),
+                paper.get("missing_outcome_bias"),
+                paper.get("measurement_bias"),
+                paper.get("reporting_bias"),
+                paper.get("domain"),
+            ))
+        if not rows:
+            return 0
+        changes_before = self.conn.total_changes
+        self.conn.executemany(
+            """INSERT OR IGNORE INTO papers
+               (pmid, doi, title, abstract, journal, year,
+                authors, grants, mesh_terms, subjects, source,
+                retraction_doi, retraction_reasons, retraction_source,
+                cochrane_review_pmid, overall_rob,
+                randomization_bias, deviation_bias,
+                missing_outcome_bias, measurement_bias,
+                reporting_bias, domain)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            rows,
+        )
+        self.conn.commit()
+        return self.conn.total_changes - changes_before
+
+    def _row_to_paper(self, row: sqlite3.Row) -> dict:
+        """Convert a papers table row to a dict with deserialized JSON columns."""
+        d = dict(row)
+        for col in ("authors", "grants", "mesh_terms", "subjects",
+                     "retraction_reasons"):
+            d[col] = _json_load(d.get(col))
+        return d
+
+    def get_paper(self, pmid: str) -> Optional[dict]:
+        """Get a single paper by PMID."""
+        row = self.conn.execute(
+            "SELECT * FROM papers WHERE pmid = ?", (pmid,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_paper(row)
+
+    def get_papers(
+        self,
+        source: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> list[dict]:
+        """Get papers, optionally filtered by source."""
+        query = "SELECT * FROM papers"
+        params: list = []
+        if source:
+            query += " WHERE source = ?"
+            params.append(source)
+        query += " ORDER BY pmid"
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+        rows = self.conn.execute(query, params).fetchall()
+        return [self._row_to_paper(r) for r in rows]
+
+    def get_paper_pmids(self, source: Optional[str] = None) -> set[str]:
+        """Get all PMIDs, optionally filtered by source."""
+        if source:
+            rows = self.conn.execute(
+                "SELECT pmid FROM papers WHERE source = ?", (source,)
+            ).fetchall()
+        else:
+            rows = self.conn.execute("SELECT pmid FROM papers").fetchall()
+        return {r["pmid"] for r in rows}
+
+    # ---- Enrichments ----
+
+    def upsert_enrichment(
+        self, pmid: str, enrichment: dict, *, commit: bool = True
+    ) -> None:
+        """Insert or update enrichment data for a paper.
+
+        Args:
+            pmid: Paper PMID.
+            enrichment: Enrichment data dict.
+            commit: If False, caller is responsible for committing
+                    (use for batch operations).
+        """
+        self.conn.execute(
+            """INSERT INTO enrichments
+               (pmid, suspicion_level, reporting_bias_score,
+                effect_size_audit, outcome_switching)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(pmid) DO UPDATE SET
+                   suspicion_level = excluded.suspicion_level,
+                   reporting_bias_score = excluded.reporting_bias_score,
+                   effect_size_audit = excluded.effect_size_audit,
+                   outcome_switching = excluded.outcome_switching,
+                   enriched_at = datetime('now')""",
+            (
+                pmid,
+                enrichment.get("suspicion_level"),
+                enrichment.get("reporting_bias_score"),
+                _json_col(enrichment.get("effect_size_audit")),
+                _json_col(enrichment.get("outcome_switching")),
+            ),
+        )
+        if commit:
+            self.conn.commit()
+
+    def commit(self) -> None:
+        """Explicitly commit the current transaction."""
+        self.conn.commit()
+
+    def get_enriched_papers(
+        self,
+        suspicion_level: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> list[dict]:
+        """Get papers joined with their enrichment data."""
+        query = """
+            SELECT p.*, e.suspicion_level, e.reporting_bias_score,
+                   e.effect_size_audit, e.outcome_switching
+            FROM papers p
+            JOIN enrichments e ON p.pmid = e.pmid
+        """
+        params: list = []
+        if suspicion_level:
+            query += " WHERE e.suspicion_level = ?"
+            params.append(suspicion_level)
+        query += " ORDER BY p.pmid"
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+        rows = self.conn.execute(query, params).fetchall()
+        results = []
+        for r in rows:
+            d = self._row_to_paper(r)
+            d["suspicion_level"] = r["suspicion_level"]
+            d["reporting_bias_score"] = r["reporting_bias_score"]
+            d["effect_size_audit"] = _json_load(r["effect_size_audit"])
+            d["outcome_switching"] = _json_load(r["outcome_switching"])
+            results.append(d)
+        return results
+
+    def get_papers_by_source_for_annotation(
+        self, source: str, limit: Optional[int] = None
+    ) -> list[dict]:
+        """Get papers from a specific source with enrichment data if available.
+
+        For 'high_suspicion' and 'low_suspicion', queries via enrichments table.
+        For 'retracted_papers' and 'cochrane_rob', queries papers by source.
+        """
+        source_map = {
+            "high_suspicion": ("suspicion", "high"),
+            "low_suspicion": ("suspicion", "low"),
+            "retracted_papers": ("source", "retraction_watch"),
+            "cochrane_rob": ("source", "cochrane_rob"),
+        }
+        query_type, value = source_map.get(source, ("source", source))
+
+        if query_type == "suspicion":
+            return self.get_enriched_papers(
+                suspicion_level=value, limit=limit
+            )
+        else:
+            return self.get_papers(source=value, limit=limit)
+
+    # ---- Annotations ----
+
+    def insert_annotation(
+        self, pmid: str, model_name: str, annotation: dict
+    ) -> bool:
+        """Insert an annotation. Returns True if newly inserted."""
+        try:
+            cursor = self.conn.execute(
+                """INSERT OR IGNORE INTO annotations
+                   (pmid, model_name, annotation,
+                    overall_severity, overall_bias_probability, confidence)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    pmid,
+                    model_name,
+                    json.dumps(annotation),
+                    annotation.get("overall_severity"),
+                    annotation.get("overall_bias_probability"),
+                    annotation.get("confidence"),
+                ),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.warning(
+                f"Failed to insert annotation {pmid}/{model_name}: {e}"
+            )
+            return False
+
+    def get_annotations(
+        self,
+        model_name: Optional[str] = None,
+        pmid: Optional[str] = None,
+    ) -> list[dict]:
+        """Get annotations, optionally filtered by model and/or PMID."""
+        query = "SELECT * FROM annotations"
+        conditions = []
+        params: list = []
+        if model_name:
+            conditions.append("model_name = ?")
+            params.append(model_name)
+        if pmid:
+            conditions.append("pmid = ?")
+            params.append(pmid)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY pmid"
+        rows = self.conn.execute(query, params).fetchall()
+        results = []
+        for r in rows:
+            ann = _json_load(r["annotation"]) or {}
+            ann["pmid"] = r["pmid"]
+            ann["model_name"] = r["model_name"]
+            ann["overall_severity"] = r["overall_severity"]
+            ann["overall_bias_probability"] = r["overall_bias_probability"]
+            ann["confidence"] = r["confidence"]
+            ann["annotated_at"] = r["annotated_at"]
+            results.append(ann)
+        return results
+
+    def get_annotated_pmids(self, model_name: str) -> set[str]:
+        """Get all PMIDs that have been annotated by a specific model."""
+        rows = self.conn.execute(
+            "SELECT pmid FROM annotations WHERE model_name = ?",
+            (model_name,),
+        ).fetchall()
+        return {r["pmid"] for r in rows}
+
+    def get_model_names(self) -> list[str]:
+        """Get all distinct model names that have annotations."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT model_name FROM annotations ORDER BY model_name"
+        ).fetchall()
+        return [r["model_name"] for r in rows]
+
+    # ---- Human reviews ----
+
+    def upsert_review(
+        self,
+        pmid: str,
+        model_name: str,
+        validated: bool,
+        override_severity: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> None:
+        """Insert or update a human review."""
+        self.conn.execute(
+            """INSERT INTO human_reviews
+               (pmid, model_name, validated, override_severity, notes)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(pmid, model_name) DO UPDATE SET
+                   validated = excluded.validated,
+                   override_severity = excluded.override_severity,
+                   notes = excluded.notes,
+                   reviewed_at = datetime('now')""",
+            (pmid, model_name, int(validated), override_severity, notes),
+        )
+        self.conn.commit()
+
+    def get_reviews(
+        self, model_name: Optional[str] = None
+    ) -> list[dict]:
+        """Get human reviews, optionally filtered by model."""
+        if model_name:
+            rows = self.conn.execute(
+                "SELECT * FROM human_reviews WHERE model_name = ? ORDER BY pmid",
+                (model_name,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM human_reviews ORDER BY pmid"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ---- Cross-model queries ----
+
+    def get_disagreements(
+        self,
+        model_a: str,
+        model_b: str,
+        field: str = "overall_severity",
+    ) -> list[dict]:
+        """Find papers where two models disagree on a field."""
+        if field == "overall_severity":
+            query = """
+                SELECT a.pmid, a.overall_severity AS severity_a,
+                       b.overall_severity AS severity_b,
+                       p.title
+                FROM annotations a
+                JOIN annotations b ON a.pmid = b.pmid
+                JOIN papers p ON a.pmid = p.pmid
+                WHERE a.model_name = ? AND b.model_name = ?
+                  AND a.overall_severity != b.overall_severity
+                ORDER BY a.pmid
+            """
+        elif field == "overall_bias_probability":
+            query = """
+                SELECT a.pmid,
+                       a.overall_bias_probability AS prob_a,
+                       b.overall_bias_probability AS prob_b,
+                       ABS(a.overall_bias_probability - b.overall_bias_probability) AS diff,
+                       p.title
+                FROM annotations a
+                JOIN annotations b ON a.pmid = b.pmid
+                JOIN papers p ON a.pmid = p.pmid
+                WHERE a.model_name = ? AND b.model_name = ?
+                ORDER BY diff DESC
+            """
+        else:
+            return []
+        rows = self.conn.execute(query, (model_a, model_b)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_annotation_comparison(self, models: list[str]) -> list[dict]:
+        """Get all annotations for papers annotated by all specified models."""
+        if not models:
+            return []
+        placeholders = ",".join("?" * len(models))
+        query = f"""
+            SELECT a.pmid, a.model_name, a.annotation,
+                   a.overall_severity, a.overall_bias_probability
+            FROM annotations a
+            WHERE a.pmid IN (
+                SELECT pmid FROM annotations
+                WHERE model_name IN ({placeholders})
+                GROUP BY pmid
+                HAVING COUNT(DISTINCT model_name) = ?
+            )
+            ORDER BY a.pmid, a.model_name
+        """
+        rows = self.conn.execute(
+            query, (*models, len(models))
+        ).fetchall()
+        results = []
+        for r in rows:
+            ann = _json_load(r["annotation"]) or {}
+            ann["pmid"] = r["pmid"]
+            ann["model_name"] = r["model_name"]
+            ann["overall_severity"] = r["overall_severity"]
+            ann["overall_bias_probability"] = r["overall_bias_probability"]
+            results.append(ann)
+        return results
+
+    # ---- Export helpers ----
+
+    def get_all_annotations_for_export(self) -> list[dict]:
+        """Get all annotations with paper data merged in, for export."""
+        rows = self.conn.execute("""
+            SELECT a.pmid, a.model_name, a.annotation,
+                   p.title, p.abstract
+            FROM annotations a
+            JOIN papers p ON a.pmid = p.pmid
+            ORDER BY a.pmid
+        """).fetchall()
+        results = []
+        for r in rows:
+            ann = _json_load(r["annotation"]) or {}
+            ann["pmid"] = r["pmid"]
+            ann["title"] = r["title"]
+            ann["abstract_text"] = r["abstract"]
+            ann["_annotation_model"] = r["model_name"]
+            results.append(ann)
+        return results
+
+    def export_review_csv(self, model_name: str, output_path: Path) -> None:
+        """Export annotations + human reviews as a CSV for human review."""
+        from annotators import REVIEW_CSV_COLUMNS
+
+        rows = self.conn.execute("""
+            SELECT a.pmid, a.annotation, a.overall_severity,
+                   a.overall_bias_probability, a.confidence,
+                   p.title,
+                   h.validated AS HUMAN_VALIDATED,
+                   h.override_severity AS HUMAN_OVERRIDE_SEVERITY,
+                   h.notes AS HUMAN_NOTES
+            FROM annotations a
+            JOIN papers p ON a.pmid = p.pmid
+            LEFT JOIN human_reviews h
+                ON a.pmid = h.pmid AND a.model_name = h.model_name
+            WHERE a.model_name = ?
+            ORDER BY a.pmid
+        """, (model_name,)).fetchall()
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(REVIEW_CSV_COLUMNS)
+            for r in rows:
+                ann = _json_load(r["annotation"]) or {}
+                stat = ann.get("statistical_reporting", {})
+                spin = ann.get("spin", {})
+                coi = ann.get("conflict_of_interest", {})
+                reasoning = ann.get("reasoning", "")
+
+                writer.writerow([
+                    r["pmid"],
+                    (r["title"] or "")[:100],
+                    r["overall_severity"] or "",
+                    r["overall_bias_probability"] or "",
+                    stat.get("severity", ""),
+                    stat.get("relative_only", ""),
+                    spin.get("spin_level", ""),
+                    coi.get("funding_type", ""),
+                    r["confidence"] or "",
+                    reasoning[:200],
+                    "True" if r["HUMAN_VALIDATED"] else "",
+                    r["HUMAN_OVERRIDE_SEVERITY"] or "",
+                    r["HUMAN_NOTES"] or "",
+                ])
+        logger.info(f"Exported review CSV to {output_path}")
+
+    # ---- Stats ----
+
+    def get_stats(self) -> dict:
+        """Get summary statistics for the database."""
+        stats: dict = {}
+
+        # Paper counts by source
+        rows = self.conn.execute(
+            "SELECT source, COUNT(*) as cnt FROM papers GROUP BY source"
+        ).fetchall()
+        stats["papers_by_source"] = {r["source"]: r["cnt"] for r in rows}
+        stats["total_papers"] = sum(stats["papers_by_source"].values())
+
+        # Enrichment counts
+        rows = self.conn.execute(
+            "SELECT suspicion_level, COUNT(*) as cnt "
+            "FROM enrichments GROUP BY suspicion_level"
+        ).fetchall()
+        stats["enrichments_by_level"] = {
+            r["suspicion_level"]: r["cnt"] for r in rows
+        }
+        stats["total_enrichments"] = sum(
+            stats["enrichments_by_level"].values()
+        )
+
+        # Annotation counts by model
+        rows = self.conn.execute(
+            "SELECT model_name, COUNT(*) as cnt "
+            "FROM annotations GROUP BY model_name"
+        ).fetchall()
+        stats["annotations_by_model"] = {
+            r["model_name"]: r["cnt"] for r in rows
+        }
+        stats["total_annotations"] = sum(
+            stats["annotations_by_model"].values()
+        )
+
+        # Review counts
+        row = self.conn.execute(
+            "SELECT COUNT(*) as total, "
+            "SUM(CASE WHEN validated = 1 THEN 1 ELSE 0 END) as validated "
+            "FROM human_reviews"
+        ).fetchone()
+        stats["total_reviews"] = row["total"]
+        stats["validated_reviews"] = row["validated"] or 0
+
+        return stats

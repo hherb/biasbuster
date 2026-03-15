@@ -427,15 +427,6 @@ class CochraneRoBCollector:
 
         return all_assessments
 
-    def save_results(self, assessments: list[RoBAssessment], output_path: Path) -> None:
-        """Save RoB assessments as JSONL to *output_path*."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            for a in assessments:
-                f.write(json.dumps(asdict(a)) + "\n")
-        logger.info(f"Saved {len(assessments)} RoB assessments to {output_path}")
-
-
 if __name__ == "__main__":
     async def demo():
         async with CochraneRoBCollector() as collector:
