@@ -159,8 +159,11 @@ Reports labelling coverage — how many enriched abstracts each model has annota
 and which PMIDs are missing.
 
 ```bash
-# Show completion table for all models
+# Show completion against configured annotation limits
 uv run python -m utils.completeness_checker
+
+# Show progress against full enriched set (ignore config caps)
+uv run python -m utils.completeness_checker --no-limits
 
 # List individual missing PMIDs
 uv run python -m utils.completeness_checker --show-missing
@@ -169,17 +172,17 @@ uv run python -m utils.completeness_checker --show-missing
 uv run python -m utils.completeness_checker --models anthropic,deepseek
 ```
 
-Example output:
+Example output (default: shows progress vs configured caps):
 
 ```
 Source                    |            anthropic |             deepseek
 -----------------------------------------------------------------------
 cochrane_rob              |     6/6     (100.0%) |     6/6     (100.0%)
-high_suspicion            |   386/394   ( 98.0%) |   372/394   ( 94.4%)
-low_suspicion             |   295/2733  ( 10.8%) |   290/2733  ( 10.6%)
-retracted_papers          |   199/514   ( 38.7%) |   200/514   ( 38.9%)
+high_suspicion            |   393/394   ( 99.7%) |   394/394   (100.0%)
+low_suspicion             |   300/300   (100.0%) |   300/300   (100.0%)  [of 2733 enriched]
+retracted_papers          |   199/200   ( 99.5%) |   200/200   (100.0%)  [of 514 enriched]
 -----------------------------------------------------------------------
-TOTAL                     |   886/3647  ( 24.3%) |   868/3647  ( 23.8%)
+TOTAL                     |   898/900   ( 99.8%) |   900/900   (100.0%)
 ```
 
 ### Inter-Model Agreement Analyzer

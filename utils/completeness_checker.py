@@ -4,10 +4,15 @@ Dataset Completeness Checker
 Checks whether all enriched abstracts have been labelled by each model.
 Reports missing items per source file and per model.
 
+When annotation limits are provided (from Config), shows progress against
+the configured cap rather than the full enriched set — giving a realistic
+view of what's actually left to do.
+
 Usage:
     uv run python -m utils.completeness_checker
     uv run python -m utils.completeness_checker --show-missing
     uv run python -m utils.completeness_checker --models anthropic,deepseek
+    uv run python -m utils.completeness_checker --no-limits  # ignore config caps
 """
 
 import logging
@@ -22,12 +27,22 @@ def check_completeness(
     enriched_dir: str | Path,
     labelled_dir: str | Path,
     models: list[str] | None = None,
+    annotation_limits: dict[str, int] | None = None,
 ) -> dict[str, dict[str, dict]]:
     """Check labelling completeness for each source file per model.
+
+    Args:
+        enriched_dir: Path to enriched JSONL directory.
+        labelled_dir: Path to labelled directory with model subdirs.
+        models: Model names to check (auto-discovers if None).
+        annotation_limits: Per-source max items from config. When provided,
+            the target count is min(enriched_count, limit) rather than the
+            full enriched count.
 
     Returns:
         Nested dict: {source_name: {model_name: {
             "total_enriched": int,
+            "target": int,
             "total_labelled": int,
             "missing_count": int,
             "missing_pmids": list[str],
@@ -60,6 +75,16 @@ def check_completeness(
     for enriched_path in enriched_files:
         source_name = enriched_path.stem  # e.g. "high_suspicion"
         enriched_pmids = load_pmids_from_jsonl(enriched_path)
+        total_enriched = len(enriched_pmids)
+
+        # Effective target: min(enriched, configured limit)
+        limit = (
+            annotation_limits.get(source_name)
+            if annotation_limits
+            else None
+        )
+        target = min(total_enriched, limit) if limit else total_enriched
+
         results[source_name] = {}
 
         for model_name in models:
@@ -74,23 +99,31 @@ def check_completeness(
 
             missing = enriched_pmids - labelled_pmids
             extra = labelled_pmids - enriched_pmids
-            total = len(enriched_pmids)
+            labelled_count = len(labelled_pmids)
+
+            # Effective missing: only count as missing if below target
+            effective_missing = max(0, target - labelled_count)
 
             results[source_name][model_name] = {
-                "total_enriched": total,
-                "total_labelled": len(labelled_pmids),
-                "missing_count": len(missing),
-                "missing_pmids": sorted(missing),
+                "total_enriched": total_enriched,
+                "target": target,
+                "total_labelled": labelled_count,
+                "missing_count": effective_missing,
+                "missing_pmids": sorted(missing)[:effective_missing],
                 "extra_pmids": sorted(extra),
                 "completion_pct": (
-                    (total - len(missing)) / total * 100 if total > 0 else 0.0
+                    labelled_count / target * 100 if target > 0 else 100.0
                 ),
             }
 
     return results
 
 
-def print_report(results: dict, show_missing: bool = False) -> str:
+def print_report(
+    results: dict,
+    show_missing: bool = False,
+    show_limits: bool = True,
+) -> str:
     """Format completeness results as a readable report.
 
     Returns the report text (also prints it).
@@ -120,24 +153,29 @@ def print_report(results: dict, show_missing: bool = False) -> str:
     lines.append(header)
     lines.append("-" * len(header))
 
-    total_enriched_all = 0
+    total_target_all = 0
     total_labelled_all = {m: 0 for m in all_models}
-    total_missing_all = {m: 0 for m in all_models}
 
     for source_name, source_data in sorted(results.items()):
         row = f"{source_name:<25}"
+        first_model_info = next(iter(source_data.values()), {})
+        target = first_model_info.get("target", 0)
+        total_enriched = first_model_info.get("total_enriched", 0)
+
         for model in all_models:
             info = source_data.get(model, {})
-            enriched = info.get("total_enriched", 0)
             labelled = info.get("total_labelled", 0)
             pct = info.get("completion_pct", 0.0)
-            row += f" | {labelled:>5}/{enriched:<5} ({pct:5.1f}%)"
-
+            # Show labelled/target, and note enriched total if different
+            row += f" | {labelled:>5}/{target:<5} ({pct:5.1f}%)"
             total_labelled_all[model] += labelled
-            total_missing_all[model] += info.get("missing_count", 0)
-        total_enriched_all += next(iter(source_data.values()), {}).get(
-            "total_enriched", 0
-        )
+
+        total_target_all += target
+
+        # Add note if target differs from enriched
+        if show_limits and target != total_enriched:
+            row += f"  [of {total_enriched} enriched]"
+
         lines.append(row)
 
     # Totals row
@@ -146,12 +184,32 @@ def print_report(results: dict, show_missing: bool = False) -> str:
     for model in all_models:
         labelled = total_labelled_all[model]
         pct = (
-            labelled / total_enriched_all * 100
-            if total_enriched_all > 0
+            labelled / total_target_all * 100
+            if total_target_all > 0
             else 0.0
         )
-        row += f" | {labelled:>5}/{total_enriched_all:<5} ({pct:5.1f}%)"
+        row += f" | {labelled:>5}/{total_target_all:<5} ({pct:5.1f}%)"
     lines.append(row)
+
+    # Overall status
+    lines.append("")
+    all_complete = all(
+        info.get("completion_pct", 0) >= 100.0
+        for source_data in results.values()
+        for info in source_data.values()
+    )
+    if all_complete:
+        lines.append("Status: ALL TARGETS MET")
+    else:
+        lines.append("Remaining work:")
+        for source_name, source_data in sorted(results.items()):
+            for model, info in sorted(source_data.items()):
+                missing = info.get("missing_count", 0)
+                if missing > 0:
+                    lines.append(
+                        f"  {source_name} / {model}: "
+                        f"{missing} items to annotate"
+                    )
 
     # Missing details
     if show_missing:
@@ -219,6 +277,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Print individual missing PMIDs",
     )
+    parser.add_argument(
+        "--no-limits",
+        action="store_true",
+        help="Ignore config caps, show progress against full enriched set",
+    )
     args = parser.parse_args()
 
     from config import Config
@@ -227,6 +290,7 @@ if __name__ == "__main__":
     enriched = args.enriched_dir or cfg.enriched_dir
     labelled = args.labelled_dir or cfg.labelled_dir
     models = args.models.split(",") if args.models else None
+    limits = None if args.no_limits else cfg.annotation_max_per_source
 
-    results = check_completeness(enriched, labelled, models)
+    results = check_completeness(enriched, labelled, models, limits)
     print_report(results, show_missing=args.show_missing)
