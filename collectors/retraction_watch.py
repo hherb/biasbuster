@@ -281,18 +281,36 @@ class RetractionWatchCollector:
         dois = [item.get("DOI", "") for item in crossref_data if item.get("DOI")]
         logger.info(f"Found {len(dois)} DOIs from retracted papers")
 
-        # Step 2: Search PubMed for these DOIs to get PMIDs and abstracts
+        # Step 2: Extract original paper DOIs from retraction notices.
+        # Crossref update-type:retraction returns retraction NOTICES.
+        # The `update-to` field points to the ORIGINAL paper we want.
         results = []
         pending_pmid_lookup = []  # Papers awaiting abstract fetch
         for i, item in enumerate(crossref_data):
-            doi = item.get("DOI", "")
-            if not doi:
+            notice_doi = item.get("DOI", "")
+            if not notice_doi:
                 continue
 
-            # Search PubMed by DOI
+            # Extract original paper DOI from update-to relationship.
+            # Crossref update-type:retraction returns retraction NOTICES;
+            # the `update-to` field points to the ORIGINAL paper we want.
+            original_doi = ""
+            retraction_reasons: list[str] = []
+            update_to = item.get("update-to", [])
+            for update in update_to:
+                if update.get("type") == "retraction":
+                    original_doi = update.get("DOI", "")
+                    label = update.get("label", "")
+                    if label:
+                        retraction_reasons.append(label)
+
+            # Use original paper DOI if available, fall back to notice DOI
+            lookup_doi = original_doi or notice_doi
+
+            # Search PubMed by the original paper's DOI
             params = {
                 "db": "pubmed",
-                "term": f'"{doi}"[doi]',
+                "term": f'"{lookup_doi}"[doi]',
                 "retmax": 1,
                 "retmode": "json",
             }
@@ -310,7 +328,7 @@ class RetractionWatchCollector:
                     pmids = data.get("esearchresult", {}).get("idlist", [])
                     if pmids:
                         paper = RetractedPaper(
-                            doi=doi,
+                            doi=lookup_doi,
                             pmid=pmids[0],
                             title=(item.get("title", [""])[0]
                                    if isinstance(item.get("title"), list)
@@ -318,18 +336,13 @@ class RetractionWatchCollector:
                             journal=(item.get("container-title", [""])[0]
                                      if isinstance(item.get("container-title"), list)
                                      else ""),
+                            retraction_doi=notice_doi,
+                            retraction_reasons=retraction_reasons,
                         )
-
-                        # Parse retraction sources
-                        update_to = item.get("update-to", [])
-                        for update in update_to:
-                            if update.get("type") == "retraction":
-                                source = update.get("source", "")
-                                paper.retraction_source = source
 
                         pending_pmid_lookup.append(paper)
             except Exception as e:
-                logger.warning(f"Search failed for DOI {doi}: {e}")
+                logger.warning(f"Search failed for DOI {lookup_doi}: {e}")
 
             # Fetch abstracts in batches
             if len(pending_pmid_lookup) >= 50:

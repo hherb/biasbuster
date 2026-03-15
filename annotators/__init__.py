@@ -34,6 +34,73 @@ REVIEW_CSV_COLUMNS = [
 ]
 
 
+import re as _re
+
+# Patterns that indicate the text is a retraction/withdrawal notice,
+# not an original research abstract with assessable content.
+_RETRACTION_NOTICE_PATTERNS = [
+    _re.compile(r"^retract(ed|ion)\b", _re.IGNORECASE),
+    _re.compile(r"^withdraw(n|al)\b", _re.IGNORECASE),
+    _re.compile(r"^this article has been retracted", _re.IGNORECASE),
+    _re.compile(r"^this paper has been retracted", _re.IGNORECASE),
+    _re.compile(r"^retraction notice", _re.IGNORECASE),
+    _re.compile(r"^retraction:", _re.IGNORECASE),
+    _re.compile(r"^expression of concern", _re.IGNORECASE),
+]
+
+# Minimum abstract length (characters) below which a retracted paper is
+# almost certainly a bare notice rather than original content.
+_MIN_ABSTRACT_LENGTH_FOR_RETRACTED = 200
+
+
+def is_retraction_notice(
+    title: str, abstract: str, metadata: dict | None = None,
+) -> bool:
+    """Detect whether an item is a bare retraction/withdrawal notice.
+
+    These have no assessable research content and should be excluded from
+    annotation. Original papers that were *later* retracted (with their
+    full abstract intact) return False and should be annotated normally.
+
+    Args:
+        title: Paper title.
+        abstract: Abstract text.
+        metadata: Optional metadata dict (checked for retraction_reasons).
+
+    Returns:
+        True if this looks like a bare retraction notice.
+    """
+    title_stripped = title.strip()
+    abstract_stripped = abstract.strip()
+
+    # Title-only signals (e.g. "Retraction: ..." or "WITHDRAWN: ...")
+    for pat in _RETRACTION_NOTICE_PATTERNS:
+        if pat.search(title_stripped):
+            # Title says retraction — is the abstract just the notice too?
+            if len(abstract_stripped) < _MIN_ABSTRACT_LENGTH_FOR_RETRACTED:
+                return True
+            # Long abstract with retraction title: check if abstract itself
+            # is also just a notice (vs. original content still present).
+            for apat in _RETRACTION_NOTICE_PATTERNS:
+                if apat.search(abstract_stripped):
+                    return True
+            # Long abstract, doesn't start with retraction language —
+            # likely original content, keep it.
+            return False
+
+    # No abstract at all
+    if not abstract_stripped:
+        return True
+
+    # Very short abstract starting with retraction language
+    if len(abstract_stripped) < _MIN_ABSTRACT_LENGTH_FOR_RETRACTED:
+        for pat in _RETRACTION_NOTICE_PATTERNS:
+            if pat.search(abstract_stripped):
+                return True
+
+    return False
+
+
 def build_user_message(
     pmid: str,
     title: str,

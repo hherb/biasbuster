@@ -325,8 +325,11 @@ async def stage_annotate(
         ("low_suspicion", "low_suspicion"),
     ]
 
+    from annotators import is_retraction_notice
+
     # Load items once (shared across models)
     all_items: dict[str, list[dict]] = {}
+    total_filtered = 0
     for source_key, db_source in source_configs:
         max_items = config.annotation_max_per_source.get(source_key, 200)
         papers = db.get_papers_by_source_for_annotation(
@@ -335,13 +338,26 @@ async def stage_annotate(
         if papers:
             items = []
             for p in papers:
+                title = p.get("title", "")
+                abstract = p.get("abstract", "")
+                # Skip bare retraction/withdrawal notices — no content to assess
+                if is_retraction_notice(title, abstract, p):
+                    total_filtered += 1
+                    continue
                 items.append({
                     "pmid": p.get("pmid", ""),
-                    "title": p.get("title", ""),
-                    "abstract": p.get("abstract", ""),
+                    "title": title,
+                    "abstract": abstract,
                     "metadata": p,
                 })
-            all_items[source_key] = items
+            if items:
+                all_items[source_key] = items
+
+    if total_filtered:
+        logger.info(
+            f"Filtered {total_filtered} retraction/withdrawal notices "
+            f"(no assessable content)"
+        )
 
     for model_name in models:
         annotator = _create_annotator(config, model_name)
