@@ -99,10 +99,48 @@ uv run python pipeline.py --stage annotate
 uv run python pipeline.py --stage export
 ```
 
-### Data Flow
+### Pipeline Flow
 
-```
-raw/*.jsonl → enriched/{high,low}_suspicion.jsonl → labelled/*_annotated.jsonl + review.csv → export/{alpaca,sharegpt}/{train,val,test}.jsonl
+```mermaid
+flowchart LR
+    subgraph Collect
+        C1[Crossref / Retraction Watch]
+        C2[PubMed RCTs by MeSH]
+        C3[Cochrane RoB via Europe PMC]
+    end
+
+    subgraph Enrich
+        E1[Effect Size Auditor]
+        E2[Funding Checker]
+        E3[Author COI]
+        E4[Outcome Switching]
+    end
+
+    subgraph Annotate
+        A1[Claude API]
+        A2[DeepSeek / OpenAI-compat]
+    end
+
+    HR[Human Review<br/>edit CSV]
+
+    subgraph Export
+        X1[Alpaca + think chains]
+        X2[ShareGPT]
+        X3[OpenAI chat]
+    end
+
+    subgraph Compare
+        M1[Per-dimension F1 & kappa]
+        M2[McNemar / Wilcoxon tests]
+        M3[Markdown report]
+    end
+
+    Collect -- raw/*.jsonl --> Enrich
+    Enrich -- high/low suspicion.jsonl --> Annotate
+    Annotate -- annotated.jsonl + review.csv --> HR
+    HR -- validated labels --> Export
+    Export -- test.jsonl --> Compare
+    Annotate -. model outputs .-> Compare
 ```
 
 Human review (editing the CSV) is a manual step between annotate and export.
