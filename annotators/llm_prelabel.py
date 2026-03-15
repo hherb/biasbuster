@@ -23,6 +23,7 @@ import anthropic
 from . import (
     build_user_message,
     generate_review_csv,
+    parse_llm_json,
     save_annotations,
     strip_markdown_fences,
 )
@@ -171,38 +172,54 @@ class LLMAnnotator:
 
         user_message = build_user_message(pmid, title, abstract, metadata)
 
-        text = ""
-        try:
-            message = await self.client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system=ANNOTATION_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
-            )
+        last_error = None
+        for attempt in range(self.max_retries):
+            text = ""
+            try:
+                message = await self.client.messages.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    system=ANNOTATION_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_message}],
+                )
 
-            text = "".join(
-                block.text for block in message.content
-                if block.type == "text"
-            )
+                text = "".join(
+                    block.text for block in message.content
+                    if block.type == "text"
+                )
 
-            text = strip_markdown_fences(text)
+                assessment = parse_llm_json(text, pmid=pmid)
+                if assessment is not None:
+                    assessment["pmid"] = pmid
+                    assessment["title"] = title
+                    assessment["_annotation_model"] = self.model
+                    return assessment
 
-            assessment = json.loads(text)
-            assessment["pmid"] = pmid
-            assessment["title"] = title
-            assessment["_annotation_model"] = self.model
-            return assessment
+                # parse_llm_json returned None — retry with the API
+                last_error = "JSON parse failure after repair attempt"
+                logger.warning(
+                    f"PMID {pmid}: JSON parse failed "
+                    f"(attempt {attempt + 1}/{self.max_retries}), retrying"
+                )
+                await asyncio.sleep(2 ** attempt)
+                continue
 
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse JSON for PMID {pmid}: {e}")
-            logger.debug(f"Raw response: {text[:500]}")
-            return None
-        except anthropic.APIError as e:
-            logger.error(f"API error for PMID {pmid}: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Annotation failed for PMID {pmid}: {e}")
-            return None
+            except anthropic.APIError as e:
+                last_error = str(e)
+                logger.warning(
+                    f"API error for PMID {pmid} "
+                    f"(attempt {attempt + 1}/{self.max_retries}): {e}"
+                )
+                await asyncio.sleep(2 ** attempt)
+                continue
+            except Exception as e:
+                logger.error(f"Annotation failed for PMID {pmid}: {e}")
+                return None
+
+        logger.error(
+            f"All {self.max_retries} attempts failed for PMID {pmid}: {last_error}"
+        )
+        return None
 
     async def annotate_batch(
         self,

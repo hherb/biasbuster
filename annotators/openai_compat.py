@@ -20,6 +20,7 @@ import httpx
 from . import (
     build_user_message,
     generate_review_csv,
+    parse_llm_json,
     save_annotations,
     strip_markdown_fences,
 )
@@ -116,18 +117,21 @@ class OpenAICompatAnnotator:
                     .get("content", "")
                 )
 
-                text = strip_markdown_fences(text)
+                assessment = parse_llm_json(text, pmid=pmid)
+                if assessment is not None:
+                    assessment["pmid"] = pmid
+                    assessment["title"] = title
+                    assessment["_annotation_model"] = self.model
+                    return assessment
 
-                assessment = json.loads(text)
-                assessment["pmid"] = pmid
-                assessment["title"] = title
-                assessment["_annotation_model"] = self.model
-                return assessment
-
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse JSON for PMID {pmid}: {e}")
-                logger.debug(f"Raw response: {text[:500]}")
-                return None
+                # parse_llm_json returned None — retry
+                last_error = "JSON parse failure after repair attempt"
+                logger.warning(
+                    f"PMID {pmid}: JSON parse failed "
+                    f"(attempt {attempt + 1}/{self.max_retries}), retrying"
+                )
+                await asyncio.sleep(2 ** attempt)
+                continue
             except httpx.TimeoutException:
                 logger.warning(
                     f"Timeout for PMID {pmid} (attempt {attempt + 1}/{self.max_retries})"

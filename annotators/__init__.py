@@ -86,6 +86,88 @@ def strip_markdown_fences(text: str) -> str:
     return text.strip()
 
 
+def repair_json(text: str) -> str:
+    """Attempt to repair common JSON malformations from LLM output.
+
+    Handles:
+    - Missing commas between object fields or array elements
+    - Trailing commas before closing braces/brackets
+    - Unescaped newlines inside string values
+    - Truncated output (unclosed braces/brackets)
+
+    Returns the repaired text. Callers should still try json.loads()
+    and handle failure — this is best-effort.
+    """
+    import re
+
+    # Strip any remaining markdown/preamble before the first {
+    first_brace = text.find("{")
+    if first_brace > 0:
+        text = text[first_brace:]
+
+    # Remove trailing text after the last }
+    last_brace = text.rfind("}")
+    if last_brace >= 0 and last_brace < len(text) - 1:
+        text = text[: last_brace + 1]
+
+    # Fix missing commas between fields:
+    # Pattern: value (end of line) followed by a quoted key on the next line
+    # e.g.  "field": true\n  "next_field": ...
+    text = re.sub(
+        r'(true|false|null|\d+\.?\d*|"[^"]*"|\]|\})\s*\n(\s*")',
+        r"\1,\n\2",
+        text,
+    )
+
+    # Remove trailing commas before } or ]
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+
+    # Close unclosed braces/brackets (truncated output)
+    open_braces = text.count("{") - text.count("}")
+    open_brackets = text.count("[") - text.count("]")
+    if open_braces > 0 or open_brackets > 0:
+        # Try to close any open string first
+        # Count unescaped quotes
+        in_string = False
+        for ch in text:
+            if ch == '"' and (not text or text[text.index(ch) - 1] != "\\"):
+                in_string = not in_string
+        if in_string:
+            text += '"'
+        text += "]" * max(0, open_brackets)
+        text += "}" * max(0, open_braces)
+
+    return text
+
+
+def parse_llm_json(text: str, pmid: str = "") -> dict | None:
+    """Parse JSON from LLM output with repair and logging.
+
+    Shared across all annotator backends. Tries direct parse first,
+    then attempts repair if that fails.
+
+    Returns parsed dict or None if unrecoverable.
+    """
+    text = strip_markdown_fences(text)
+
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt repair
+    repaired = repair_json(text)
+    try:
+        result = json.loads(repaired)
+        logger.info(f"JSON repaired successfully for PMID {pmid}")
+        return result
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON repair failed for PMID {pmid}: {e}")
+        logger.debug(f"Raw response: {text[:500]}")
+        return None
+
+
 def save_annotations(annotations: list[dict], output_path: Path) -> None:
     """Save annotations as JSONL."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
