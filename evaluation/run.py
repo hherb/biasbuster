@@ -6,12 +6,21 @@ End-to-end CLI for running the bias detection model comparison.
 Ties together: harness (inference) -> scorer (parsing) -> metrics -> comparison report.
 
 Usage:
-    # Run both models and generate comparison
+    # Run both models simultaneously (both servers must be up)
     python -m evaluation.run \
         --test-set dataset/export/alpaca/test.jsonl \
         --model-a qwen3.5-27b --endpoint-a http://localhost:8000 \
         --model-b olmo-3.1-32b --endpoint-b http://localhost:8001 \
         --mode zero-shot \
+        --output eval_results/
+
+    # Sequential mode: run one model at a time (single GPU)
+    # Evaluates model A, then waits for model B server to appear
+    python -m evaluation.run \
+        --test-set dataset/export/alpaca/test.jsonl \
+        --model-a qwen3.5-27b --endpoint-a http://localhost:8000 \
+        --model-b olmo-3.1-32b --endpoint-b http://localhost:8000 \
+        --mode zero-shot --sequential \
         --output eval_results/
 
     # Re-analyse from saved outputs (no inference needed)
@@ -95,6 +104,13 @@ def parse_args():
     parser.add_argument("--max-tokens", type=int, default=4000)
     parser.add_argument("--max-concurrent", type=int, default=2)
 
+    # Sequential mode (one model at a time, pause between)
+    parser.add_argument(
+        "--sequential", action="store_true",
+        help="Run models one at a time, pausing between for server swap "
+             "(useful when GPU memory only fits one model)",
+    )
+
     # Re-analysis from saved outputs
     parser.add_argument(
         "--reanalyse", type=Path, default=None,
@@ -110,40 +126,8 @@ def parse_args():
     return parser.parse_args()
 
 
-async def run_inference(args) -> dict[str, list]:
-    """Run inference through the harness."""
-    from .harness import EvalConfig, EvalHarness, load_test_set
-
-    # Build model config
-    models = {}
-    if args.model_a and args.endpoint_a:
-        models[args.model_a] = args.endpoint_a
-    if args.model_b and args.endpoint_b:
-        models[args.model_b] = args.endpoint_b
-
-    if not models:
-        logger.error("No models configured. Provide --model-a/--endpoint-a and/or --model-b/--endpoint-b")
-        sys.exit(1)
-
-    config = EvalConfig(
-        models=models,
-        temperature=args.temperature,
-        max_tokens=args.max_tokens,
-        max_concurrent=args.max_concurrent,
-        mode=args.mode,
-        output_dir=str(args.output),
-    )
-
-    # Load test set
-    examples = load_test_set(args.test_set)
-    logger.info(f"Loaded {len(examples)} test examples")
-
-    # Run evaluation
-    async with EvalHarness(config) as harness:
-        all_outputs = await harness.run_all(examples)
-        harness.save_outputs(all_outputs, args.output)
-
-    # Convert ModelOutput objects to dicts for downstream processing
+def _outputs_to_dicts(all_outputs: dict) -> dict[str, list]:
+    """Convert ModelOutput objects to dicts for downstream processing."""
     raw_outputs = {}
     for model_id, outputs in all_outputs.items():
         raw_outputs[model_id] = [
@@ -158,8 +142,124 @@ async def run_inference(args) -> dict[str, list]:
             }
             for o in outputs
         ]
-
     return raw_outputs
+
+
+def _wait_for_endpoint(endpoint: str, model_id: str, timeout: int = 300):
+    """Wait for an endpoint to become ready, polling every 5 seconds."""
+    import time
+    import httpx
+
+    url = f"{endpoint.rstrip('/')}/v1/models"
+    logger.info(f"Waiting for {model_id} at {endpoint} to become ready...")
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        try:
+            resp = httpx.get(url, timeout=5.0)
+            if resp.status_code == 200:
+                logger.info(f"{model_id} is ready at {endpoint}")
+                return True
+        except (httpx.ConnectError, httpx.TimeoutException):
+            pass
+        time.sleep(5)
+    logger.error(f"Timed out waiting for {model_id} at {endpoint} after {timeout}s")
+    return False
+
+
+async def _run_single_model(
+    model_id: str,
+    endpoint: str,
+    examples: list,
+    args,
+) -> dict[str, list]:
+    """Run inference for a single model and save outputs."""
+    from .harness import EvalConfig, EvalHarness
+
+    config = EvalConfig(
+        models={model_id: endpoint},
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+        max_concurrent=args.max_concurrent,
+        mode=args.mode,
+        output_dir=str(args.output),
+    )
+
+    async with EvalHarness(config) as harness:
+        all_outputs = await harness.run_all(examples)
+        harness.save_outputs(all_outputs, args.output)
+
+    return _outputs_to_dicts(all_outputs)
+
+
+async def run_inference(args) -> dict[str, list]:
+    """Run inference through the harness."""
+    from .harness import EvalConfig, EvalHarness, load_test_set
+
+    # Build model list
+    models = {}
+    if args.model_a and args.endpoint_a:
+        models[args.model_a] = args.endpoint_a
+    if args.model_b and args.endpoint_b:
+        models[args.model_b] = args.endpoint_b
+
+    if not models:
+        logger.error("No models configured. Provide --model-a/--endpoint-a and/or --model-b/--endpoint-b")
+        sys.exit(1)
+
+    # Load test set
+    examples = load_test_set(args.test_set)
+    logger.info(f"Loaded {len(examples)} test examples")
+
+    # Sequential mode: run one model, pause, run the next
+    if args.sequential and len(models) > 1:
+        raw_outputs = {}
+        model_items = list(models.items())
+
+        for i, (model_id, endpoint) in enumerate(model_items):
+            # Wait for endpoint to be reachable before starting
+            if not _wait_for_endpoint(endpoint, model_id):
+                logger.error(
+                    f"Endpoint for {model_id} not reachable. "
+                    f"Start the server at {endpoint} and re-run, or use "
+                    f"--reanalyse to score already-saved outputs."
+                )
+                sys.exit(1)
+
+            outputs = await _run_single_model(
+                model_id, endpoint, examples, args,
+            )
+            raw_outputs.update(outputs)
+
+            # Pause between models (not after the last one)
+            if i < len(model_items) - 1:
+                next_model, next_endpoint = model_items[i + 1]
+                logger.info(f"\n{'='*60}")
+                logger.info(f"Finished {model_id}. Next: {next_model}")
+                logger.info(f"Stop the current server and start {next_model}")
+                logger.info(f"  Expected endpoint: {next_endpoint}")
+                logger.info(f"{'='*60}")
+                logger.info(
+                    "Waiting for server to appear (will poll every 5s, "
+                    "timeout 5min)..."
+                )
+
+        return raw_outputs
+
+    # Default: run all models concurrently (expects all endpoints up)
+    config = EvalConfig(
+        models=models,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+        max_concurrent=args.max_concurrent,
+        mode=args.mode,
+        output_dir=str(args.output),
+    )
+
+    async with EvalHarness(config) as harness:
+        all_outputs = await harness.run_all(examples)
+        harness.save_outputs(all_outputs, args.output)
+
+    return _outputs_to_dicts(all_outputs)
 
 
 def load_saved_outputs(output_dir: Path) -> dict[str, list]:
