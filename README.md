@@ -18,7 +18,9 @@ bias_dataset_builder/
 │   ├── funding_checker.py     # Funding source classification
 │   └── effect_size_auditor.py # Relative vs absolute reporting analysis
 ├── annotators/
-│   └── llm_prelabel.py        # API-based pre-labelling with Claude
+│   ├── __init__.py            # Shared utilities, retraction notice filter
+│   ├── llm_prelabel.py        # Anthropic Claude annotator
+│   └── openai_compat.py       # OpenAI-compatible annotator (DeepSeek, etc.)
 ├── schemas/
 │   └── bias_taxonomy.py       # Structured bias taxonomy and labels
 ├── evaluation/
@@ -31,7 +33,9 @@ bias_dataset_builder/
 ├── utils/
 │   ├── completeness_checker.py # Check labelling coverage per model
 │   ├── agreement_analyzer.py   # Inter-model agreement metrics
-│   └── review_gui.py           # NiceGUI web-based CSV review tool
+│   └── review_gui.py           # NiceGUI web-based review tool (DB-backed)
+├── database.py                # SQLite backend (single source of truth)
+├── migrate_jsonl_to_sqlite.py # Idempotent JSONL → SQLite migration script
 ├── config.py                  # Configuration and API keys
 ├── pipeline.py                # Orchestration pipeline
 └── export.py                  # Export to fine-tuning formats (Alpaca, ShareGPT)
@@ -142,6 +146,26 @@ uv run python pipeline.py --stage annotate
 uv run python pipeline.py --stage export
 ```
 
+### Data Storage
+
+All pipeline data is stored in a single SQLite database (`dataset/biasbuster.db`
+by default). The schema has four tables:
+
+| Table | Purpose | Key |
+|-------|---------|-----|
+| `papers` | All collected papers (retracted, RCT, Cochrane) | `pmid` |
+| `enrichments` | Heuristic analysis results (effect size audit, outcome switching) | `pmid` |
+| `annotations` | LLM bias assessments (one row per paper per model) | `(pmid, model_name)` |
+| `human_reviews` | Human validation decisions | `(pmid, model_name)` |
+
+This replaces the previous JSONL file-based layout. If you have existing JSONL
+data, run the migration script:
+
+```bash
+uv run python migrate_jsonl_to_sqlite.py
+uv run python migrate_jsonl_to_sqlite.py --data-dir dataset --db-path dataset/biasbuster.db
+```
+
 ### Pipeline Flow
 
 ```mermaid
@@ -151,6 +175,8 @@ flowchart TD
         C2[PubMed RCTs by MeSH]
         C3[Cochrane RoB via Europe PMC]
     end
+
+    DB[(SQLite DB<br/>biasbuster.db)]
 
     subgraph Enrich
         E1[Effect Size Auditor]
@@ -164,7 +190,7 @@ flowchart TD
         A2[DeepSeek / OpenAI-compat]
     end
 
-    HR[Human Review<br/>edit CSV]
+    HR[Human Review<br/>NiceGUI tool]
 
     subgraph Export
         X1[Alpaca + think chains]
@@ -178,37 +204,38 @@ flowchart TD
         M3[Markdown report]
     end
 
-    Collect -- raw/*.jsonl --> Enrich
-    Enrich -- high/low suspicion.jsonl --> Annotate
-    Annotate -- annotated.jsonl + review.csv --> HR
-    HR -- validated labels --> Export
-    Export -- test.jsonl --> Compare
-    Annotate -. model outputs .-> Compare
+    Collect --> DB
+    DB --> Enrich --> DB
+    DB --> Annotate --> DB
+    DB --> HR --> DB
+    DB --> Export
+    DB --> Compare
 ```
 
-Human review (editing the CSV) is a manual step between annotate and export.
+Human review (using the NiceGUI web tool) is a manual step between annotate and export.
 
 ## Dataset Utilities
 
 Three tools support the human-review workflow between annotation and export.
+All read from and write to the SQLite database.
 
 ### Completeness Checker
 
-Reports labelling coverage — how many enriched abstracts each model has annotated,
-and which PMIDs are missing.
+Reports annotation coverage — how many available abstracts each model has
+annotated, with progress against configured limits.
 
 ```bash
 # Show completion against configured annotation limits
 uv run python -m utils.completeness_checker
 
-# Show progress against full enriched set (ignore config caps)
+# Show progress against full available set (ignore config caps)
 uv run python -m utils.completeness_checker --no-limits
-
-# List individual missing PMIDs
-uv run python -m utils.completeness_checker --show-missing
 
 # Check specific models only
 uv run python -m utils.completeness_checker --models anthropic,deepseek
+
+# Use a specific database
+uv run python -m utils.completeness_checker --db-path dataset/biasbuster.db
 ```
 
 Example output (default: shows progress vs configured caps):
@@ -218,8 +245,8 @@ Source                    |            anthropic |             deepseek
 -----------------------------------------------------------------------
 cochrane_rob              |     6/6     (100.0%) |     6/6     (100.0%)
 high_suspicion            |   393/394   ( 99.7%) |   394/394   (100.0%)
-low_suspicion             |   300/300   (100.0%) |   300/300   (100.0%)  [of 2733 enriched]
-retracted_papers          |   199/200   ( 99.5%) |   200/200   (100.0%)  [of 514 enriched]
+low_suspicion             |   300/300   (100.0%) |   300/300   (100.0%)  [of 2733 available]
+retracted_papers          |   199/200   ( 99.5%) |   200/200   (100.0%)  [of 514 available]
 -----------------------------------------------------------------------
 TOTAL                     |   898/900   ( 99.8%) |   900/900   (100.0%)
 ```
@@ -239,6 +266,9 @@ uv run python -m utils.agreement_analyzer --model-a anthropic --model-b deepseek
 
 # Show more divergent cases
 uv run python -m utils.agreement_analyzer --top-divergent 20
+
+# Use a specific database
+uv run python -m utils.agreement_analyzer --db-path dataset/biasbuster.db
 ```
 
 Reports overall severity kappa, per-dimension exact/within-one agreement,
@@ -246,20 +276,21 @@ flag-level agreement rates (e.g. `relative_only`, `spin_level`, `funding_type`),
 probability MAE and Pearson r, and the top most-divergent cases ranked by
 bias probability difference.
 
-### CSV Review GUI
+### Review GUI
 
-Web-based tool for reviewing and validating annotation CSVs. Opens in your
-browser with an editable AG Grid table. Built with NiceGUI.
+Web-based tool for reviewing and validating annotations. Reads from and saves
+directly to the SQLite database. Opens in your browser with an editable AG Grid
+table. Built with NiceGUI.
 
 ```bash
-# Open a specific review CSV
-uv run python -m utils.review_gui dataset/labelled/anthropic/high_suspicion_review.csv
+# Review a specific model's annotations
+uv run python -m utils.review_gui --model anthropic
 
-# Browse available CSVs interactively
+# Browse available models interactively
 uv run python -m utils.review_gui
 
-# Use a different port
-uv run python -m utils.review_gui --port 9090
+# Use a different port or database
+uv run python -m utils.review_gui --model deepseek --port 9090 --db-path dataset/biasbuster.db
 ```
 
 Features:
@@ -269,7 +300,8 @@ Features:
 - **Quick filter** and column sorting
 - **"Next Unvalidated"** button to jump to the next unreviewed row
 - **Detail panel** showing full reasoning text on row selection
-- **Atomic save** (writes to temp file, then renames) to prevent data loss
+- **Export CSV** button for offline review in spreadsheets
+- **Direct DB save** — changes are written to the `human_reviews` table
 - **Stats bar** showing validation progress
 
 ## Evaluation Harness
