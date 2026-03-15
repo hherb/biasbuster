@@ -20,6 +20,13 @@ from typing import Optional
 
 import anthropic
 
+from . import (
+    build_user_message,
+    generate_review_csv,
+    save_annotations,
+    strip_markdown_fences,
+)
+
 logger = logging.getLogger(__name__)
 
 # The system prompt encodes the full bias taxonomy and verification knowledge
@@ -162,51 +169,7 @@ class LLMAnnotator:
             logger.error("No Anthropic API key configured")
             return None
 
-        # Build user message with all available context
-        user_parts = [
-            f"PMID: {pmid}",
-            f"Title: {title}",
-            f"\nAbstract:\n{abstract}",
-        ]
-
-        if metadata:
-            if metadata.get("authors"):
-                author_str = "; ".join(
-                    f"{a.get('last', '')}, {a.get('first', '')} "
-                    f"({', '.join(a.get('affiliations', [])[:2])})"
-                    for a in metadata["authors"][:5]
-                )
-                user_parts.append(f"\nAuthors: {author_str}")
-
-            if metadata.get("grants"):
-                grant_str = "; ".join(
-                    f"{g.get('agency', '')} ({g.get('id', '')})"
-                    for g in metadata["grants"]
-                )
-                user_parts.append(f"Funding: {grant_str}")
-
-            if metadata.get("journal"):
-                user_parts.append(f"Journal: {metadata['journal']}")
-
-            if metadata.get("mesh_terms"):
-                user_parts.append(f"MeSH: {', '.join(metadata['mesh_terms'][:10])}")
-
-            if metadata.get("retraction_reasons"):
-                user_parts.append(
-                    f"NOTE: This paper has been RETRACTED. "
-                    f"Reasons: {', '.join(metadata['retraction_reasons'])}"
-                )
-
-            if metadata.get("effect_size_audit"):
-                audit = metadata["effect_size_audit"]
-                user_parts.append(
-                    f"\nHeuristic pre-screen: {audit.get('pattern', 'unknown')} "
-                    f"(score: {audit.get('reporting_bias_score', 0):.2f})"
-                )
-                if audit.get("flags"):
-                    user_parts.append(f"Flags: {'; '.join(audit['flags'])}")
-
-        user_message = "\n".join(user_parts)
+        user_message = build_user_message(pmid, title, abstract, metadata)
 
         text = ""
         try:
@@ -222,13 +185,7 @@ class LLMAnnotator:
                 if block.type == "text"
             )
 
-            # Strip markdown fences if present
-            text = text.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
+            text = strip_markdown_fences(text)
 
             assessment = json.loads(text)
             assessment["pmid"] = pmid
@@ -252,12 +209,47 @@ class LLMAnnotator:
         items: list[dict],  # Each: {pmid, title, abstract, metadata?}
         concurrency: int = 3,
         delay: float = 1.0,
+        output_path: Optional[Path] = None,
     ) -> list[dict]:
+        """Annotate a batch of abstracts with rate limiting.
+
+        Supports incremental save: if output_path is provided, results are
+        flushed to disk periodically and already-annotated PMIDs are skipped
+        on resume.
+
+        Args:
+            items: List of dicts with pmid, title, abstract, metadata keys.
+            concurrency: Max concurrent API requests.
+            delay: Seconds between requests.
+            output_path: Optional path for incremental JSONL saves.
+
+        Returns:
+            List of successful annotations.
         """
-        Annotate a batch of abstracts with rate limiting.
-        Returns list of successful annotations.
-        """
+        # Resume support: skip already-annotated PMIDs
+        results: list[dict] = []
+        already_done: set[str] = set()
+        if output_path and output_path.exists():
+            with open(output_path) as f:
+                for line in f:
+                    try:
+                        ann = json.loads(line)
+                        results.append(ann)
+                        already_done.add(ann.get("pmid", ""))
+                    except json.JSONDecodeError:
+                        continue
+            if already_done:
+                logger.info(
+                    f"Resuming: {len(already_done)} already annotated in {output_path}"
+                )
+
+        remaining = [it for it in items if it["pmid"] not in already_done]
+        if not remaining:
+            logger.info("All items already annotated, nothing to do")
+            return results
+
         semaphore = asyncio.Semaphore(concurrency)
+        flush_every = 10
 
         async def process_one(item):
             async with semaphore:
@@ -270,61 +262,29 @@ class LLMAnnotator:
                 await asyncio.sleep(delay)
                 return result
 
-        batch_results = await asyncio.gather(
-            *(process_one(item) for item in items)
-        )
-        results = [r for r in batch_results if r is not None]
+        # Process in chunks for incremental save
+        for chunk_start in range(0, len(remaining), flush_every):
+            chunk = remaining[chunk_start : chunk_start + flush_every]
+            batch_results = await asyncio.gather(
+                *(process_one(item) for item in chunk)
+            )
+            new_results = [r for r in batch_results if r is not None]
+            results.extend(new_results)
+
+            # Incremental save
+            if output_path and new_results:
+                with open(output_path, "a") as f:
+                    for ann in new_results:
+                        f.write(json.dumps(ann) + "\n")
+                logger.info(
+                    f"Checkpoint: {len(results)}/{len(items)} annotations saved"
+                )
 
         logger.info(
             f"Annotated {len(results)}/{len(items)} abstracts successfully"
         )
         return results
 
-    def save_annotations(self, annotations: list[dict], output_path: Path):
-        """Save annotations as JSONL for human review."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            for ann in annotations:
-                f.write(json.dumps(ann) + "\n")
-        logger.info(f"Saved {len(annotations)} annotations to {output_path}")
-
-    def generate_review_csv(self, annotations: list[dict], output_path: Path):
-        """
-        Generate a CSV for easier human review in a spreadsheet.
-        Includes key fields and a validation column.
-        """
-        import csv
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "pmid", "title", "overall_severity", "overall_bias_probability",
-                "statistical_severity", "relative_only", "spin_level",
-                "funding_type", "confidence",
-                "reasoning_summary",
-                "HUMAN_VALIDATED", "HUMAN_OVERRIDE_SEVERITY", "HUMAN_NOTES",
-            ])
-
-            for ann in annotations:
-                stat = ann.get("statistical_reporting", {})
-                spin = ann.get("spin", {})
-                coi = ann.get("conflict_of_interest", {})
-
-                writer.writerow([
-                    ann.get("pmid", ""),
-                    ann.get("title", "")[:100],
-                    ann.get("overall_severity", ""),
-                    ann.get("overall_bias_probability", ""),
-                    stat.get("severity", ""),
-                    stat.get("relative_only", ""),
-                    spin.get("spin_level", ""),
-                    coi.get("funding_type", ""),
-                    ann.get("confidence", ""),
-                    ann.get("reasoning", "")[:200],
-                    "",  # HUMAN_VALIDATED
-                    "",  # HUMAN_OVERRIDE_SEVERITY
-                    "",  # HUMAN_NOTES
-                ])
-
-        logger.info(f"Generated review CSV at {output_path}")
+    # Delegate to shared implementations
+    save_annotations = staticmethod(save_annotations)
+    generate_review_csv = staticmethod(generate_review_csv)

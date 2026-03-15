@@ -43,6 +43,12 @@ class Config:
     annotation_model: str = "claude-sonnet-4-20250514"
     annotation_max_tokens: int = 4000
 
+    # DeepSeek API (alternative annotator for comparison)
+    deepseek_api_key: str = ""  # Set via env var DEEPSEEK_API_KEY preferred
+    deepseek_api_base: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
+    deepseek_max_tokens: int = 4000
+
     # ORCID (for author affiliation verification)
     orcid_base: str = "https://pub.orcid.org/v3.0"
 

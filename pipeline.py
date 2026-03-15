@@ -4,16 +4,19 @@ Pipeline Orchestrator
 Coordinates the full dataset building workflow:
 1. Collect candidate abstracts from multiple sources
 2. Enrich with heuristic analysis (effect size audit, author COI)
-3. Pre-label with Claude API
+3. Pre-label with one or more LLMs (Claude, DeepSeek, etc.)
 4. Export for human review
 5. After human validation, export for fine-tuning
+6. Compare model annotations against human ground truth
 
 Usage:
     python pipeline.py --stage collect    # Stage 1: Collect raw abstracts
     python pipeline.py --stage enrich     # Stage 2: Heuristic enrichment
-    python pipeline.py --stage annotate   # Stage 3: LLM pre-labelling
-    python pipeline.py --stage export     # Stage 4: Export for review/training
-    python pipeline.py --stage all        # Run all stages
+    python pipeline.py --stage annotate   # Stage 3: LLM pre-labelling (Claude)
+    python pipeline.py --stage annotate --models anthropic,deepseek  # Both
+    python pipeline.py --stage export     # Stage 4: Export for training
+    python pipeline.py --stage compare    # Stage 5: Compare models vs human
+    python pipeline.py --stage all        # Run stages 1-4
 """
 
 import argparse
@@ -22,6 +25,7 @@ import json
 import logging
 from datetime import date
 from pathlib import Path
+from typing import Optional, Union
 
 import httpx
 
@@ -309,85 +313,137 @@ async def stage_enrich(config: Config) -> None:
         logger.info("Cochrane RoB assessments copied to enriched directory")
 
 
-async def stage_annotate(config: Config) -> None:
-    """Pre-label abstracts with Claude API for structured bias assessment.
+async def stage_annotate(config: Config, models: Optional[list[str]] = None) -> None:
+    """Pre-label abstracts with one or more LLMs for structured bias assessment.
 
-    Sends high-suspicion, retracted, Cochrane, and low-suspicion abstracts.
-    Outputs JSONL + CSV for human review.
+    Each model's outputs are always saved in a separate subdirectory under
+    labelled_dir (e.g. labelled/anthropic/, labelled/deepseek/) for consistent
+    layout regardless of how many models are used.
+
+    Args:
+        config: Application configuration.
+        models: List of annotator backends to use. Defaults to ["anthropic"].
+                Supported: "anthropic", "deepseek".
     """
-    from annotators.llm_prelabel import LLMAnnotator
+    if models is None:
+        models = ["anthropic"]
 
     enriched_dir = Path(config.enriched_dir)
-    output_dir = Path(config.labelled_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    source_files = [
+        "high_suspicion.jsonl",
+        "retracted_papers.jsonl",
+        "cochrane_rob.jsonl",
+        "low_suspicion.jsonl",
+    ]
 
-    async with LLMAnnotator(
-        api_key=config.anthropic_api_key,
-        model=config.annotation_model,
-        max_tokens=config.annotation_max_tokens,
-    ) as annotator:
-        source_files = [
-            "high_suspicion.jsonl",
-            "retracted_papers.jsonl",
-            "cochrane_rob.jsonl",
-            "low_suspicion.jsonl",
-        ]
-        for source_file in source_files:
-            source_path = enriched_dir / source_file
-            if not source_path.exists():
-                continue
+    # Load items once (shared across models)
+    all_items: dict[str, list[dict]] = {}
+    for source_file in source_files:
+        source_path = enriched_dir / source_file
+        if not source_path.exists():
+            continue
+        items: list[dict] = []
+        with open(source_path) as f:
+            for line in f:
+                data = json.loads(line)
+                items.append({
+                    "pmid": data.get("pmid", ""),
+                    "title": data.get("title", ""),
+                    "abstract": data.get("abstract", ""),
+                    "metadata": data,
+                })
+        source_key = source_file.replace(".jsonl", "")
+        max_items = config.annotation_max_per_source.get(source_key, 200)
+        all_items[source_file] = items[:max_items]
 
-            logger.info(f"=== Annotating {source_file} ===")
-            items: list[dict] = []
-            with open(source_path) as f:
-                for line in f:
-                    data = json.loads(line)
-                    items.append({
-                        "pmid": data.get("pmid", ""),
-                        "title": data.get("title", ""),
-                        "abstract": data.get("abstract", ""),
-                        "metadata": data,
-                    })
+    for model_name in models:
+        annotator = _create_annotator(config, model_name)
+        if annotator is None:
+            continue
 
-            # Limit batch size for cost control (from config)
-            source_key = source_file.replace(".jsonl", "")
-            max_items = config.annotation_max_per_source.get(source_key, 200)
-            items = items[:max_items]
+        # Always use subdirectories for consistent layout
+        output_dir = Path(config.labelled_dir) / model_name
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-            annotations = await annotator.annotate_batch(
-                items,
-                concurrency=config.annotation_concurrency,
-                delay=config.annotation_delay,
-            )
+        logger.info(f"\n{'='*60}")
+        logger.info(f"ANNOTATING WITH: {model_name}")
+        logger.info(f"{'='*60}")
 
-            # Merge original abstract text into annotations
-            abstract_map = {item["pmid"]: item["abstract"] for item in items}
-            for ann in annotations:
-                ann["abstract_text"] = abstract_map.get(ann.get("pmid", ""), "")
-                ann["source"] = source_key
+        async with annotator:
+            for source_file, items in all_items.items():
+                logger.info(f"=== Annotating {source_file} ({model_name}) ===")
 
-            output_name = source_file.replace(".jsonl", "_annotated.jsonl")
-            annotator.save_annotations(annotations, output_dir / output_name)
+                output_name = source_file.replace(".jsonl", "_annotated.jsonl")
+                output_path = output_dir / output_name
 
-            # Also generate CSV for human review
-            csv_name = source_file.replace(".jsonl", "_review.csv")
-            annotator.generate_review_csv(annotations, output_dir / csv_name)
+                # annotate_batch handles incremental save and resume
+                annotations = await annotator.annotate_batch(
+                    items,
+                    concurrency=config.annotation_concurrency,
+                    delay=config.annotation_delay,
+                    output_path=output_path,
+                )
+
+                # Merge original abstract text into annotations
+                abstract_map = {item["pmid"]: item["abstract"] for item in items}
+                source_key = source_file.replace(".jsonl", "")
+                for ann in annotations:
+                    ann["abstract_text"] = abstract_map.get(ann.get("pmid", ""), "")
+                    ann["source"] = source_key
+
+                # Write final complete file (with abstract_text and source merged)
+                annotator.save_annotations(annotations, output_path)
+
+                csv_name = source_file.replace(".jsonl", "_review.csv")
+                annotator.generate_review_csv(annotations, output_dir / csv_name)
+
+
+def _create_annotator(
+    config: Config, model_name: str
+) -> Optional[Union["LLMAnnotator", "OpenAICompatAnnotator"]]:
+    """Factory: create an annotator instance by backend name.
+
+    Args:
+        config: Application configuration.
+        model_name: Backend identifier ("anthropic" or "deepseek").
+
+    Returns:
+        Annotator instance, or None if the model name is unknown.
+    """
+    if model_name == "anthropic":
+        from annotators.llm_prelabel import LLMAnnotator
+        return LLMAnnotator(
+            api_key=config.anthropic_api_key,
+            model=config.annotation_model,
+            max_tokens=config.annotation_max_tokens,
+        )
+    elif model_name == "deepseek":
+        from annotators.openai_compat import OpenAICompatAnnotator
+        return OpenAICompatAnnotator(
+            api_key=config.deepseek_api_key,
+            api_base=config.deepseek_api_base,
+            model=config.deepseek_model,
+            max_tokens=config.deepseek_max_tokens,
+        )
+    else:
+        logger.error(f"Unknown annotator model: {model_name}")
+        return None
 
 
 async def stage_export(config: Config) -> None:
     """Export validated annotations for fine-tuning.
 
-    Reads human-validated annotations and exports in training format
-    with configurable train/val/test splits.
+    Reads human-validated annotations from labelled_dir subdirectories
+    and exports in training format with configurable train/val/test splits.
     """
     from export import export_dataset
 
     labelled_dir = Path(config.labelled_dir)
     output_dir = Path(config.export_dir)
 
-    # Collect all validated annotations
+    # Collect all validated annotations (search subdirectories too)
     all_annotations: list[dict] = []
-    for path in labelled_dir.glob("*_annotated.jsonl"):
+    for path in labelled_dir.rglob("*_annotated.jsonl"):
         with open(path) as f:
             for line in f:
                 ann = json.loads(line)
@@ -414,14 +470,183 @@ async def stage_export(config: Config) -> None:
         )
 
 
+async def stage_compare(config: Config) -> None:
+    """Compare annotations from multiple models against human-validated labels.
+
+    Reads annotations from labelled_dir/{model_name}/ subdirectories and
+    human labels from labelled_dir/human/, then generates a comparison report
+    using the evaluation framework.
+
+    Expected directory layout:
+        labelled/
+            anthropic/     <- annotations from Claude
+            deepseek/      <- annotations from DeepSeek
+            human/         <- human-validated ground truth (copy from review CSVs)
+    """
+    from evaluation.scorer import parse_model_output, attach_ground_truth
+    from evaluation.metrics import evaluate_model
+    from evaluation.comparison import generate_comparison, save_report
+
+    labelled_dir = Path(config.labelled_dir)
+    output_dir = Path(config.output_dir) / "annotation_comparison"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Discover model subdirectories
+    model_dirs = [
+        d for d in labelled_dir.iterdir()
+        if d.is_dir() and d.name != "human"
+    ]
+    if not model_dirs:
+        logger.warning(
+            "No model subdirectories found in labelled_dir. "
+            "Run --stage annotate --models anthropic,deepseek first."
+        )
+        return
+
+    # Load human ground truth (if available)
+    human_dir = labelled_dir / "human"
+    gt_by_pmid: dict[str, dict] = {}
+    has_human_gt = False
+    if human_dir.exists():
+        for path in human_dir.glob("*_annotated.jsonl"):
+            with open(path) as f:
+                for line in f:
+                    ann = json.loads(line)
+                    pmid = ann.get("pmid", "")
+                    if pmid:
+                        gt_by_pmid[pmid] = ann
+        if gt_by_pmid:
+            has_human_gt = True
+            logger.info(f"Loaded {len(gt_by_pmid)} human ground truth labels")
+        else:
+            logger.warning(
+                f"Human labels directory exists at {human_dir} but contains "
+                "no annotated JSONL files."
+            )
+
+    if not has_human_gt:
+        logger.warning(
+            f"No human labels found at {human_dir}. "
+            "Comparison will use the first model's annotations as reference. "
+            "NOTE: Metrics will reflect inter-model agreement, NOT accuracy. "
+            "For proper evaluation, create labelled/human/ with validated annotations."
+        )
+
+    # Load and score each model's annotations
+    all_assessments = {}
+    all_evaluations = {}
+
+    for model_dir in sorted(model_dirs):
+        model_name = model_dir.name
+        logger.info(f"\n{'='*40}")
+        logger.info(f"Scoring annotations: {model_name}")
+        logger.info(f"{'='*40}")
+
+        # Load all annotations for this model
+        annotations = []
+        for path in model_dir.glob("*_annotated.jsonl"):
+            with open(path) as f:
+                for line in f:
+                    annotations.append(json.loads(line))
+
+        if not annotations:
+            logger.warning(f"No annotations found for {model_name}")
+            continue
+
+        # If no human ground truth, use the first model as reference
+        # (useful for inter-rater agreement, but NOT accuracy measurement)
+        if not gt_by_pmid and not all_assessments:
+            for ann in annotations:
+                pmid = ann.get("pmid", "")
+                if pmid:
+                    gt_by_pmid[pmid] = ann
+            logger.info(
+                f"Using {model_name} as reference (no human labels available)"
+            )
+
+        # Parse each annotation and attach ground truth
+        assessments = []
+        for ann in annotations:
+            pmid = ann.get("pmid", "")
+            # Reconstruct raw_output as JSON for the scorer
+            raw_json = json.dumps({
+                k: v for k, v in ann.items()
+                if k not in ("pmid", "title", "abstract_text", "source", "_annotation_model")
+            })
+            parsed = parse_model_output(
+                raw_output=raw_json,
+                pmid=pmid,
+                model_id=model_name,
+            )
+            gt = gt_by_pmid.get(pmid)
+            if gt:
+                parsed = attach_ground_truth(parsed, gt)
+            assessments.append(parsed)
+
+        evaluation = evaluate_model(assessments, model_id=model_name)
+        all_assessments[model_name] = assessments
+        all_evaluations[model_name] = evaluation
+
+        logger.info(f"Overall F1: {evaluation.overall_binary.f1:.3f}")
+        logger.info(f"Overall kappa: {evaluation.overall_ordinal.weighted_kappa():.3f}")
+        logger.info(f"Calibration Error: {evaluation.calibration_error:.3f}")
+
+    # Generate comparison report
+    if len(all_evaluations) >= 2:
+        logger.info("\n" + "=" * 60)
+        logger.info("GENERATING ANNOTATION COMPARISON REPORT")
+        logger.info("=" * 60)
+
+        comparison_mode = (
+            "annotation-comparison"
+            if has_human_gt
+            else "inter-model-agreement"
+        )
+        report = generate_comparison(
+            evaluations=all_evaluations,
+            assessments=all_assessments,
+            mode=comparison_mode,
+        )
+
+        # Add caveat to summary when no human ground truth
+        if not has_human_gt:
+            caveat = (
+                "\n\n> **NOTE:** No human ground truth was available. "
+                "All metrics above reflect inter-model agreement, not "
+                "accuracy against a validated reference. To measure true "
+                "accuracy, place human-validated annotations in "
+                "labelled/human/ and re-run."
+            )
+            report.summary += caveat
+
+        save_report(report, output_dir, evaluations=all_evaluations)
+        print("\n" + report.summary)
+    elif len(all_evaluations) == 1:
+        # Save single-model evaluation
+        model_name = list(all_evaluations.keys())[0]
+        eval_path = output_dir / f"{model_name}_evaluation.json"
+        with open(eval_path, "w") as f:
+            json.dump(all_evaluations[model_name].to_dict(), f, indent=2)
+        logger.info(f"Single model evaluation saved to {eval_path}")
+    else:
+        logger.warning("No models to compare.")
+
+
 def main() -> None:
     """CLI entry point for the pipeline orchestrator."""
     parser = argparse.ArgumentParser(description="Bias Detection Dataset Builder")
     parser.add_argument(
         "--stage",
-        choices=["collect", "enrich", "annotate", "export", "all"],
+        choices=["collect", "enrich", "annotate", "export", "compare", "all"],
         default="all",
         help="Pipeline stage to run",
+    )
+    parser.add_argument(
+        "--models",
+        type=str,
+        default=None,
+        help="Comma-separated list of annotator models (e.g. anthropic,deepseek). "
+             "Only used with --stage annotate. Default: anthropic",
     )
     parser.add_argument(
         "--config", type=str, default=None,
@@ -431,20 +656,26 @@ def main() -> None:
 
     config = Config()
 
+    # Parse model list for annotation stage
+    annotation_models = None
+    if args.models:
+        annotation_models = [m.strip() for m in args.models.split(",")]
+
     stages = {
         "collect": stage_collect,
         "enrich": stage_enrich,
-        "annotate": stage_annotate,
+        "annotate": lambda cfg: stage_annotate(cfg, models=annotation_models),
         "export": stage_export,
+        "compare": stage_compare,
     }
 
     if args.stage == "all":
         async def run_all() -> None:
-            for name, stage_fn in stages.items():
+            for name in ["collect", "enrich", "annotate", "export"]:
                 logger.info(f"\n{'='*60}")
                 logger.info(f"STAGE: {name.upper()}")
                 logger.info(f"{'='*60}")
-                await stage_fn(config)
+                await stages[name](config)
         asyncio.run(run_all())
     else:
         asyncio.run(stages[args.stage](config))
