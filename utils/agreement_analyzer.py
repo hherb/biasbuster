@@ -4,8 +4,7 @@ Inter-Model Agreement Analyzer
 Compares annotations from two models on shared PMIDs to measure
 congruence/divergence without requiring human ground truth.
 
-Lighter-weight than evaluation/comparison.py — works directly on raw
-JSONL dicts rather than the full evaluation pipeline.
+Uses the SQLite database instead of reading JSONL files directly.
 
 Usage:
     uv run python -m utils.agreement_analyzer
@@ -13,12 +12,13 @@ Usage:
     uv run python -m utils.agreement_analyzer --output report.md
 """
 
+import json
 import logging
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from utils import load_records_by_pmid
+from database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +91,7 @@ class AgreementReport:
 def _weighted_kappa(
     ratings_a: list[int], ratings_b: list[int], n_cats: int = 5
 ) -> float:
-    """Cohen's kappa with linear weights for ordinal data.
-
-    Based on the implementation in evaluation/metrics.py:124.
-    """
+    """Cohen's kappa with linear weights for ordinal data."""
     n = len(ratings_a)
     if n == 0:
         return 0.0
@@ -158,29 +155,20 @@ def _pearson_r(xs: list[float], ys: list[float]) -> float:
     return cov / denom
 
 
-def _load_all_annotations(labelled_dir: Path, model_name: str) -> dict[str, dict]:
-    """Load all annotated JSONL files for a model, indexed by PMID."""
-    model_dir = labelled_dir / model_name
-    if not model_dir.exists():
-        logger.warning(f"Model directory not found: {model_dir}")
-        return {}
-    all_records: dict[str, dict] = {}
-    for path in sorted(model_dir.glob("*_annotated.jsonl")):
-        records = load_records_by_pmid(path)
-        all_records.update(records)
-    return all_records
+def _load_annotations_by_pmid(db: Database, model_name: str) -> dict[str, dict]:
+    """Load all annotations for a model, indexed by PMID."""
+    annotations = db.get_annotations(model_name=model_name)
+    return {ann["pmid"]: ann for ann in annotations if ann.get("pmid")}
 
 
 def analyze_agreement(
-    labelled_dir: str | Path,
+    db: Database,
     model_a: str = "anthropic",
     model_b: str = "deepseek",
 ) -> AgreementReport:
     """Compare two models' annotations on shared PMIDs."""
-    labelled_dir = Path(labelled_dir)
-
-    records_a = _load_all_annotations(labelled_dir, model_a)
-    records_b = _load_all_annotations(labelled_dir, model_b)
+    records_a = _load_annotations_by_pmid(db, model_a)
+    records_b = _load_annotations_by_pmid(db, model_b)
 
     shared_pmids = sorted(set(records_a) & set(records_b))
     report = AgreementReport(
@@ -202,8 +190,12 @@ def analyze_agreement(
         for pmid in shared_pmids:
             sev_a = records_a[pmid].get(dim, {}).get("severity", "")
             sev_b = records_b[pmid].get(dim, {}).get("severity", "")
-            idx_a = SEVERITY_MAP.get(sev_a.lower(), -1)
-            idx_b = SEVERITY_MAP.get(sev_b.lower(), -1)
+            if isinstance(sev_a, dict):
+                sev_a = sev_a.get("severity", "")
+            if isinstance(sev_b, dict):
+                sev_b = sev_b.get("severity", "")
+            idx_a = SEVERITY_MAP.get(str(sev_a).lower(), -1)
+            idx_b = SEVERITY_MAP.get(str(sev_b).lower(), -1)
             if idx_a >= 0 and idx_b >= 0:
                 ratings_a_int.append(idx_a)
                 ratings_b_int.append(idx_b)
@@ -219,7 +211,6 @@ def analyze_agreement(
         )
         kappa = _weighted_kappa(ratings_a_int, ratings_b_int)
 
-        # Confusion matrix
         matrix = {
             gt: {pred: 0 for pred in SEVERITY_LABELS}
             for gt in SEVERITY_LABELS
@@ -244,8 +235,8 @@ def analyze_agreement(
     for pmid in shared_pmids:
         sev_a = records_a[pmid].get("overall_severity", "")
         sev_b = records_b[pmid].get("overall_severity", "")
-        idx_a = SEVERITY_MAP.get(sev_a.lower(), -1)
-        idx_b = SEVERITY_MAP.get(sev_b.lower(), -1)
+        idx_a = SEVERITY_MAP.get(str(sev_a).lower(), -1)
+        idx_b = SEVERITY_MAP.get(str(sev_b).lower(), -1)
         if idx_a >= 0 and idx_b >= 0:
             overall_a_int.append(idx_a)
             overall_b_int.append(idx_b)
@@ -285,8 +276,20 @@ def analyze_agreement(
         a_positive = 0
         b_positive = 0
         for pmid in shared_pmids:
-            val_a = records_a[pmid].get(dim, {}).get(flag_name)
-            val_b = records_b[pmid].get(dim, {}).get(flag_name)
+            dim_a = records_a[pmid].get(dim, {})
+            dim_b = records_b[pmid].get(dim, {})
+            if isinstance(dim_a, str):
+                try:
+                    dim_a = json.loads(dim_a)
+                except (json.JSONDecodeError, TypeError):
+                    dim_a = {}
+            if isinstance(dim_b, str):
+                try:
+                    dim_b = json.loads(dim_b)
+                except (json.JSONDecodeError, TypeError):
+                    dim_b = {}
+            val_a = dim_a.get(flag_name)
+            val_b = dim_b.get(flag_name)
             if val_a is None or val_b is None:
                 continue
             n += 1
@@ -304,7 +307,6 @@ def analyze_agreement(
                 sb = str(val_b).lower()
                 if sa == sb:
                     agree += 1
-                # "positive" = non-default (not "none", not "not_reported")
                 if sa not in ("none", "not_reported", ""):
                     a_positive += 1
                 if sb not in ("none", "not_reported", ""):
@@ -332,7 +334,7 @@ def analyze_agreement(
         divergences.append(
             {
                 "pmid": pmid,
-                "title": records_a[pmid].get("title", "")[:100],
+                "title": str(records_a[pmid].get("title", ""))[:100],
                 f"{model_a}_severity": records_a[pmid].get(
                     "overall_severity", ""
                 ),
@@ -345,7 +347,7 @@ def analyze_agreement(
             }
         )
     divergences.sort(key=lambda x: x["probability_diff"], reverse=True)
-    report.most_divergent = divergences[:50]  # Keep top 50 to limit memory
+    report.most_divergent = divergences[:50]
 
     return report
 
@@ -397,7 +399,6 @@ def format_report(report: AgreementReport, top_divergent: int = 10) -> str:
         )
     lines.append("")
 
-    # Kappa interpretation
     lines.append("Kappa interpretation: "
                  "<0 poor | 0-.20 slight | .21-.40 fair | "
                  ".41-.60 moderate | .61-.80 substantial | .81-1 almost perfect")
@@ -450,7 +451,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Compare model annotations for agreement"
     )
-    parser.add_argument("--labelled-dir", default=None)
+    parser.add_argument("--db-path", default=None)
     parser.add_argument("--model-a", default="anthropic")
     parser.add_argument("--model-b", default="deepseek")
     parser.add_argument("--top-divergent", type=int, default=10)
@@ -462,11 +463,16 @@ if __name__ == "__main__":
     from config import Config
 
     cfg = Config()
-    labelled = args.labelled_dir or cfg.labelled_dir
+    db_path = args.db_path or cfg.db_path
 
-    report = analyze_agreement(labelled, args.model_a, args.model_b)
-    text = format_report(report, top_divergent=args.top_divergent)
-    print(text)
-    if args.output:
-        Path(args.output).write_text(text)
-        print(f"\nReport saved to {args.output}")
+    db = Database(db_path)
+    db.initialize()
+    try:
+        report = analyze_agreement(db, args.model_a, args.model_b)
+        text = format_report(report, top_divergent=args.top_divergent)
+        print(text)
+        if args.output:
+            Path(args.output).write_text(text)
+            print(f"\nReport saved to {args.output}")
+    finally:
+        db.close()

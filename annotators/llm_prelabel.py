@@ -8,24 +8,19 @@ Strategy:
 1. Send abstract + metadata to Claude with detailed bias assessment prompt
 2. Parse structured response into BiasAssessment objects
 3. Flag low-confidence assessments for priority human review
-4. Export as JSONL for review in a simple web UI or spreadsheet
+4. Store in SQLite database for review
 """
 
 import asyncio
-import json
 import logging
 import os
-from pathlib import Path
 from typing import Optional
 
 import anthropic
 
 from . import (
     build_user_message,
-    generate_review_csv,
     parse_llm_json,
-    save_annotations,
-    strip_markdown_fences,
 )
 
 logger = logging.getLogger(__name__)
@@ -128,14 +123,6 @@ class LLMAnnotator:
         max_tokens: int = 4000,
         max_retries: int = 3,
     ) -> None:
-        """Initialise the annotator.
-
-        Args:
-            api_key: Anthropic API key. Falls back to ANTHROPIC_API_KEY env var.
-            model: Claude model identifier.
-            max_tokens: Maximum tokens per annotation response.
-            max_retries: Number of retries for transient API failures.
-        """
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self.model = model
         self.max_tokens = max_tokens
@@ -143,7 +130,6 @@ class LLMAnnotator:
         self.client: Optional[anthropic.AsyncAnthropic] = None
 
     async def __aenter__(self) -> "LLMAnnotator":
-        """Create the Anthropic async client with built-in retry."""
         self.client = anthropic.AsyncAnthropic(
             api_key=self.api_key,
             max_retries=self.max_retries,
@@ -151,7 +137,6 @@ class LLMAnnotator:
         return self
 
     async def __aexit__(self, *args) -> None:
-        """Close the Anthropic client."""
         if self.client:
             await self.client.close()
 
@@ -174,7 +159,6 @@ class LLMAnnotator:
 
         last_error = None
         for attempt in range(self.max_retries):
-            text = ""
             try:
                 message = await self.client.messages.create(
                     model=self.model,
@@ -188,7 +172,6 @@ class LLMAnnotator:
                     if block.type == "text"
                 )
 
-                # Detect refusals — no point retrying, model will always refuse
                 if message.stop_reason == "refusal":
                     logger.warning(
                         f"PMID {pmid}: model refused to process this abstract "
@@ -210,7 +193,6 @@ class LLMAnnotator:
                     assessment["_annotation_model"] = self.model
                     return assessment
 
-                # parse_llm_json returned None — retry with the API
                 last_error = "JSON parse failure after repair attempt"
                 logger.warning(
                     f"PMID {pmid}: JSON parse failed "
@@ -238,44 +220,29 @@ class LLMAnnotator:
 
     async def annotate_batch(
         self,
-        items: list[dict],  # Each: {pmid, title, abstract, metadata?}
+        items: list[dict],
         concurrency: int = 3,
         delay: float = 1.0,
-        output_path: Optional[Path] = None,
+        already_done: Optional[set[str]] = None,
     ) -> list[dict]:
         """Annotate a batch of abstracts with rate limiting.
 
-        Supports incremental save: if output_path is provided, results are
-        flushed to disk periodically and already-annotated PMIDs are skipped
-        on resume.
+        Skips PMIDs already in already_done (for resume support).
+        Returns list of successful annotations.
 
         Args:
             items: List of dicts with pmid, title, abstract, metadata keys.
             concurrency: Max concurrent API requests.
             delay: Seconds between requests.
-            output_path: Optional path for incremental JSONL saves.
+            already_done: Set of PMIDs to skip (already annotated).
 
         Returns:
             List of successful annotations.
         """
-        # Resume support: skip already-annotated PMIDs
-        results: list[dict] = []
-        already_done: set[str] = set()
-        if output_path and output_path.exists():
-            with open(output_path) as f:
-                for line in f:
-                    try:
-                        ann = json.loads(line)
-                        results.append(ann)
-                        already_done.add(ann.get("pmid", ""))
-                    except json.JSONDecodeError:
-                        continue
-            if already_done:
-                logger.info(
-                    f"Resuming: {len(already_done)} already annotated in {output_path}"
-                )
+        if already_done is None:
+            already_done = set()
 
-        # Deduplicate by PMID (enriched data may contain duplicates)
+        # Deduplicate by PMID
         seen_pmids: set[str] = set(already_done)
         remaining = []
         for it in items:
@@ -285,10 +252,9 @@ class LLMAnnotator:
                 remaining.append(it)
         if not remaining:
             logger.info("All items already annotated, nothing to do")
-            return results
+            return []
 
         semaphore = asyncio.Semaphore(concurrency)
-        flush_every = 10
 
         async def process_one(item):
             async with semaphore:
@@ -301,29 +267,13 @@ class LLMAnnotator:
                 await asyncio.sleep(delay)
                 return result
 
-        # Process in chunks for incremental save
-        for chunk_start in range(0, len(remaining), flush_every):
-            chunk = remaining[chunk_start : chunk_start + flush_every]
-            batch_results = await asyncio.gather(
-                *(process_one(item) for item in chunk)
-            )
-            new_results = [r for r in batch_results if r is not None]
-            results.extend(new_results)
-
-            # Incremental save
-            if output_path and new_results:
-                with open(output_path, "a") as f:
-                    for ann in new_results:
-                        f.write(json.dumps(ann) + "\n")
-                logger.info(
-                    f"Checkpoint: {len(results)}/{len(items)} annotations saved"
-                )
+        # Process all items
+        results = await asyncio.gather(
+            *(process_one(item) for item in remaining)
+        )
+        successful = [r for r in results if r is not None]
 
         logger.info(
-            f"Annotated {len(results)}/{len(items)} abstracts successfully"
+            f"Annotated {len(successful)}/{len(remaining)} abstracts successfully"
         )
-        return results
-
-    # Delegate to shared implementations
-    save_annotations = staticmethod(save_annotations)
-    generate_review_csv = staticmethod(generate_review_csv)
+        return successful

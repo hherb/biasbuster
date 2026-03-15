@@ -80,10 +80,8 @@ class Config:
 
     # Output
     output_dir: str = "dataset"
-    raw_dir: str = "dataset/raw"
-    enriched_dir: str = "dataset/enriched"
-    labelled_dir: str = "dataset/labelled"
     export_dir: str = "dataset/export"
+    db_path: str = "dataset/biasbuster.db"
 
     # Collection targets
     retraction_watch_max: int = 2000      # Max retracted papers to collect

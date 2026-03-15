@@ -1,116 +1,84 @@
 """
 Dataset Completeness Checker
 
-Checks whether all enriched abstracts have been labelled by each model.
-Reports missing items per source file and per model.
-
-When annotation limits are provided (from Config), shows progress against
-the configured cap rather than the full enriched set — giving a realistic
-view of what's actually left to do.
+Checks whether all enriched abstracts have been annotated by each model.
+Reports missing items per source and per model using the SQLite database.
 
 Usage:
     uv run python -m utils.completeness_checker
-    uv run python -m utils.completeness_checker --show-missing
     uv run python -m utils.completeness_checker --models anthropic,deepseek
-    uv run python -m utils.completeness_checker --no-limits  # ignore config caps
 """
 
 import logging
-from pathlib import Path
 
-from utils import load_pmids_from_jsonl
+from database import Database
 
 logger = logging.getLogger(__name__)
 
+# Source keys used in annotations and their corresponding DB queries
+SOURCE_KEYS = [
+    "high_suspicion",
+    "retracted_papers",
+    "cochrane_rob",
+    "low_suspicion",
+]
+
 
 def check_completeness(
-    enriched_dir: str | Path,
-    labelled_dir: str | Path,
+    db: Database,
     models: list[str] | None = None,
     annotation_limits: dict[str, int] | None = None,
 ) -> dict[str, dict[str, dict]]:
-    """Check labelling completeness for each source file per model.
+    """Check annotation completeness for each source per model.
 
     Args:
-        enriched_dir: Path to enriched JSONL directory.
-        labelled_dir: Path to labelled directory with model subdirs.
+        db: Database instance.
         models: Model names to check (auto-discovers if None).
-        annotation_limits: Per-source max items from config. When provided,
-            the target count is min(enriched_count, limit) rather than the
-            full enriched count.
+        annotation_limits: Per-source max items from config.
 
     Returns:
         Nested dict: {source_name: {model_name: {
-            "total_enriched": int,
             "target": int,
             "total_labelled": int,
             "missing_count": int,
-            "missing_pmids": list[str],
-            "extra_pmids": list[str],
             "completion_pct": float,
         }}}
     """
-    enriched_dir = Path(enriched_dir)
-    labelled_dir = Path(labelled_dir)
-
-    # Discover enriched source files
-    enriched_files = sorted(enriched_dir.glob("*.jsonl"))
-    if not enriched_files:
-        logger.warning(f"No JSONL files found in {enriched_dir}")
-        return {}
-
-    # Discover models (subdirectories of labelled_dir, excluding 'human')
     if models is None:
-        model_dirs = sorted(
-            d for d in labelled_dir.iterdir()
-            if d.is_dir() and d.name != "human"
-        )
-        models = [d.name for d in model_dirs]
+        models = db.get_model_names()
+        models = [m for m in models if m != "human"]
     if not models:
-        logger.warning(f"No model subdirectories found in {labelled_dir}")
+        logger.warning("No model annotations found in database")
         return {}
 
     results: dict[str, dict[str, dict]] = {}
 
-    for enriched_path in enriched_files:
-        source_name = enriched_path.stem  # e.g. "high_suspicion"
-        enriched_pmids = load_pmids_from_jsonl(enriched_path)
-        total_enriched = len(enriched_pmids)
+    for source_key in SOURCE_KEYS:
+        # Count papers available for this source
+        papers = db.get_papers_by_source_for_annotation(source_key)
+        total_available = len(papers)
+        available_pmids = {p["pmid"] for p in papers}
 
-        # Effective target: min(enriched, configured limit)
         limit = (
-            annotation_limits.get(source_name)
+            annotation_limits.get(source_key)
             if annotation_limits
             else None
         )
-        target = min(total_enriched, limit) if limit else total_enriched
+        target = min(total_available, limit) if limit else total_available
 
-        results[source_name] = {}
+        results[source_key] = {}
 
         for model_name in models:
-            annotated_path = (
-                labelled_dir / model_name / f"{source_name}_annotated.jsonl"
-            )
-
-            if annotated_path.exists():
-                labelled_pmids = load_pmids_from_jsonl(annotated_path)
-            else:
-                labelled_pmids = set()
-
-            missing = enriched_pmids - labelled_pmids
-            extra = labelled_pmids - enriched_pmids
-            labelled_count = len(labelled_pmids)
-
-            # Effective missing: only count as missing if below target
+            annotated_pmids = db.get_annotated_pmids(model_name)
+            labelled_in_source = annotated_pmids & available_pmids
+            labelled_count = len(labelled_in_source)
             effective_missing = max(0, target - labelled_count)
 
-            results[source_name][model_name] = {
-                "total_enriched": total_enriched,
+            results[source_key][model_name] = {
+                "total_available": total_available,
                 "target": target,
                 "total_labelled": labelled_count,
                 "missing_count": effective_missing,
-                "missing_pmids": sorted(missing)[:effective_missing],
-                "extra_pmids": sorted(extra),
                 "completion_pct": (
                     labelled_count / target * 100 if target > 0 else 100.0
                 ),
@@ -121,13 +89,9 @@ def check_completeness(
 
 def print_report(
     results: dict,
-    show_missing: bool = False,
     show_limits: bool = True,
 ) -> str:
-    """Format completeness results as a readable report.
-
-    Returns the report text (also prints it).
-    """
+    """Format completeness results as a readable report."""
     lines = []
     lines.append("=" * 70)
     lines.append("DATASET COMPLETENESS REPORT")
@@ -139,7 +103,6 @@ def print_report(
         print(text)
         return text
 
-    # Collect all models
     all_models = set()
     for source_data in results.values():
         all_models.update(source_data.keys())
@@ -160,21 +123,19 @@ def print_report(
         row = f"{source_name:<25}"
         first_model_info = next(iter(source_data.values()), {})
         target = first_model_info.get("target", 0)
-        total_enriched = first_model_info.get("total_enriched", 0)
+        total_available = first_model_info.get("total_available", 0)
 
         for model in all_models:
             info = source_data.get(model, {})
             labelled = info.get("total_labelled", 0)
             pct = info.get("completion_pct", 0.0)
-            # Show labelled/target, and note enriched total if different
             row += f" | {labelled:>5}/{target:<5} ({pct:5.1f}%)"
             total_labelled_all[model] += labelled
 
         total_target_all += target
 
-        # Add note if target differs from enriched
-        if show_limits and target != total_enriched:
-            row += f"  [of {total_enriched} enriched]"
+        if show_limits and target != total_available:
+            row += f"  [of {total_available} available]"
 
         lines.append(row)
 
@@ -211,42 +172,6 @@ def print_report(
                         f"{missing} items to annotate"
                     )
 
-    # Missing details
-    if show_missing:
-        lines.append("")
-        lines.append("MISSING PMIDs:")
-        lines.append("-" * 40)
-        for source_name, source_data in sorted(results.items()):
-            for model, info in sorted(source_data.items()):
-                missing = info.get("missing_pmids", [])
-                if missing:
-                    lines.append(
-                        f"\n  {source_name} / {model} "
-                        f"({len(missing)} missing):"
-                    )
-                    for pmid in missing[:50]:
-                        lines.append(f"    - {pmid}")
-                    if len(missing) > 50:
-                        lines.append(f"    ... and {len(missing) - 50} more")
-
-    # Extra PMIDs (labelled but not in enriched — diagnostic)
-    has_extra = any(
-        info.get("extra_pmids")
-        for source_data in results.values()
-        for info in source_data.values()
-    )
-    if has_extra:
-        lines.append("")
-        lines.append("NOTE: Some labelled PMIDs not found in enriched data:")
-        for source_name, source_data in sorted(results.items()):
-            for model, info in sorted(source_data.items()):
-                extra = info.get("extra_pmids", [])
-                if extra:
-                    lines.append(
-                        f"  {source_name} / {model}: "
-                        f"{len(extra)} extra PMIDs"
-                    )
-
     text = "\n".join(lines)
     print(text)
     return text
@@ -261,10 +186,7 @@ if __name__ == "__main__":
         description="Check dataset labelling completeness"
     )
     parser.add_argument(
-        "--enriched-dir", default=None, help="Path to enriched directory"
-    )
-    parser.add_argument(
-        "--labelled-dir", default=None, help="Path to labelled directory"
+        "--db-path", default=None, help="Path to SQLite database"
     )
     parser.add_argument(
         "--models",
@@ -273,24 +195,23 @@ if __name__ == "__main__":
         help="Comma-separated model names (default: auto-discover)",
     )
     parser.add_argument(
-        "--show-missing",
-        action="store_true",
-        help="Print individual missing PMIDs",
-    )
-    parser.add_argument(
         "--no-limits",
         action="store_true",
-        help="Ignore config caps, show progress against full enriched set",
+        help="Ignore config caps, show progress against full available set",
     )
     args = parser.parse_args()
 
     from config import Config
 
     cfg = Config()
-    enriched = args.enriched_dir or cfg.enriched_dir
-    labelled = args.labelled_dir or cfg.labelled_dir
+    db_path = args.db_path or cfg.db_path
     models = args.models.split(",") if args.models else None
     limits = None if args.no_limits else cfg.annotation_max_per_source
 
-    results = check_completeness(enriched, labelled, models, limits)
-    print_report(results, show_missing=args.show_missing)
+    db = Database(db_path)
+    db.initialize()
+    try:
+        results = check_completeness(db, models, limits)
+        print_report(results)
+    finally:
+        db.close()

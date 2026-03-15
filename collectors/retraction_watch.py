@@ -268,44 +268,12 @@ class RetractionWatchCollector:
         self,
         max_papers: int = 1000,
         require_abstract: bool = True,
-        output_path: Optional[Path] = None,
-        flush_every: int = 50,
     ) -> list[RetractedPaper]:
         """
         Full pipeline: get retracted DOIs, convert to PMIDs, fetch abstracts.
         Returns RetractedPaper objects ready for bias labelling.
-
-        If output_path is provided, results are flushed to disk incrementally
-        every flush_every papers. Supports resuming: if the output file already
-        exists, previously collected DOIs are skipped.
         """
-        # Load checkpoint: find DOIs already collected
         already_collected: set[str] = set()
-        if output_path:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            if output_path.exists():
-                with open(output_path) as f:
-                    for line in f:
-                        try:
-                            record = json.loads(line)
-                            if record.get("doi"):
-                                already_collected.add(record["doi"])
-                        except json.JSONDecodeError:
-                            continue
-                if already_collected:
-                    logger.info(
-                        f"Resuming: found {len(already_collected)} papers "
-                        f"already in {output_path}"
-                    )
-
-        def _flush_batch(papers: list[RetractedPaper]):
-            """Append a batch of papers to the output file."""
-            if not output_path or not papers:
-                return
-            with open(output_path, "a") as f:
-                for paper in papers:
-                    f.write(json.dumps(asdict(paper)) + "\n")
-            logger.info(f"Flushed {len(papers)} papers to {output_path}")
 
         # Step 1: Get retraction data from Crossref
         crossref_data = await self.fetch_retractions_from_crossref(max_results=max_papers)
@@ -370,39 +338,32 @@ class RetractionWatchCollector:
             except Exception as e:
                 logger.warning(f"Search failed for DOI {doi}: {e}")
 
-            # Fetch abstracts and flush in batches
-            if len(pending_pmid_lookup) >= flush_every:
+            # Fetch abstracts in batches
+            if len(pending_pmid_lookup) >= 50:
                 batch_results = await self._fetch_and_merge_abstracts(
                     pending_pmid_lookup, require_abstract
                 )
                 results.extend(batch_results)
-                _flush_batch(batch_results)
                 pending_pmid_lookup = []
 
             if i % 10 == 0:
-                # Longer pause every 10th request to stay within Crossref polite limits
                 await asyncio.sleep(0.5)
             else:
-                # Short delay between consecutive PubMed esearch calls
                 await asyncio.sleep(0.15)
 
             if len(results) + len(already_collected) >= max_papers:
                 break
 
-        # Flush remaining
+        # Process remaining
         if pending_pmid_lookup:
             batch_results = await self._fetch_and_merge_abstracts(
                 pending_pmid_lookup, require_abstract
             )
             results.extend(batch_results)
-            _flush_batch(batch_results)
 
         if skipped:
             logger.info(f"Skipped {skipped} already-collected papers")
-        logger.info(
-            f"Collected {len(results)} new papers "
-            f"({len(results) + len(already_collected)} total with checkpoint)"
-        )
+        logger.info(f"Collected {len(results)} retracted papers")
         return results
 
     async def _fetch_and_merge_abstracts(
@@ -424,15 +385,6 @@ class RetractionWatchCollector:
                     continue
                 merged.append(paper)
         return merged
-
-    def save_results(self, papers: list[RetractedPaper], output_path: Path) -> None:
-        """Save collected papers as JSONL."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            for paper in papers:
-                f.write(json.dumps(asdict(paper)) + "\n")
-        logger.info(f"Saved {len(papers)} papers to {output_path}")
-
 
 async def main():
     """Demo collection run."""

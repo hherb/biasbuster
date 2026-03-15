@@ -1,78 +1,66 @@
 """
-NiceGUI-based CSV Review Tool
+NiceGUI-based Review Tool
 
-Web-based GUI for reviewing and validating bias annotation CSVs.
-Opens in your browser with an editable AG Grid table.
+Web-based GUI for reviewing and validating bias annotations.
+Reads from and writes to the SQLite database.
 
 Usage:
-    uv run python -m utils.review_gui dataset/labelled/anthropic/high_suspicion_review.csv
-    uv run python -m utils.review_gui  # shows file picker
+    uv run python -m utils.review_gui --model anthropic
+    uv run python -m utils.review_gui  # shows model picker
 """
 
-import csv
 import logging
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 from nicegui import ui
+
+from database import Database
 
 logger = logging.getLogger(__name__)
 
 SEVERITY_OPTIONS = ["", "none", "low", "moderate", "high", "critical"]
 
-# Import canonical column list from annotators
-from annotators import REVIEW_CSV_COLUMNS
 
+def load_annotations_for_review(
+    db: Database, model_name: str
+) -> list[dict]:
+    """Load annotations with human review data for the review grid."""
+    annotations = db.get_annotations(model_name=model_name)
+    reviews = {
+        r["pmid"]: r for r in db.get_reviews(model_name=model_name)
+    }
 
-def load_csv(csv_path: Path) -> list[dict]:
-    """Load review CSV into list of dicts."""
     rows = []
-    with open(csv_path, newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            rows.append(dict(row))
+    for ann in annotations:
+        pmid = ann.get("pmid", "")
+        stat = ann.get("statistical_reporting", {})
+        spin = ann.get("spin", {})
+        coi = ann.get("conflict_of_interest", {})
+        review = reviews.get(pmid, {})
+
+        rows.append({
+            "pmid": pmid,
+            "title": str(ann.get("title", ""))[:100],
+            "overall_severity": ann.get("overall_severity", ""),
+            "overall_bias_probability": ann.get("overall_bias_probability", ""),
+            "statistical_severity": stat.get("severity", "") if isinstance(stat, dict) else "",
+            "relative_only": stat.get("relative_only", "") if isinstance(stat, dict) else "",
+            "spin_level": spin.get("spin_level", "") if isinstance(spin, dict) else "",
+            "funding_type": coi.get("funding_type", "") if isinstance(coi, dict) else "",
+            "confidence": ann.get("confidence", ""),
+            "reasoning_summary": str(ann.get("reasoning", ""))[:200],
+            "HUMAN_VALIDATED": "True" if review.get("validated") else "",
+            "HUMAN_OVERRIDE_SEVERITY": review.get("override_severity") or "",
+            "HUMAN_NOTES": review.get("notes") or "",
+        })
     return rows
 
 
-def save_csv(rows: list[dict], csv_path: Path) -> None:
-    """Save rows back to CSV with atomic write."""
-    # Write to temp file first, then rename
-    fd, tmp_path = tempfile.mkstemp(
-        suffix=".csv", dir=csv_path.parent, prefix=".review_tmp_"
-    )
-    try:
-        with os.fdopen(fd, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=REVIEW_CSV_COLUMNS)
-            writer.writeheader()
-            for row in rows:
-                writer.writerow(
-                    {col: row.get(col, "") for col in REVIEW_CSV_COLUMNS}
-                )
-        Path(tmp_path).replace(csv_path)
-    except Exception:
-        # Clean up temp file on failure
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-
-
-def find_csv_files(labelled_dir: str | Path) -> list[Path]:
-    """Find all review CSVs in the labelled directory."""
-    labelled_dir = Path(labelled_dir)
-    if not labelled_dir.exists():
-        return []
-    return sorted(labelled_dir.glob("**/*_review.csv"))
-
-
-def create_app(csv_path: Path) -> None:
+def create_app(db: Database, model_name: str) -> None:
     """Create the NiceGUI review application."""
-    rows = load_csv(csv_path)
-    # Track state
-    state = {"modified": False, "rows": rows}
+    rows = load_annotations_for_review(db, model_name)
+    state = {"modified": False, "rows": rows, "model_name": model_name}
 
     # --- Column definitions for AG Grid ---
     column_defs = [
@@ -198,11 +186,11 @@ def create_app(csv_path: Path) -> None:
     }
 
     # --- Build UI ---
-    ui.page_title(f"Review: {csv_path.name}")
+    ui.page_title(f"Review: {model_name}")
 
     # Header
     with ui.header().classes("items-center justify-between q-px-md"):
-        ui.label(f"Reviewing: {csv_path}").classes("text-h6")
+        ui.label(f"Reviewing: {model_name} annotations").classes("text-h6")
         with ui.row().classes("items-center gap-2"):
             status_label = ui.label("No changes").classes("text-caption")
             save_btn = ui.button("Save", on_click=lambda: do_save())
@@ -250,14 +238,11 @@ def create_app(csv_path: Path) -> None:
         ui.separator().props("vertical")
 
         async def toggle_unvalidated_filter():
-            """Filter grid to show only unvalidated rows."""
-            # Use AG Grid quick filter with empty HUMAN_VALIDATED
             current = filter_input.value
             if current == "__unvalidated__":
                 filter_input.set_value("")
                 grid.call_api_method("setGridOption", "quickFilterText", "")
             else:
-                # Filter by setting external filter via row data update
                 unvalidated = [
                     r for r in state["rows"]
                     if r.get("HUMAN_VALIDATED") != "True"
@@ -266,7 +251,7 @@ def create_app(csv_path: Path) -> None:
                 grid.update()
                 filter_input.set_value("__unvalidated__")
 
-        show_unvalidated_btn = ui.button(
+        ui.button(
             "Show Unvalidated Only",
             on_click=toggle_unvalidated_filter,
         ).props("flat size=sm color=orange")
@@ -285,6 +270,20 @@ def create_app(csv_path: Path) -> None:
             on_click=lambda: jump_to_next_unvalidated(),
         ).props("outline size=sm color=primary")
 
+        ui.separator().props("vertical")
+
+        # CSV export button
+        async def export_csv():
+            from annotators import REVIEW_CSV_COLUMNS
+            output_path = Path(f"dataset/export/{model_name}_review.csv")
+            db.export_review_csv(model_name, output_path)
+            ui.notify(f"CSV exported to {output_path}", type="positive")
+
+        ui.button(
+            "Export CSV",
+            on_click=export_csv,
+        ).props("flat size=sm color=secondary icon=download")
+
     # AG Grid
     grid = ui.aggrid(grid_options).classes("q-mx-md").style("height: 55vh;")
 
@@ -298,7 +297,6 @@ def create_app(csv_path: Path) -> None:
 
     # --- Event handlers ---
     async def on_cell_changed(e):
-        """Handle in-grid edits."""
         data = e.args
         if data is None:
             return
@@ -307,7 +305,6 @@ def create_app(csv_path: Path) -> None:
         new_val = data.get("value", "")
         row_index = data.get("rowIndex")
 
-        # Update our state — use row index if available, fall back to PMID match
         if row_index is not None and 0 <= row_index < len(state["rows"]):
             state["rows"][row_index][col] = new_val
         else:
@@ -325,11 +322,9 @@ def create_app(csv_path: Path) -> None:
     grid.on("cellValueChanged", on_cell_changed)
 
     async def on_row_selected(e):
-        """Show detail panel for selected row."""
         data = e.args
         if data is None:
             return
-        # Handle AG Grid selection event
         row_data = data.get("data") if isinstance(data, dict) else None
         if row_data is None:
             return
@@ -368,9 +363,24 @@ def create_app(csv_path: Path) -> None:
     grid.on("rowSelected", on_row_selected)
 
     def do_save():
-        """Save changes to CSV."""
+        """Save review changes to the database."""
         try:
-            save_csv(state["rows"], csv_path)
+            for row in state["rows"]:
+                pmid = row.get("pmid", "")
+                validated_str = row.get("HUMAN_VALIDATED", "")
+                override = row.get("HUMAN_OVERRIDE_SEVERITY", "") or None
+                notes = row.get("HUMAN_NOTES", "") or None
+
+                if not pmid:
+                    continue
+                if not validated_str and not override and not notes:
+                    continue
+
+                validated = validated_str == "True"
+                db.upsert_review(
+                    pmid, state["model_name"], validated, override, notes
+                )
+
             state["modified"] = False
             status_label.text = "Saved successfully"
             status_label.classes("text-green", remove="text-red text-grey")
@@ -379,16 +389,13 @@ def create_app(csv_path: Path) -> None:
             ui.notify(f"Save failed: {exc}", type="negative")
 
     async def jump_to_next_unvalidated():
-        """Scroll to next unvalidated row."""
         for i, row in enumerate(state["rows"]):
             if row.get("HUMAN_VALIDATED") != "True":
-                # Use AG Grid API to ensure row is visible
                 grid.call_api_method("ensureIndexVisible", i, "middle")
                 grid.call_api_method("selectIndex", i)
                 return
         ui.notify("All rows have been validated!", type="info")
 
-    # Keyboard shortcut info
     ui.label(
         "Tip: Double-click Validated/Override/Notes cells to edit in-place"
     ).classes("q-px-md text-caption text-grey")
@@ -399,15 +406,15 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="GUI for reviewing bias annotation CSVs"
+        description="GUI for reviewing bias annotations"
     )
     parser.add_argument(
-        "csv_path", nargs="?", default=None, help="Path to review CSV"
+        "--model", type=str, default=None, help="Model name to review"
     )
     parser.add_argument(
-        "--labelled-dir",
+        "--db-path",
         default=None,
-        help="Browse labelled directory for CSVs",
+        help="Path to SQLite database",
     )
     parser.add_argument(
         "--port",
@@ -417,50 +424,54 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.csv_path:
-        csv_path = Path(args.csv_path)
-    else:
-        # List available CSVs and let user pick
-        try:
-            from config import Config
-            cfg = Config()
-        except ImportError:
-            cfg = None
+    try:
+        from config import Config
+        cfg = Config()
+    except ImportError:
+        cfg = None
 
-        labelled = args.labelled_dir or (cfg.labelled_dir if cfg else "dataset/labelled")
-        csv_files = find_csv_files(labelled)
+    db_path = args.db_path or (cfg.db_path if cfg else "dataset/biasbuster.db")
+    db = Database(db_path)
+    db.initialize()
 
-        if not csv_files:
-            print(f"No review CSVs found in {labelled}")
-            print("Usage: uv run python -m utils.review_gui <csv_path>")
+    model_name = args.model
+    if not model_name:
+        models = db.get_model_names()
+        models = [m for m in models if m != "human"]
+
+        if not models:
+            print("No model annotations found in database")
+            print("Usage: uv run python -m utils.review_gui --model anthropic")
+            db.close()
             sys.exit(1)
 
-        print("Available review CSVs:")
-        for i, path in enumerate(csv_files, 1):
-            print(f"  {i}. {path}")
-        print()
+        if len(models) == 1:
+            model_name = models[0]
+        else:
+            print("Available models:")
+            for i, m in enumerate(models, 1):
+                print(f"  {i}. {m}")
+            print()
 
-        while True:
-            try:
-                choice = input(f"Select file (1-{len(csv_files)}): ").strip()
-                idx = int(choice) - 1
-                if 0 <= idx < len(csv_files):
-                    csv_path = csv_files[idx]
-                    break
-            except (ValueError, EOFError):
-                pass
-            print(f"Please enter a number between 1 and {len(csv_files)}")
+            while True:
+                try:
+                    choice = input(f"Select model (1-{len(models)}): ").strip()
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(models):
+                        model_name = models[idx]
+                        break
+                except (ValueError, EOFError):
+                    pass
+                print(f"Please enter a number between 1 and {len(models)}")
 
-    if not csv_path.exists():
-        print(f"File not found: {csv_path}")
-        sys.exit(1)
-
-    create_app(csv_path)
+    create_app(db, model_name)
     ui.run(
-        title=f"Review: {csv_path.name}",
+        title=f"Review: {model_name}",
         port=args.port,
         reload=False,
+        on_air=False,
     )
+    db.close()
 
 
 if __name__ == "__main__":

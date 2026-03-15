@@ -9,6 +9,8 @@ Coordinates the full dataset building workflow:
 5. After human validation, export for fine-tuning
 6. Compare model annotations against human ground truth
 
+All data is stored in a SQLite database (dataset/biasbuster.db by default).
+
 Usage:
     python pipeline.py --stage collect    # Stage 1: Collect raw abstracts
     python pipeline.py --stage enrich     # Stage 2: Heuristic enrichment
@@ -23,6 +25,7 @@ import argparse
 import asyncio
 import json
 import logging
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 from typing import Optional, Union
@@ -30,6 +33,7 @@ from typing import Optional, Union
 import httpx
 
 from config import Config
+from database import Database
 from utils.retry import fetch_with_retry
 
 logging.basicConfig(
@@ -39,7 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def stage_collect(config: Config) -> None:
+async def stage_collect(config: Config, db: Database) -> None:
     """Collect candidate abstracts from multiple sources.
 
     Sources:
@@ -50,25 +54,26 @@ async def stage_collect(config: Config) -> None:
     from collectors.retraction_watch import RetractionWatchCollector
     from collectors.cochrane_rob import CochraneRoBCollector
 
-    output_dir = Path(config.raw_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     # 1a. Retracted papers (high-confidence positive examples)
     logger.info("=== Collecting retracted papers ===")
-    retracted_path = output_dir / "retracted_papers.jsonl"
     async with RetractionWatchCollector(
         mailto=config.crossref_mailto,
         ncbi_api_key=config.ncbi_api_key,
     ) as collector:
-        await collector.collect_retracted_with_abstracts(
+        papers = await collector.collect_retracted_with_abstracts(
             max_papers=config.retraction_watch_max,
-            output_path=retracted_path,
-            flush_every=config.retraction_flush_every,
         )
+        count = 0
+        for paper in papers:
+            paper_dict = asdict(paper)
+            paper_dict["source"] = "retraction_watch"
+            if db.insert_paper(paper_dict):
+                count += 1
+        logger.info(f"Inserted {count} new retracted papers")
 
     # 1b. PubMed RCTs for heuristic screening
     logger.info("=== Collecting RCT abstracts for screening ===")
-    await collect_rcts_from_pubmed(config, output_dir / "rct_abstracts.jsonl")
+    await collect_rcts_from_pubmed(config, db)
 
     # 1c. Cochrane Risk of Bias assessments (expert ground truth)
     logger.info("=== Collecting Cochrane RoB assessments ===")
@@ -80,41 +85,39 @@ async def stage_collect(config: Config) -> None:
             max_reviews=config.cochrane_max_reviews,
             max_studies=config.cochrane_rob_max,
         )
-        collector.save_results(assessments, str(output_dir / "cochrane_rob.jsonl"))
+        count = 0
+        for a in assessments:
+            paper_dict = asdict(a)
+            paper_dict["source"] = "cochrane_rob"
+            # Map Cochrane fields to paper schema
+            paper_dict["title"] = paper_dict.pop("study_title", "")
+            paper_dict["abstract"] = ""  # Cochrane entries may lack abstracts
+            if db.insert_paper(paper_dict):
+                count += 1
+        logger.info(f"Inserted {count} new Cochrane RoB papers")
 
-    logger.info(f"Collection complete. Raw data in {output_dir}")
+    stats = db.get_stats()
+    logger.info(
+        f"Collection complete. Total papers in DB: {stats['total_papers']}"
+    )
 
 
-async def collect_rcts_from_pubmed(config: Config, output_path: Path) -> None:
+async def collect_rcts_from_pubmed(config: Config, db: Database) -> None:
     """Search PubMed for recent RCTs in focus domains.
 
-    Results are flushed to disk after each domain completes.
-    Supports resuming: skips PMIDs already present in the output file.
+    Uses the database for checkpoint/resume: skips PMIDs already present.
 
     Args:
         config: Application configuration.
-        output_path: Path to write the JSONL output.
+        db: Database instance.
     """
     from collectors.pubmed_xml import parse_pubmed_xml_batch
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load checkpoint: find PMIDs already collected
-    already_collected: set[str] = set()
-    if output_path.exists():
-        with open(output_path) as f:
-            for line in f:
-                try:
-                    record = json.loads(line)
-                    if record.get("pmid"):
-                        already_collected.add(record["pmid"])
-                except json.JSONDecodeError:
-                    continue
-        if already_collected:
-            logger.info(
-                f"Resuming: found {len(already_collected)} RCTs "
-                f"already in {output_path}"
-            )
+    already_collected = db.get_paper_pmids(source="pubmed_rct")
+    if already_collected:
+        logger.info(
+            f"Resuming: found {len(already_collected)} RCTs already in DB"
+        )
 
     total_saved = len(already_collected)
 
@@ -138,7 +141,7 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path) -> None:
             if config.ncbi_api_key:
                 params["api_key"] = config.ncbi_api_key
 
-            domain_articles: list[dict] = []
+            domain_count = 0
             try:
                 resp = await fetch_with_retry(
                     client, "GET",
@@ -174,105 +177,96 @@ async def collect_rcts_from_pubmed(config: Config, output_path: Path) -> None:
                         )
                         if fetch_resp.status_code == 200:
                             articles = parse_pubmed_xml_batch(fetch_resp.text)
-                            # Skip already-collected PMIDs (resume support)
-                            new_articles = [
-                                a for a in articles.values()
-                                if a.get("pmid") not in already_collected
-                            ]
-                            domain_articles.extend(new_articles)
+                            for article in articles.values():
+                                pmid = article.get("pmid")
+                                if pmid and pmid not in already_collected:
+                                    article["source"] = "pubmed_rct"
+                                    if db.insert_paper(article):
+                                        domain_count += 1
+                                        already_collected.add(pmid)
 
                         await asyncio.sleep(config.ncbi_rate_delay)
 
             except Exception as e:
                 logger.warning(f"PubMed search failed for '{domain}': {e}")
 
-            # Flush this domain's results to disk
-            if domain_articles:
-                with open(output_path, "a") as f:
-                    for article in domain_articles:
-                        f.write(json.dumps(article) + "\n")
-                        already_collected.add(article.get("pmid", ""))
-                total_saved += len(domain_articles)
+            total_saved += domain_count
+            if domain_count:
                 logger.info(
-                    f"Flushed {len(domain_articles)} new articles for '{domain}' "
+                    f"Inserted {domain_count} new articles for '{domain}' "
                     f"({total_saved} total so far)"
                 )
 
             await asyncio.sleep(config.ncbi_rate_delay_slow)
 
-    logger.info(f"Saved {total_saved} RCT abstracts to {output_path}")
+    logger.info(f"Total RCT abstracts in DB: {total_saved}")
 
 
-async def stage_enrich(config: Config) -> None:
+async def stage_enrich(config: Config, db: Database) -> None:
     """Enrich collected abstracts with heuristic analysis.
 
-    Runs effect size audit, outcome switching detection, and copies
-    retracted papers and Cochrane RoB data to the enriched directory.
+    Runs effect size audit and outcome switching detection on RCT abstracts.
+    Retracted papers and Cochrane RoB data don't need enrichment.
     """
     from enrichers.effect_size_auditor import audit_abstract, ReportingPattern
 
-    raw_dir = Path(config.raw_dir)
-    output_dir = Path(config.enriched_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     # 2a. Effect size audit on RCT abstracts
     logger.info("=== Running effect size audit ===")
-    rct_path = raw_dir / "rct_abstracts.jsonl"
-    if rct_path.exists():
-        audited: list[dict] = []
-        with open(rct_path) as f:
-            for line in f:
-                article = json.loads(line)
-                audit = audit_abstract(
-                    pmid=article.get("pmid") or "",
-                    title=article.get("title") or "",
-                    abstract=article.get("abstract") or "",
-                )
-                article["effect_size_audit"] = {
-                    "pattern": audit.pattern.value,
-                    "reporting_bias_score": audit.reporting_bias_score,
-                    "relative_only": audit.pattern == ReportingPattern.RELATIVE_ONLY,
-                    "flags": audit.flags,
-                    "relative_measures": audit.relative_measures_found[:5],
-                    "absolute_measures": audit.absolute_measures_found[:5],
-                }
-                audited.append(article)
+    rct_papers = db.get_papers(source="pubmed_rct")
 
-        # Separate into high-suspicion and low-suspicion
-        high_suspicion = [
-            a for a in audited
-            if a["effect_size_audit"]["reporting_bias_score"] >= config.high_suspicion_threshold
-        ]
-        low_suspicion = [
-            a for a in audited
-            if a["effect_size_audit"]["reporting_bias_score"] < config.low_suspicion_threshold
-        ]
+    if not rct_papers:
+        logger.info("No RCT papers found in DB, skipping enrichment")
+        return
 
-        with open(output_dir / "high_suspicion.jsonl", "w") as f:
-            for a in high_suspicion:
-                f.write(json.dumps(a) + "\n")
-
-        with open(output_dir / "low_suspicion.jsonl", "w") as f:
-            for a in low_suspicion:
-                f.write(json.dumps(a) + "\n")
-
-        logger.info(
-            f"Effect size audit: {len(high_suspicion)} high-suspicion, "
-            f"{len(low_suspicion)} low-suspicion out of {len(audited)} total"
+    high_count = 0
+    low_count = 0
+    for article in rct_papers:
+        pmid = article["pmid"]
+        audit = audit_abstract(
+            pmid=pmid,
+            title=article.get("title") or "",
+            abstract=article.get("abstract") or "",
         )
+
+        score = audit.reporting_bias_score
+        effect_size_audit = {
+            "pattern": audit.pattern.value,
+            "reporting_bias_score": score,
+            "relative_only": audit.pattern == ReportingPattern.RELATIVE_ONLY,
+            "flags": audit.flags,
+            "relative_measures": audit.relative_measures_found[:5],
+            "absolute_measures": audit.absolute_measures_found[:5],
+        }
+
+        if score >= config.high_suspicion_threshold:
+            suspicion_level = "high"
+            high_count += 1
+        elif score < config.low_suspicion_threshold:
+            suspicion_level = "low"
+            low_count += 1
+        else:
+            suspicion_level = "medium"
+
+        db.upsert_enrichment(pmid, {
+            "suspicion_level": suspicion_level,
+            "reporting_bias_score": score,
+            "effect_size_audit": effect_size_audit,
+        })
+
+    logger.info(
+        f"Effect size audit: {high_count} high-suspicion, "
+        f"{low_count} low-suspicion out of {len(rct_papers)} total"
+    )
 
     # 2b. Outcome switching check via ClinicalTrials.gov
     logger.info("=== Checking for outcome switching ===")
     from collectors.clinicaltrials_gov import ClinicalTrialsGovCollector
-    high_suspicion_path = output_dir / "high_suspicion.jsonl"
-    if high_suspicion_path.exists():
-        items: list[dict] = []
-        with open(high_suspicion_path) as f:
-            for line in f:
-                items.append(json.loads(line))
 
+    high_suspicion = db.get_enriched_papers(suspicion_level="high")
+    if high_suspicion:
         async with ClinicalTrialsGovCollector() as ctgov:
-            for item in items[:config.outcome_switching_check_limit]:
+            checked = 0
+            for item in high_suspicion[:config.outcome_switching_check_limit]:
                 abstract = item.get("abstract", "")
                 nct_id = await ctgov.extract_nct_from_abstract(abstract)
                 if nct_id:
@@ -282,120 +276,119 @@ async def stage_enrich(config: Config) -> None:
                         published_title=item.get("title", ""),
                         pmid=item.get("pmid", ""),
                     )
-                    item["outcome_switching"] = {
-                        "nct_id": report.nct_id,
-                        "primary_switched": report.primary_outcome_switched,
-                        "outcomes_omitted": report.outcomes_omitted,
-                        "sponsor": report.sponsor,
-                        "sponsor_type": report.sponsor_type,
-                        "evidence": report.evidence,
+                    # Update enrichment with outcome switching data
+                    enrichment = {
+                        "suspicion_level": "high",
+                        "reporting_bias_score": item.get("reporting_bias_score"),
+                        "effect_size_audit": item.get("effect_size_audit"),
+                        "outcome_switching": {
+                            "nct_id": report.nct_id,
+                            "primary_switched": report.primary_outcome_switched,
+                            "outcomes_omitted": report.outcomes_omitted,
+                            "sponsor": report.sponsor,
+                            "sponsor_type": report.sponsor_type,
+                            "evidence": report.evidence,
+                        },
                     }
+                    db.upsert_enrichment(item["pmid"], enrichment)
+                    checked += 1
                 await asyncio.sleep(config.ctgov_rate_delay)
 
-        # Re-write with enriched data
-        with open(high_suspicion_path, "w") as f:
-            for item in items:
-                f.write(json.dumps(item) + "\n")
-        logger.info(f"Outcome switching check complete for {len(items)} items")
-
-    # 2c. Retracted papers are pre-classified as high-suspicion
-    retracted_path = raw_dir / "retracted_papers.jsonl"
-    if retracted_path.exists():
-        import shutil
-        shutil.copy(retracted_path, output_dir / "retracted_papers.jsonl")
-        logger.info("Retracted papers copied to enriched directory")
-
-    # 2d. Cochrane RoB assessments copied to enriched
-    cochrane_path = raw_dir / "cochrane_rob.jsonl"
-    if cochrane_path.exists():
-        import shutil
-        shutil.copy(cochrane_path, output_dir / "cochrane_rob.jsonl")
-        logger.info("Cochrane RoB assessments copied to enriched directory")
+        logger.info(f"Outcome switching check complete for {checked} items")
 
 
-async def stage_annotate(config: Config, models: Optional[list[str]] = None) -> None:
+async def stage_annotate(
+    config: Config, db: Database, models: Optional[list[str]] = None
+) -> None:
     """Pre-label abstracts with one or more LLMs for structured bias assessment.
 
-    Each model's outputs are always saved in a separate subdirectory under
-    labelled_dir (e.g. labelled/anthropic/, labelled/deepseek/) for consistent
-    layout regardless of how many models are used.
+    Each model's annotations are stored in the annotations table with
+    the model_name as part of the composite primary key.
 
     Args:
         config: Application configuration.
+        db: Database instance.
         models: List of annotator backends to use. Defaults to ["anthropic"].
                 Supported: "anthropic", "deepseek".
     """
     if models is None:
         models = ["anthropic"]
 
-    enriched_dir = Path(config.enriched_dir)
-    source_files = [
-        "high_suspicion.jsonl",
-        "retracted_papers.jsonl",
-        "cochrane_rob.jsonl",
-        "low_suspicion.jsonl",
+    # Source keys and their DB query parameters
+    source_configs = [
+        ("high_suspicion", "high_suspicion"),
+        ("retracted_papers", "retracted_papers"),
+        ("cochrane_rob", "cochrane_rob"),
+        ("low_suspicion", "low_suspicion"),
     ]
 
     # Load items once (shared across models)
     all_items: dict[str, list[dict]] = {}
-    for source_file in source_files:
-        source_path = enriched_dir / source_file
-        if not source_path.exists():
-            continue
-        items: list[dict] = []
-        with open(source_path) as f:
-            for line in f:
-                data = json.loads(line)
-                items.append({
-                    "pmid": data.get("pmid", ""),
-                    "title": data.get("title", ""),
-                    "abstract": data.get("abstract", ""),
-                    "metadata": data,
-                })
-        source_key = source_file.replace(".jsonl", "")
+    for source_key, db_source in source_configs:
         max_items = config.annotation_max_per_source.get(source_key, 200)
-        all_items[source_file] = items[:max_items]
+        papers = db.get_papers_by_source_for_annotation(
+            db_source, limit=max_items
+        )
+        if papers:
+            items = []
+            for p in papers:
+                items.append({
+                    "pmid": p.get("pmid", ""),
+                    "title": p.get("title", ""),
+                    "abstract": p.get("abstract", ""),
+                    "metadata": p,
+                })
+            all_items[source_key] = items
 
     for model_name in models:
         annotator = _create_annotator(config, model_name)
         if annotator is None:
             continue
 
-        # Always use subdirectories for consistent layout
-        output_dir = Path(config.labelled_dir) / model_name
-        output_dir.mkdir(parents=True, exist_ok=True)
-
         logger.info(f"\n{'='*60}")
         logger.info(f"ANNOTATING WITH: {model_name}")
         logger.info(f"{'='*60}")
 
+        # Get already-annotated PMIDs for resume
+        already_done = db.get_annotated_pmids(model_name)
+        if already_done:
+            logger.info(
+                f"Resuming: {len(already_done)} already annotated "
+                f"by {model_name}"
+            )
+
         async with annotator:
-            for source_file, items in all_items.items():
-                logger.info(f"=== Annotating {source_file} ({model_name}) ===")
+            for source_key, items in all_items.items():
+                logger.info(
+                    f"=== Annotating {source_key} ({model_name}) ==="
+                )
 
-                output_name = source_file.replace(".jsonl", "_annotated.jsonl")
-                output_path = output_dir / output_name
-
-                # annotate_batch handles incremental save and resume
                 annotations = await annotator.annotate_batch(
                     items,
                     concurrency=config.annotation_concurrency,
                     delay=config.annotation_delay,
-                    output_path=output_path,
+                    already_done=already_done,
                 )
 
-                # Merge original abstract text into annotations
-                abstract_map = {item["pmid"]: item["abstract"] for item in items}
-                source_key = source_file.replace(".jsonl", "")
+                # Store each annotation in the database
+                abstract_map = {
+                    item["pmid"]: item["abstract"] for item in items
+                }
+                new_count = 0
                 for ann in annotations:
-                    ann["abstract_text"] = abstract_map.get(ann.get("pmid", ""), "")
+                    pmid = ann.get("pmid", "")
+                    if not pmid:
+                        continue
+                    ann["abstract_text"] = abstract_map.get(pmid, "")
                     ann["source"] = source_key
+                    if db.insert_annotation(pmid, model_name, ann):
+                        new_count += 1
+                        already_done.add(pmid)
 
-                # Write final complete file (with abstract_text and source merged)
-                annotator.save_annotations(annotations, output_path)
-
-                csv_name = source_file.replace(".jsonl", "_review.csv")
-                annotator.generate_review_csv(annotations, output_dir / csv_name)
+                logger.info(
+                    f"Stored {new_count} new annotations for "
+                    f"{source_key}/{model_name}"
+                )
 
 
 def _create_annotator(
@@ -430,26 +423,17 @@ def _create_annotator(
         return None
 
 
-async def stage_export(config: Config) -> None:
+async def stage_export(config: Config, db: Database) -> None:
     """Export validated annotations for fine-tuning.
 
-    Reads human-validated annotations from labelled_dir subdirectories
-    and exports in training format with configurable train/val/test splits.
+    Reads annotations from the database and exports in training format
+    with configurable train/val/test splits.
     """
     from export import export_dataset
 
-    labelled_dir = Path(config.labelled_dir)
     output_dir = Path(config.export_dir)
 
-    # Collect all validated annotations (search subdirectories too)
-    all_annotations: list[dict] = []
-    for path in labelled_dir.rglob("*_annotated.jsonl"):
-        with open(path) as f:
-            for line in f:
-                ann = json.loads(line)
-                # In production, filter to human_validated == True
-                # For now, include all pre-labels
-                all_annotations.append(ann)
+    all_annotations = db.get_all_annotations_for_export()
 
     if not all_annotations:
         logger.warning("No annotations found. Run --stage annotate first.")
@@ -470,91 +454,63 @@ async def stage_export(config: Config) -> None:
         )
 
 
-async def stage_compare(config: Config) -> None:
+async def stage_compare(config: Config, db: Database) -> None:
     """Compare annotations from multiple models against human-validated labels.
 
-    Reads annotations from labelled_dir/{model_name}/ subdirectories and
-    human labels from labelled_dir/human/, then generates a comparison report
-    using the evaluation framework.
-
-    Expected directory layout:
-        labelled/
-            anthropic/     <- annotations from Claude
-            deepseek/      <- annotations from DeepSeek
-            human/         <- human-validated ground truth (copy from review CSVs)
+    Reads annotations from the database and generates a comparison report.
     """
     from evaluation.scorer import parse_model_output, attach_ground_truth
     from evaluation.metrics import evaluate_model
     from evaluation.comparison import generate_comparison, save_report
 
-    labelled_dir = Path(config.labelled_dir)
     output_dir = Path(config.output_dir) / "annotation_comparison"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Discover model subdirectories
-    model_dirs = [
-        d for d in labelled_dir.iterdir()
-        if d.is_dir() and d.name != "human"
-    ]
-    if not model_dirs:
+    # Discover models
+    model_names = [m for m in db.get_model_names() if m != "human"]
+    if not model_names:
         logger.warning(
-            "No model subdirectories found in labelled_dir. "
+            "No model annotations found in DB. "
             "Run --stage annotate --models anthropic,deepseek first."
         )
         return
 
     # Load human ground truth (if available)
-    human_dir = labelled_dir / "human"
+    human_annotations = db.get_annotations(model_name="human")
     gt_by_pmid: dict[str, dict] = {}
     has_human_gt = False
-    if human_dir.exists():
-        for path in human_dir.glob("*_annotated.jsonl"):
-            with open(path) as f:
-                for line in f:
-                    ann = json.loads(line)
-                    pmid = ann.get("pmid", "")
-                    if pmid:
-                        gt_by_pmid[pmid] = ann
-        if gt_by_pmid:
-            has_human_gt = True
-            logger.info(f"Loaded {len(gt_by_pmid)} human ground truth labels")
-        else:
-            logger.warning(
-                f"Human labels directory exists at {human_dir} but contains "
-                "no annotated JSONL files."
-            )
+    if human_annotations:
+        for ann in human_annotations:
+            pmid = ann.get("pmid", "")
+            if pmid:
+                gt_by_pmid[pmid] = ann
+        has_human_gt = True
+        logger.info(f"Loaded {len(gt_by_pmid)} human ground truth labels")
 
     if not has_human_gt:
         logger.warning(
-            f"No human labels found at {human_dir}. "
+            "No human labels found in DB. "
             "Comparison will use the first model's annotations as reference. "
             "NOTE: Metrics will reflect inter-model agreement, NOT accuracy. "
-            "For proper evaluation, create labelled/human/ with validated annotations."
+            "For proper evaluation, add human annotations with model_name='human'."
         )
 
     # Load and score each model's annotations
     all_assessments = {}
     all_evaluations = {}
 
-    for model_dir in sorted(model_dirs):
-        model_name = model_dir.name
+    for model_name in sorted(model_names):
         logger.info(f"\n{'='*40}")
         logger.info(f"Scoring annotations: {model_name}")
         logger.info(f"{'='*40}")
 
-        # Load all annotations for this model
-        annotations = []
-        for path in model_dir.glob("*_annotated.jsonl"):
-            with open(path) as f:
-                for line in f:
-                    annotations.append(json.loads(line))
+        annotations = db.get_annotations(model_name=model_name)
 
         if not annotations:
             logger.warning(f"No annotations found for {model_name}")
             continue
 
         # If no human ground truth, use the first model as reference
-        # (useful for inter-rater agreement, but NOT accuracy measurement)
         if not gt_by_pmid and not all_assessments:
             for ann in annotations:
                 pmid = ann.get("pmid", "")
@@ -568,10 +524,12 @@ async def stage_compare(config: Config) -> None:
         assessments = []
         for ann in annotations:
             pmid = ann.get("pmid", "")
-            # Reconstruct raw_output as JSON for the scorer
             raw_json = json.dumps({
                 k: v for k, v in ann.items()
-                if k not in ("pmid", "title", "abstract_text", "source", "_annotation_model")
+                if k not in (
+                    "pmid", "title", "abstract_text", "source",
+                    "_annotation_model", "model_name", "annotated_at",
+                )
             })
             parsed = parse_model_output(
                 raw_output=raw_json,
@@ -608,21 +566,19 @@ async def stage_compare(config: Config) -> None:
             mode=comparison_mode,
         )
 
-        # Add caveat to summary when no human ground truth
         if not has_human_gt:
             caveat = (
                 "\n\n> **NOTE:** No human ground truth was available. "
                 "All metrics above reflect inter-model agreement, not "
                 "accuracy against a validated reference. To measure true "
-                "accuracy, place human-validated annotations in "
-                "labelled/human/ and re-run."
+                "accuracy, add human-validated annotations with "
+                "model_name='human' and re-run."
             )
             report.summary += caveat
 
         save_report(report, output_dir, evaluations=all_evaluations)
         print("\n" + report.summary)
     elif len(all_evaluations) == 1:
-        # Save single-model evaluation
         model_name = list(all_evaluations.keys())[0]
         eval_path = output_dir / f"{model_name}_evaluation.json"
         with open(eval_path, "w") as f:
@@ -661,24 +617,31 @@ def main() -> None:
     if args.models:
         annotation_models = [m.strip() for m in args.models.split(",")]
 
+    # Initialize database
+    db = Database(config.db_path)
+    db.initialize()
+
     stages = {
-        "collect": stage_collect,
-        "enrich": stage_enrich,
-        "annotate": lambda cfg: stage_annotate(cfg, models=annotation_models),
-        "export": stage_export,
-        "compare": stage_compare,
+        "collect": lambda cfg: stage_collect(cfg, db),
+        "enrich": lambda cfg: stage_enrich(cfg, db),
+        "annotate": lambda cfg: stage_annotate(cfg, db, models=annotation_models),
+        "export": lambda cfg: stage_export(cfg, db),
+        "compare": lambda cfg: stage_compare(cfg, db),
     }
 
-    if args.stage == "all":
-        async def run_all() -> None:
-            for name in ["collect", "enrich", "annotate", "export"]:
-                logger.info(f"\n{'='*60}")
-                logger.info(f"STAGE: {name.upper()}")
-                logger.info(f"{'='*60}")
-                await stages[name](config)
-        asyncio.run(run_all())
-    else:
-        asyncio.run(stages[args.stage](config))
+    try:
+        if args.stage == "all":
+            async def run_all() -> None:
+                for name in ["collect", "enrich", "annotate", "export"]:
+                    logger.info(f"\n{'='*60}")
+                    logger.info(f"STAGE: {name.upper()}")
+                    logger.info(f"{'='*60}")
+                    await stages[name](config)
+            asyncio.run(run_all())
+        else:
+            asyncio.run(stages[args.stage](config))
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":
