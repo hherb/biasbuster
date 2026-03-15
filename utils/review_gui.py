@@ -50,6 +50,7 @@ def load_annotations_for_review(
             "funding_type": coi.get("funding_type", "") if isinstance(coi, dict) else "",
             "confidence": ann.get("confidence", ""),
             "reasoning_summary": str(ann.get("reasoning", "")),
+            "abstract_text": str(ann.get("abstract_text", "")),
             "HUMAN_VALIDATED": "True" if review.get("validated") else "",
             "HUMAN_OVERRIDE_SEVERITY": review.get("override_severity") or "",
             "HUMAN_NOTES": review.get("notes") or "",
@@ -286,13 +287,24 @@ def create_app(db: Database, model_name: str) -> None:
     # AG Grid
     grid = ui.aggrid(grid_options).classes("q-mx-md").style("height: 55vh;")
 
-    # Detail panel
-    with ui.card().classes("q-mx-md q-mt-sm").style("max-height: 30vh; overflow-y: auto;"):
-        ui.label("Detail View").classes("text-subtitle1 text-bold")
-        detail_container = ui.column().classes("w-full")
-        detail_label = ui.label("Click a row to view details").classes(
+    # Tabbed detail panel
+    with ui.card().classes("q-mx-md q-mt-sm").style("max-height: 40vh; overflow-y: auto;"):
+        detail_placeholder = ui.label("Click a row to view details").classes(
             "text-grey"
         )
+        detail_tabs = ui.tabs().props("dense").classes("w-full")
+        with detail_tabs:
+            tab_detail = ui.tab("Detail")
+            tab_abstract = ui.tab("Abstract")
+        detail_tabs.set_value("Detail")
+        detail_tabs.visible = False
+        detail_panels = ui.tab_panels(detail_tabs, value="Detail").classes("w-full")
+        with detail_panels:
+            with ui.tab_panel("Detail"):
+                detail_container = ui.column().classes("w-full")
+            with ui.tab_panel("Abstract"):
+                abstract_container = ui.column().classes("w-full")
+        detail_panels.visible = False
 
     # --- Event handlers ---
     async def on_cell_changed(e):
@@ -320,24 +332,13 @@ def create_app(db: Database, model_name: str) -> None:
 
     grid.on("cellValueChanged", on_cell_changed)
 
-    async def on_row_selected(e):
-        data = e.args
-        if data is None:
-            return
-        # Ignore deselection events (fires for previous row)
-        if not data.get("selected"):
-            return
-        event_row = data.get("data") if isinstance(data, dict) else None
-        if event_row is None:
-            return
-        # Look up full row from Python state (event data may be truncated)
-        pmid = event_row.get("pmid", "")
-        row_data = next(
-            (r for r in state["rows"] if r.get("pmid") == pmid),
-            event_row,
-        )
+    def show_detail(row_data):
+        """Populate the detail and abstract tabs for the given row."""
+        detail_placeholder.visible = False
+        detail_tabs.visible = True
+        detail_panels.visible = True
 
-        detail_label.visible = False
+        # Detail tab
         detail_container.clear()
         with detail_container:
             with ui.row().classes("gap-4 w-full"):
@@ -368,7 +369,33 @@ def create_app(db: Database, model_name: str) -> None:
                         "white-space: pre-wrap; word-break: break-word;"
                     )
 
-    grid.on("rowSelected", on_row_selected)
+        # Abstract tab
+        abstract_container.clear()
+        with abstract_container:
+            ui.label(
+                f"{row_data.get('title', '')}"
+            ).classes("text-bold text-body1")
+            ui.label(
+                row_data.get("abstract_text", "(no abstract available)")
+            ).classes("text-body2").style(
+                "white-space: pre-wrap; word-break: break-word;"
+            )
+
+    async def on_cell_clicked(e):
+        data = e.args
+        if data is None:
+            return
+        event_row = data.get("data") if isinstance(data, dict) else None
+        if event_row is None:
+            return
+        pmid = event_row.get("pmid", "")
+        row_data = next(
+            (r for r in state["rows"] if r.get("pmid") == pmid),
+            event_row,
+        )
+        show_detail(row_data)
+
+    grid.on("cellClicked", on_cell_clicked)
 
     def do_save():
         """Save review changes to the database."""
@@ -400,7 +427,7 @@ def create_app(db: Database, model_name: str) -> None:
         for i, row in enumerate(state["rows"]):
             if row.get("HUMAN_VALIDATED") != "True":
                 grid.run_grid_method("ensureIndexVisible", i, "middle")
-                grid.run_grid_method("selectIndex", i)
+                show_detail(row)
                 return
         ui.notify("All rows have been validated!", type="info")
 
