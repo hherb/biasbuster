@@ -1,6 +1,6 @@
 # BiasBuster: A Multi-Source Pipeline for Building Training Datasets to Detect Bias in Biomedical Research Abstracts
 
-**Authors:** Herb, Horst; Brinkmann, Bernd; Herb, Frithjof; Herb, Hagen
+**Authors:** Herb, Horst; Brinkmann, Bernd; Herb, Frithjof; Herb, Hagen; Claude(Opus 4.6)
 
 **Corresponding author:** Horst Herb <hherb@consensus-ai.org>
 
