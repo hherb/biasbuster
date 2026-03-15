@@ -9,6 +9,7 @@ dependencies = [
     "pandas",
     "tqdm",
     "anthropic",
+    "nicegui>=3.8.0",
 ]
 
 [dependency-groups]
