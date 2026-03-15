@@ -273,7 +273,6 @@ class RetractionWatchCollector:
         Full pipeline: get retracted DOIs, convert to PMIDs, fetch abstracts.
         Returns RetractedPaper objects ready for bias labelling.
         """
-        already_collected: set[str] = set()
 
         # Step 1: Get retraction data from Crossref
         crossref_data = await self.fetch_retractions_from_crossref(max_results=max_papers)
@@ -285,15 +284,9 @@ class RetractionWatchCollector:
         # Step 2: Search PubMed for these DOIs to get PMIDs and abstracts
         results = []
         pending_pmid_lookup = []  # Papers awaiting abstract fetch
-        skipped = 0
         for i, item in enumerate(crossref_data):
             doi = item.get("DOI", "")
             if not doi:
-                continue
-
-            # Skip already-collected DOIs (resume support)
-            if doi in already_collected:
-                skipped += 1
                 continue
 
             # Search PubMed by DOI
@@ -347,11 +340,12 @@ class RetractionWatchCollector:
                 pending_pmid_lookup = []
 
             if i % 10 == 0:
+                # Longer pause every 10th request to stay within Crossref polite limits
                 await asyncio.sleep(0.5)
             else:
                 await asyncio.sleep(0.15)
 
-            if len(results) + len(already_collected) >= max_papers:
+            if len(results) >= max_papers:
                 break
 
         # Process remaining
@@ -361,8 +355,6 @@ class RetractionWatchCollector:
             )
             results.extend(batch_results)
 
-        if skipped:
-            logger.info(f"Skipped {skipped} already-collected papers")
         logger.info(f"Collected {len(results)} retracted papers")
         return results
 

@@ -8,6 +8,23 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _ensure_parsed(value, default=None):
+    """Deserialize a value that may be a JSON string (from SQLite) or already parsed."""
+    if default is None:
+        default = []
+    if value is None:
+        return default
+    if isinstance(value, (list, dict)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return default
+    return default
+
+
 REVIEW_CSV_COLUMNS = [
     "pmid", "title", "overall_severity", "overall_bias_probability",
     "statistical_severity", "relative_only", "spin_level",
@@ -35,75 +52,45 @@ def build_user_message(
     ]
 
     if metadata:
-        if metadata.get("authors"):
-            authors = metadata["authors"]
-            if isinstance(authors, str):
-                try:
-                    authors = json.loads(authors)
-                except (json.JSONDecodeError, TypeError):
-                    authors = []
-            if authors:
-                author_str = "; ".join(
-                    f"{a.get('last', '')}, {a.get('first', '')} "
-                    f"({', '.join(a.get('affiliations', [])[:2])})"
-                    for a in authors[:5]
-                )
-                user_parts.append(f"\nAuthors: {author_str}")
+        authors = _ensure_parsed(metadata.get("authors"))
+        if authors:
+            author_str = "; ".join(
+                f"{a.get('last', '')}, {a.get('first', '')} "
+                f"({', '.join(a.get('affiliations', [])[:2])})"
+                for a in authors[:5]
+            )
+            user_parts.append(f"\nAuthors: {author_str}")
 
-        if metadata.get("grants"):
-            grants = metadata["grants"]
-            if isinstance(grants, str):
-                try:
-                    grants = json.loads(grants)
-                except (json.JSONDecodeError, TypeError):
-                    grants = []
-            if grants:
-                grant_str = "; ".join(
-                    f"{g.get('agency', '')} ({g.get('id', '')})"
-                    for g in grants
-                )
-                user_parts.append(f"Funding: {grant_str}")
+        grants = _ensure_parsed(metadata.get("grants"))
+        if grants:
+            grant_str = "; ".join(
+                f"{g.get('agency', '')} ({g.get('id', '')})"
+                for g in grants
+            )
+            user_parts.append(f"Funding: {grant_str}")
 
         if metadata.get("journal"):
             user_parts.append(f"Journal: {metadata['journal']}")
 
-        if metadata.get("mesh_terms"):
-            mesh = metadata["mesh_terms"]
-            if isinstance(mesh, str):
-                try:
-                    mesh = json.loads(mesh)
-                except (json.JSONDecodeError, TypeError):
-                    mesh = []
-            if mesh:
-                user_parts.append(f"MeSH: {', '.join(mesh[:10])}")
+        mesh = _ensure_parsed(metadata.get("mesh_terms"))
+        if mesh:
+            user_parts.append(f"MeSH: {', '.join(mesh[:10])}")
 
-        if metadata.get("retraction_reasons"):
-            reasons = metadata["retraction_reasons"]
-            if isinstance(reasons, str):
-                try:
-                    reasons = json.loads(reasons)
-                except (json.JSONDecodeError, TypeError):
-                    reasons = []
-            if reasons:
-                user_parts.append(
-                    f"NOTE: This paper has been RETRACTED. "
-                    f"Reasons: {', '.join(reasons)}"
-                )
+        reasons = _ensure_parsed(metadata.get("retraction_reasons"))
+        if reasons:
+            user_parts.append(
+                f"NOTE: This paper has been RETRACTED. "
+                f"Reasons: {', '.join(reasons)}"
+            )
 
-        if metadata.get("effect_size_audit"):
-            audit = metadata["effect_size_audit"]
-            if isinstance(audit, str):
-                try:
-                    audit = json.loads(audit)
-                except (json.JSONDecodeError, TypeError):
-                    audit = {}
-            if audit:
-                user_parts.append(
-                    f"\nHeuristic pre-screen: {audit.get('pattern', 'unknown')} "
-                    f"(score: {audit.get('reporting_bias_score', 0):.2f})"
-                )
-                if audit.get("flags"):
-                    user_parts.append(f"Flags: {'; '.join(audit['flags'])}")
+        audit = _ensure_parsed(metadata.get("effect_size_audit"), default={})
+        if audit:
+            user_parts.append(
+                f"\nHeuristic pre-screen: {audit.get('pattern', 'unknown')} "
+                f"(score: {audit.get('reporting_bias_score', 0):.2f})"
+            )
+            if audit.get("flags"):
+                user_parts.append(f"Flags: {'; '.join(audit['flags'])}")
 
     return "\n".join(user_parts)
 

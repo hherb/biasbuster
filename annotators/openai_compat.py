@@ -118,6 +118,7 @@ class OpenAICompatAnnotator:
                     assessment["_annotation_model"] = self.model
                     return assessment
 
+                # parse_llm_json returned None — retry
                 last_error = "JSON parse failure after repair attempt"
                 logger.warning(
                     f"PMID {pmid}: JSON parse failed "
@@ -146,17 +147,21 @@ class OpenAICompatAnnotator:
         concurrency: int = 3,
         delay: float = 1.0,
         already_done: Optional[set[str]] = None,
+        on_result: Optional[callable] = None,
     ) -> list[dict]:
         """Annotate a batch of abstracts with rate limiting.
 
         Skips PMIDs already in already_done (for resume support).
-        Returns list of successful annotations.
+        Each successful annotation is passed to on_result immediately
+        for incremental persistence (e.g. saving to database).
 
         Args:
             items: List of dicts with pmid, title, abstract, metadata keys.
             concurrency: Max concurrent API requests.
             delay: Seconds between requests.
             already_done: Set of PMIDs to skip (already annotated).
+            on_result: Optional callback(annotation_dict) called immediately
+                       on each successful annotation for incremental save.
 
         Returns:
             List of successful annotations.
@@ -177,6 +182,8 @@ class OpenAICompatAnnotator:
             return []
 
         semaphore = asyncio.Semaphore(concurrency)
+        successful: list[dict] = []
+        flush_every = 10
 
         async def process_one(item):
             async with semaphore:
@@ -186,14 +193,22 @@ class OpenAICompatAnnotator:
                     abstract=item["abstract"],
                     metadata=item.get("metadata"),
                 )
+                # Save incrementally as each result arrives
+                if result is not None:
+                    successful.append(result)
+                    if on_result:
+                        on_result(result)
+                    if len(successful) % flush_every == 0:
+                        logger.info(
+                            f"Checkpoint: {len(successful)}/{len(remaining)} "
+                            f"annotations completed"
+                        )
                 await asyncio.sleep(delay)
                 return result
 
-        # Process all items
-        results = await asyncio.gather(
+        await asyncio.gather(
             *(process_one(item) for item in remaining)
         )
-        successful = [r for r in results if r is not None]
 
         logger.info(
             f"Annotated {len(successful)}/{len(remaining)} abstracts successfully "

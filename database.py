@@ -100,11 +100,20 @@ CREATE INDEX IF NOT EXISTS idx_human_reviews_validated ON human_reviews(validate
 
 
 def _json_col(value) -> Optional[str]:
-    """Serialize a value to JSON for storage, or None if empty."""
+    """Serialize a value to JSON for storage, or None if empty.
+
+    If value is already a string, validates it's valid JSON before storing.
+    """
     if value is None:
         return None
     if isinstance(value, str):
-        return value
+        # Validate it's actually JSON, not an arbitrary string
+        try:
+            json.loads(value)
+            return value
+        except (json.JSONDecodeError, TypeError):
+            # Wrap plain strings as JSON
+            return json.dumps(value)
     return json.dumps(value)
 
 
@@ -156,7 +165,7 @@ class Database:
         if not pmid:
             return False
         try:
-            self.conn.execute(
+            cursor = self.conn.execute(
                 """INSERT OR IGNORE INTO papers
                    (pmid, doi, title, abstract, journal, year,
                     authors, grants, mesh_terms, subjects, source,
@@ -192,59 +201,59 @@ class Database:
                 ),
             )
             self.conn.commit()
-            return self.conn.total_changes > 0
+            return cursor.rowcount > 0
         except sqlite3.Error as e:
             logger.warning(f"Failed to insert paper {pmid}: {e}")
             return False
 
     def insert_papers(self, papers: list[dict]) -> int:
         """Bulk insert papers. Returns count of newly inserted rows."""
-        count = 0
+        rows = []
         for paper in papers:
             pmid = str(paper.get("pmid", ""))
             if not pmid:
                 continue
-            try:
-                self.conn.execute(
-                    """INSERT OR IGNORE INTO papers
-                       (pmid, doi, title, abstract, journal, year,
-                        authors, grants, mesh_terms, subjects, source,
-                        retraction_doi, retraction_reasons, retraction_source,
-                        cochrane_review_pmid, overall_rob,
-                        randomization_bias, deviation_bias,
-                        missing_outcome_bias, measurement_bias,
-                        reporting_bias, domain)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        pmid,
-                        paper.get("doi"),
-                        paper.get("title", ""),
-                        paper.get("abstract", ""),
-                        paper.get("journal"),
-                        paper.get("year"),
-                        _json_col(paper.get("authors")),
-                        _json_col(paper.get("grants")),
-                        _json_col(paper.get("mesh_terms")),
-                        _json_col(paper.get("subjects")),
-                        paper.get("source", "unknown"),
-                        paper.get("retraction_doi"),
-                        _json_col(paper.get("retraction_reasons")),
-                        paper.get("retraction_source"),
-                        paper.get("cochrane_review_pmid"),
-                        paper.get("overall_rob"),
-                        paper.get("randomization_bias"),
-                        paper.get("deviation_bias"),
-                        paper.get("missing_outcome_bias"),
-                        paper.get("measurement_bias"),
-                        paper.get("reporting_bias"),
-                        paper.get("domain"),
-                    ),
-                )
-                count += self.conn.total_changes
-            except sqlite3.Error as e:
-                logger.warning(f"Failed to insert paper {pmid}: {e}")
+            rows.append((
+                pmid,
+                paper.get("doi"),
+                paper.get("title", ""),
+                paper.get("abstract", ""),
+                paper.get("journal"),
+                paper.get("year"),
+                _json_col(paper.get("authors")),
+                _json_col(paper.get("grants")),
+                _json_col(paper.get("mesh_terms")),
+                _json_col(paper.get("subjects")),
+                paper.get("source", "unknown"),
+                paper.get("retraction_doi"),
+                _json_col(paper.get("retraction_reasons")),
+                paper.get("retraction_source"),
+                paper.get("cochrane_review_pmid"),
+                paper.get("overall_rob"),
+                paper.get("randomization_bias"),
+                paper.get("deviation_bias"),
+                paper.get("missing_outcome_bias"),
+                paper.get("measurement_bias"),
+                paper.get("reporting_bias"),
+                paper.get("domain"),
+            ))
+        if not rows:
+            return 0
+        changes_before = self.conn.total_changes
+        self.conn.executemany(
+            """INSERT OR IGNORE INTO papers
+               (pmid, doi, title, abstract, journal, year,
+                authors, grants, mesh_terms, subjects, source,
+                retraction_doi, retraction_reasons, retraction_source,
+                cochrane_review_pmid, overall_rob,
+                randomization_bias, deviation_bias,
+                missing_outcome_bias, measurement_bias,
+                reporting_bias, domain)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            rows,
+        )
         self.conn.commit()
-        return count
+        return self.conn.total_changes - changes_before
 
     def _row_to_paper(self, row: sqlite3.Row) -> dict:
         """Convert a papers table row to a dict with deserialized JSON columns."""
@@ -293,8 +302,17 @@ class Database:
 
     # ---- Enrichments ----
 
-    def upsert_enrichment(self, pmid: str, enrichment: dict) -> None:
-        """Insert or update enrichment data for a paper."""
+    def upsert_enrichment(
+        self, pmid: str, enrichment: dict, *, commit: bool = True
+    ) -> None:
+        """Insert or update enrichment data for a paper.
+
+        Args:
+            pmid: Paper PMID.
+            enrichment: Enrichment data dict.
+            commit: If False, caller is responsible for committing
+                    (use for batch operations).
+        """
         self.conn.execute(
             """INSERT INTO enrichments
                (pmid, suspicion_level, reporting_bias_score,
@@ -314,6 +332,11 @@ class Database:
                 _json_col(enrichment.get("outcome_switching")),
             ),
         )
+        if commit:
+            self.conn.commit()
+
+    def commit(self) -> None:
+        """Explicitly commit the current transaction."""
         self.conn.commit()
 
     def get_enriched_papers(
@@ -377,7 +400,7 @@ class Database:
     ) -> bool:
         """Insert an annotation. Returns True if newly inserted."""
         try:
-            self.conn.execute(
+            cursor = self.conn.execute(
                 """INSERT OR IGNORE INTO annotations
                    (pmid, model_name, annotation,
                     overall_severity, overall_bias_probability, confidence)
@@ -392,7 +415,7 @@ class Database:
                 ),
             )
             self.conn.commit()
-            return self.conn.total_changes > 0
+            return cursor.rowcount > 0
         except sqlite3.Error as e:
             logger.warning(
                 f"Failed to insert annotation {pmid}/{model_name}: {e}"

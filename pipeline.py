@@ -247,11 +247,14 @@ async def stage_enrich(config: Config, db: Database) -> None:
         else:
             suspicion_level = "medium"
 
+        # Defer commits for batch performance
         db.upsert_enrichment(pmid, {
             "suspicion_level": suspicion_level,
             "reporting_bias_score": score,
             "effect_size_audit": effect_size_audit,
-        })
+        }, commit=False)
+
+    db.commit()
 
     logger.info(
         f"Effect size audit: {high_count} high-suspicion, "
@@ -363,27 +366,30 @@ async def stage_annotate(
                     f"=== Annotating {source_key} ({model_name}) ==="
                 )
 
-                annotations = await annotator.annotate_batch(
-                    items,
-                    concurrency=config.annotation_concurrency,
-                    delay=config.annotation_delay,
-                    already_done=already_done,
-                )
-
-                # Store each annotation in the database
                 abstract_map = {
                     item["pmid"]: item["abstract"] for item in items
                 }
                 new_count = 0
-                for ann in annotations:
+
+                # Callback saves each annotation to DB as it completes
+                def save_annotation(ann, _source=source_key):
+                    nonlocal new_count
                     pmid = ann.get("pmid", "")
                     if not pmid:
-                        continue
+                        return
                     ann["abstract_text"] = abstract_map.get(pmid, "")
-                    ann["source"] = source_key
+                    ann["source"] = _source
                     if db.insert_annotation(pmid, model_name, ann):
                         new_count += 1
                         already_done.add(pmid)
+
+                await annotator.annotate_batch(
+                    items,
+                    concurrency=config.annotation_concurrency,
+                    delay=config.annotation_delay,
+                    already_done=already_done,
+                    on_result=save_annotation,
+                )
 
                 logger.info(
                     f"Stored {new_count} new annotations for "
