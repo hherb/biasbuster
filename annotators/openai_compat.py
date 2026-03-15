@@ -186,7 +186,14 @@ class OpenAICompatAnnotator:
                     f"Resuming: {len(already_done)} already annotated in {output_path}"
                 )
 
-        remaining = [it for it in items if it["pmid"] not in already_done]
+        # Deduplicate by PMID (enriched data may contain duplicates)
+        seen_pmids: set[str] = set(already_done)
+        remaining = []
+        for it in items:
+            pmid = it["pmid"]
+            if pmid not in seen_pmids:
+                seen_pmids.add(pmid)
+                remaining.append(it)
         if not remaining:
             logger.info("All items already annotated, nothing to do")
             return results
