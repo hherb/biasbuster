@@ -304,6 +304,69 @@ Features:
 - **Direct DB save** — changes are written to the `human_reviews` table
 - **Stats bar** showing validation progress
 
+## Fine-Tuning (LoRA)
+
+The `training/` module fine-tunes candidate base models using LoRA adapters.
+Training runs inside the NGC PyTorch container on DGX Spark (the only source of
+aarch64 + CUDA PyTorch). Both models use identical LoRA hyperparameters for a
+controlled comparison — only the base model differs.
+
+### Quick Start
+
+```bash
+# 1. Train (each takes ~2-4 hours on DGX Spark)
+./run_training.sh qwen3.5-27b
+./run_training.sh olmo-3.1-32b
+
+# 2. Merge LoRA adapter into base model
+./run_merge.sh qwen3.5-27b
+./run_merge.sh olmo-3.1-32b
+
+# 3. Export to Ollama (safetensors — full precision)
+bash training/export_to_ollama.sh training_output/qwen3.5-27b-merged qwen3.5-27b-biasbuster
+bash training/export_to_ollama.sh training_output/olmo-3.1-32b-merged olmo-3.1-32b-biasbuster
+
+# 3b. Or export as quantized GGUF (smaller, faster inference)
+bash training/export_to_ollama.sh training_output/qwen3.5-27b-merged qwen3.5-27b-biasbuster-q4 --gguf Q4_K_M
+
+# 4. Evaluate fine-tuned models
+uv run python -m evaluation.run \
+    --test-set dataset/export/alpaca/test.jsonl \
+    --model-a qwen3.5-27b-biasbuster --endpoint-a http://localhost:11434 \
+    --model-b olmo-3.1-32b-biasbuster --endpoint-b http://localhost:11434 \
+    --mode fine-tuned --sequential --num-ctx 4096 \
+    --output eval_results/fine_tuned/
+```
+
+### Smoke Test
+
+Run 5 training steps to verify the setup without waiting hours:
+
+```bash
+./run_training.sh qwen3.5-27b --max-steps 5
+```
+
+### Checkpoint/Resume
+
+Training saves checkpoints every 50 steps. To resume after interruption:
+
+```bash
+./run_training.sh qwen3.5-27b --resume
+```
+
+### LoRA Configuration (Controlled Comparison)
+
+| Parameter | Value |
+|---|---|
+| LoRA rank | 16 |
+| LoRA alpha | 32 |
+| Target modules | q,k,v,o_proj + gate,up,down_proj |
+| Learning rate | 2e-4 (cosine schedule) |
+| Effective batch size | 4 (1 × 4 grad accum) |
+| Epochs | 3 |
+| Precision | bf16 (no quantization) |
+| Max sequence length | 4096 |
+
 ## Evaluation Harness
 
 The `evaluation/` module provides a standardised framework for comparing

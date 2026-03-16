@@ -178,6 +178,63 @@ uv run python -m evaluation.run \
 
 Note: The `--model-a` / `--model-b` names must match the Ollama model names (as shown by `ollama list`).
 
+## LoRA Fine-Tuning with NGC Container
+
+PyTorch CUDA wheels don't exist for aarch64 on PyPI. The NGC container is the
+only way to get GPU-accelerated training on DGX Spark.
+
+### Training
+
+```bash
+# Smoke test (5 steps, ~2 min)
+./run_training.sh qwen3.5-27b --max-steps 5
+
+# Full training (~2-4 hours per model)
+./run_training.sh qwen3.5-27b
+./run_training.sh olmo-3.1-32b
+
+# Resume after interruption
+./run_training.sh qwen3.5-27b --resume
+```
+
+The `run_training.sh` wrapper runs inside `nvcr.io/nvidia/pytorch:25.11-py3` with:
+- `--gpus all` for GPU access
+- `--shm-size=16g` for DataLoader shared memory
+- Bind mounts: project dir + HuggingFace cache
+- Installs trl, peft, datasets, transformers>=4.57 at container start
+
+### Memory Budget
+
+With 128GB unified memory:
+- Base model (bf16): ~55-61GB
+- LoRA optimizer states: ~0.5GB
+- Activations (gradient checkpointing): ~5-10GB
+- **Total: ~65-70GB** — comfortable headroom
+
+### Merging and Export
+
+```bash
+# Merge LoRA into base model (also uses NGC container)
+./run_merge.sh qwen3.5-27b
+
+# Export to Ollama (runs on host, not in container)
+bash training/export_to_ollama.sh training_output/qwen3.5-27b-merged qwen3.5-27b-biasbuster
+
+# Or export as quantized GGUF (requires llama.cpp built locally)
+bash training/export_to_ollama.sh training_output/qwen3.5-27b-merged qwen3.5-27b-biasbuster-q4 --gguf Q4_K_M
+```
+
+### Post-Fine-Tuning Evaluation
+
+```bash
+uv run python -m evaluation.run \
+    --test-set dataset/export/alpaca/test.jsonl \
+    --model-a qwen3.5-27b-biasbuster --endpoint-a http://localhost:11434 \
+    --model-b olmo-3.1-32b-biasbuster --endpoint-b http://localhost:11434 \
+    --mode fine-tuned --sequential --num-ctx 4096 \
+    --output eval_results/fine_tuned/
+```
+
 ## Models Downloaded (HF cache)
 
 Located in `~/.cache/huggingface/hub/`:

@@ -16,6 +16,12 @@ config.py
 dataset/
 dataset.old/
 
+# Training outputs (checkpoints, merged models, GGUF)
+training_output/
+
+# Evaluation results
+eval_results/
+
 #temporary tool compilation files
 llama.cpp
 llama.cpp/*
