@@ -15,3 +15,10 @@ config.py
 # Dataset outputs
 dataset/
 dataset.old/
+
+#temporary tool compilation files
+llama.cpp
+llama.cpp/*
+
+#drafts
+docs/papers/drafts/*
