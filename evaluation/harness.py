@@ -33,7 +33,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 from tqdm import tqdm
@@ -336,8 +336,14 @@ class EvalHarness:
         model_id: str,
         endpoint: str,
         examples: list[TestExample],
+        on_result: Callable[[ModelOutput], None] | None = None,
     ) -> list[ModelOutput]:
-        """Run all test examples through a single model with progress bar."""
+        """Run all test examples through a single model with progress bar.
+
+        Args:
+            on_result: Optional callback invoked with each ModelOutput
+                       immediately after it completes (for incremental persistence).
+        """
         semaphore = asyncio.Semaphore(self.config.max_concurrent)
         delay = 1.0 / self.config.requests_per_second
         errors = 0
@@ -357,6 +363,8 @@ class EvalHarness:
                 await asyncio.sleep(delay)
                 if result.error:
                     errors += 1
+                if on_result:
+                    on_result(result)
                 pbar.set_postfix(
                     errors=errors,
                     last_latency=f"{result.latency_seconds:.1f}s",

@@ -125,6 +125,12 @@ def parse_args():
         help="Re-analyse from saved outputs directory (skip inference)",
     )
 
+    # Force re-evaluation
+    parser.add_argument(
+        "--force-reevaluation", action="store_true",
+        help="Re-evaluate all examples even if results already exist in the DB",
+    )
+
     # Output
     parser.add_argument(
         "--output", type=Path, default=Path("eval_results"),
@@ -151,6 +157,66 @@ def _outputs_to_dicts(all_outputs: dict) -> dict[str, list]:
             for o in outputs
         ]
     return raw_outputs
+
+
+def _get_db(db_path: Optional[Path] = None):
+    """Get a Database instance for incremental storage."""
+    import importlib
+    Database = importlib.import_module("database").Database
+
+    if db_path is None:
+        try:
+            Config = importlib.import_module("config").Config
+            db_path = Path(Config().db_path)
+        except Exception:
+            db_path = Path("dataset/biasbuster.db")
+
+    if not db_path.exists():
+        return None
+
+    return Database(str(db_path))
+
+
+def _get_evaluated_pmids(db, model_id: str) -> set[str]:
+    """Return the set of PMIDs already evaluated by this model in the DB."""
+    if db is None:
+        return set()
+    rows = db.conn.execute(
+        "SELECT pmid FROM annotations WHERE model_name = ?", (model_id,)
+    ).fetchall()
+    return {r["pmid"] for r in rows}
+
+
+def _make_on_result_callback(db, model_id: str, gt_by_pmid: dict):
+    """Create a callback that parses and stores each result incrementally."""
+    from .scorer import parse_model_output, attach_ground_truth
+
+    existing_pmids = {r["pmid"] for r in db.conn.execute(
+        "SELECT pmid FROM papers"
+    ).fetchall()} if db else set()
+
+    def on_result(output):
+        if not db or output.error or not output.pmid:
+            return
+        if output.pmid not in existing_pmids:
+            return
+
+        parsed = parse_model_output(
+            raw_output=output.raw_output,
+            pmid=output.pmid,
+            model_id=model_id,
+        )
+        if not parsed.parse_success:
+            return
+
+        gt = gt_by_pmid.get(output.pmid, {})
+        if gt:
+            parsed = attach_ground_truth(parsed, gt)
+
+        annotation = _assessment_to_annotation(parsed)
+        db.upsert_annotation(output.pmid, model_id, annotation)
+
+    return on_result
 
 
 ENDPOINT_WAIT_TIMEOUT_SECONDS = 300
@@ -188,6 +254,7 @@ async def _run_single_model(
     endpoint: str,
     examples: list,
     args,
+    on_result=None,
 ) -> dict[str, list]:
     """Run inference for a single model and save outputs."""
     from .harness import EvalConfig, EvalHarness
@@ -203,10 +270,12 @@ async def _run_single_model(
     )
 
     async with EvalHarness(config) as harness:
-        all_outputs = await harness.run_all(examples)
-        harness.save_outputs(all_outputs, args.output)
+        outputs = await harness.evaluate_model(
+            model_id, endpoint, examples, on_result=on_result,
+        )
+        harness.save_outputs({model_id: outputs}, args.output)
 
-    return _outputs_to_dicts(all_outputs)
+    return {model_id: _outputs_to_dicts({model_id: outputs})[model_id]}
 
 
 async def run_inference(args) -> dict[str, list]:
@@ -225,8 +294,15 @@ async def run_inference(args) -> dict[str, list]:
         sys.exit(1)
 
     # Load test set
-    examples = load_test_set(args.test_set)
-    logger.info(f"Loaded {len(examples)} test examples")
+    all_examples = load_test_set(args.test_set)
+    logger.info(f"Loaded {len(all_examples)} test examples")
+
+    # Build ground truth lookup for incremental DB storage
+    gt_by_pmid = {ex.pmid: ex.ground_truth for ex in all_examples}
+
+    # Get DB for incremental persistence and checkpoint/resume
+    db = _get_db()
+    force = getattr(args, "force_reevaluation", False)
 
     # Sequential mode: run one model, pause, run the next
     if args.sequential and len(models) > 1:
@@ -234,6 +310,23 @@ async def run_inference(args) -> dict[str, list]:
         model_items = list(models.items())
 
         for i, (model_id, endpoint) in enumerate(model_items):
+            # Filter out already-evaluated examples (checkpoint/resume)
+            if force:
+                examples = all_examples
+            else:
+                done_pmids = _get_evaluated_pmids(db, model_id)
+                examples = [ex for ex in all_examples if ex.pmid not in done_pmids]
+                if len(examples) < len(all_examples):
+                    skipped = len(all_examples) - len(examples)
+                    logger.info(
+                        f"Skipping {skipped} already-evaluated examples for "
+                        f"{model_id} (use --force-reevaluation to re-run)"
+                    )
+
+            if not examples:
+                logger.info(f"All examples already evaluated for {model_id}, skipping")
+                continue
+
             # Wait for endpoint to be reachable before starting
             if not _wait_for_endpoint(endpoint, model_id):
                 logger.error(
@@ -243,8 +336,9 @@ async def run_inference(args) -> dict[str, list]:
                 )
                 sys.exit(1)
 
+            on_result = _make_on_result_callback(db, model_id, gt_by_pmid) if db else None
             outputs = await _run_single_model(
-                model_id, endpoint, examples, args,
+                model_id, endpoint, examples, args, on_result=on_result,
             )
             raw_outputs.update(outputs)
 
@@ -274,11 +368,41 @@ async def run_inference(args) -> dict[str, list]:
         num_ctx=args.num_ctx,
     )
 
+    raw_outputs = {}
     async with EvalHarness(config) as harness:
-        all_outputs = await harness.run_all(examples)
-        harness.save_outputs(all_outputs, args.output)
+        for model_id, endpoint in config.models.items():
+            # Filter out already-evaluated examples
+            if force:
+                examples = all_examples
+            else:
+                done_pmids = _get_evaluated_pmids(db, model_id)
+                examples = [ex for ex in all_examples if ex.pmid not in done_pmids]
+                if len(examples) < len(all_examples):
+                    skipped = len(all_examples) - len(examples)
+                    logger.info(
+                        f"Skipping {skipped} already-evaluated examples for "
+                        f"{model_id} (use --force-reevaluation to re-run)"
+                    )
 
-    return _outputs_to_dicts(all_outputs)
+            if not examples:
+                logger.info(f"All examples already evaluated for {model_id}, skipping")
+                continue
+
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Evaluating: {model_id}")
+            logger.info(f"Endpoint:   {endpoint}")
+            logger.info(f"Examples:   {len(examples)}")
+            logger.info(f"Mode:       {config.mode}")
+            logger.info(f"{'='*60}")
+
+            on_result = _make_on_result_callback(db, model_id, gt_by_pmid) if db else None
+            outputs = await harness.evaluate_model(
+                model_id, endpoint, examples, on_result=on_result,
+            )
+            harness.save_outputs({model_id: outputs}, args.output)
+            raw_outputs[model_id] = _outputs_to_dicts({model_id: outputs})[model_id]
+
+    return raw_outputs
 
 
 def load_saved_outputs(output_dir: Path) -> dict[str, list]:
