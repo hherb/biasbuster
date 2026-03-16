@@ -112,6 +112,16 @@ def parse_args():
              "Set to 4096-8192 for huge speedup when inputs are short.",
     )
 
+    # Thinking mode (Qwen3+ models)
+    parser.add_argument(
+        "--think", action="store_true", default=None,
+        help="Enable thinking mode (Qwen3+). Default: model decides.",
+    )
+    parser.add_argument(
+        "--no-think", dest="think", action="store_false",
+        help="Disable thinking mode (Qwen3+). Huge speedup.",
+    )
+
     # Sequential mode (one model at a time, pause between)
     parser.add_argument(
         "--sequential", action="store_true",
@@ -286,6 +296,7 @@ async def _run_single_model(
         mode=args.mode,
         output_dir=str(args.output),
         num_ctx=args.num_ctx,
+        think=args.think,
     )
 
     async with EvalHarness(config) as harness:
@@ -408,6 +419,7 @@ async def _run_inference_inner(
         mode=args.mode,
         output_dir=str(args.output),
         num_ctx=args.num_ctx,
+        think=args.think,
     )
 
     raw_outputs = {}

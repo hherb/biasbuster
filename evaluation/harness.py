@@ -30,6 +30,7 @@ Usage:
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -144,24 +145,69 @@ class EvalConfig:
 
     # Ollama-specific
     num_ctx: Optional[int] = None  # Context window size (reduces KV cache; huge speedup on Ollama)
+    think: Optional[bool] = None   # Enable/disable thinking (Qwen3+); None = model default
 
     # Output
     output_dir: str = "eval_results"
 
 
+def _parse_alpaca_instruction(instruction: str) -> tuple[str, str, str]:
+    """Extract title, pmid, and abstract from an Alpaca-format instruction field.
+
+    Expected format:
+        Assess the following clinical trial abstract for potential bias:
+
+        Title: <title>
+        PMID: <pmid>
+
+        Abstract:
+        <abstract text>
+    """
+    title = ""
+    pmid = ""
+    abstract = ""
+    m = re.search(r"Title:\s*(.+?)(?:\n|$)", instruction)
+    if m:
+        title = m.group(1).strip()
+    m = re.search(r"PMID:\s*(\S+)", instruction)
+    if m:
+        pmid = m.group(1).strip()
+    m = re.search(r"Abstract:\s*\n(.*)", instruction, re.DOTALL)
+    if m:
+        abstract = m.group(1).strip()
+    return title, pmid, abstract
+
+
 def load_test_set(path: Path) -> list[TestExample]:
     """
     Load test examples from JSONL.
-    Each line should have: pmid, title, abstract, and ground_truth annotations.
+    Supports both native format (pmid/title/abstract keys) and Alpaca format
+    (instruction field containing structured text).
     """
     examples = []
     with open(path) as f:
         for line in f:
             data = json.loads(line)
+            pmid = data.get("pmid", "")
+            title = data.get("title", "")
+            abstract = data.get("abstract", data.get("abstract_text", ""))
+
+            # Fall back to parsing the Alpaca instruction field
+            if not abstract and "instruction" in data:
+                a_title, a_pmid, a_abstract = _parse_alpaca_instruction(
+                    data["instruction"]
+                )
+                title = title or a_title
+                pmid = pmid or a_pmid
+                abstract = abstract or a_abstract
+
+            if not abstract:
+                logger.warning(f"Empty abstract for PMID {pmid or '(unknown)'} — model will receive no content")
+
             examples.append(TestExample(
-                pmid=data.get("pmid", ""),
-                title=data.get("title", ""),
-                abstract=data.get("abstract", data.get("abstract_text", "")),
+                pmid=pmid,
+                title=title,
+                abstract=abstract,
                 ground_truth=data,  # The full annotation IS the ground truth
                 source=data.get("source", ""),
             ))
@@ -232,6 +278,8 @@ class EvalHarness:
                     "num_predict": self.config.max_tokens,
                 },
             }
+            if self.config.think is not None:
+                payload["think"] = self.config.think
             url = f"{endpoint.rstrip('/')}/api/chat"
         else:
             # OpenAI-compatible endpoint (works with SGLang, vLLM, Ollama, etc.)

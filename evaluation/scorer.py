@@ -12,6 +12,7 @@ Each bias dimension is scored independently to reveal per-domain strengths.
 """
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -129,11 +130,25 @@ def parse_model_output(raw_output: str, pmid: str = "", model_id: str = "") -> P
     return result
 
 
+_scorer_logger = logging.getLogger(__name__)
+
+
+def _safe_dict(val, default_severity="none"):
+    """Ensure a dimension value is a dict; coerce strings/None to a stub."""
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        return {"severity": val}
+    if val is not None:
+        _scorer_logger.warning("Unexpected dimension type %s: %r", type(val).__name__, val)
+    return {"severity": default_severity}
+
+
 def _parse_from_json(data: dict, result: ParsedAssessment) -> ParsedAssessment:
     """Parse from a JSON-formatted model response."""
 
     # Statistical reporting
-    sr = data.get("statistical_reporting", {})
+    sr = _safe_dict(data.get("statistical_reporting", {}))
     result.statistical_reporting.predicted_severity = sr.get("severity", "none")
     result.statistical_reporting.predicted_binary = sr.get("severity", "none") != "none"
     result.statistical_reporting.predicted_flags = {
@@ -146,7 +161,7 @@ def _parse_from_json(data: dict, result: ParsedAssessment) -> ParsedAssessment:
     }
 
     # Spin
-    sp = data.get("spin", {})
+    sp = _safe_dict(data.get("spin", {}))
     result.spin.predicted_severity = sp.get("severity", "none")
     result.spin.predicted_binary = sp.get("severity", "none") != "none"
     result.spin.predicted_flags = {
@@ -159,7 +174,7 @@ def _parse_from_json(data: dict, result: ParsedAssessment) -> ParsedAssessment:
     }
 
     # Outcome reporting
-    oc = data.get("outcome_reporting", {})
+    oc = _safe_dict(data.get("outcome_reporting", {}))
     result.outcome_reporting.predicted_severity = oc.get("severity", "none")
     result.outcome_reporting.predicted_binary = oc.get("severity", "none") != "none"
     result.outcome_reporting.predicted_flags = {
@@ -169,7 +184,7 @@ def _parse_from_json(data: dict, result: ParsedAssessment) -> ParsedAssessment:
     }
 
     # COI
-    ci = data.get("conflict_of_interest", {})
+    ci = _safe_dict(data.get("conflict_of_interest", {}))
     result.conflict_of_interest.predicted_severity = ci.get("severity", "none")
     result.conflict_of_interest.predicted_binary = ci.get("severity", "none") != "none"
     result.conflict_of_interest.predicted_flags = {
@@ -180,7 +195,7 @@ def _parse_from_json(data: dict, result: ParsedAssessment) -> ParsedAssessment:
     }
 
     # Methodology
-    mt = data.get("methodology", {})
+    mt = _safe_dict(data.get("methodology", {}))
     result.methodology.predicted_severity = mt.get("severity", "none")
     result.methodology.predicted_binary = mt.get("severity", "none") != "none"
     result.methodology.predicted_flags = {
@@ -192,11 +207,12 @@ def _parse_from_json(data: dict, result: ParsedAssessment) -> ParsedAssessment:
     }
 
     # Overall
-    result.overall_severity = data.get("overall_severity", "none")
-    result.overall_bias_probability = float(data.get("overall_bias_probability", 0.0))
+    result.overall_severity = data.get("overall_severity") or "none"
+    result.overall_bias_probability = float(data.get("overall_bias_probability") or 0.0)
 
     # Verification steps
-    result.verification_steps_mentioned = data.get("recommended_verification_steps", [])
+    vs = data.get("recommended_verification_steps", [])
+    result.verification_steps_mentioned = vs if isinstance(vs, list) else []
 
     return result
 
