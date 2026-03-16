@@ -105,6 +105,13 @@ def parse_args():
     parser.add_argument("--max-tokens", type=int, default=4000)
     parser.add_argument("--max-concurrent", type=int, default=2)
 
+    # Ollama context window
+    parser.add_argument(
+        "--num-ctx", type=int, default=None,
+        help="Ollama context window size (default: model default, often 262144). "
+             "Set to 4096-8192 for huge speedup when inputs are short.",
+    )
+
     # Sequential mode (one model at a time, pause between)
     parser.add_argument(
         "--sequential", action="store_true",
@@ -192,6 +199,7 @@ async def _run_single_model(
         max_concurrent=args.max_concurrent,
         mode=args.mode,
         output_dir=str(args.output),
+        num_ctx=args.num_ctx,
     )
 
     async with EvalHarness(config) as harness:
@@ -263,6 +271,7 @@ async def run_inference(args) -> dict[str, list]:
         max_concurrent=args.max_concurrent,
         mode=args.mode,
         output_dir=str(args.output),
+        num_ctx=args.num_ctx,
     )
 
     async with EvalHarness(config) as harness:

@@ -138,9 +138,12 @@ class EvalConfig:
     max_concurrent: int = 3
 
     # Network resilience
-    request_timeout_seconds: float = 300.0
+    request_timeout_seconds: float = 600.0
     max_retries: int = 3
     retry_base_delay_seconds: float = 5.0
+
+    # Ollama-specific
+    num_ctx: Optional[int] = None  # Context window size (reduces KV cache; huge speedup on Ollama)
 
     # Output
     output_dir: str = "eval_results"
@@ -211,18 +214,39 @@ class EvalHarness:
         )
         user_message = build_user_message(example)
 
-        payload = {
-            "model": model_id,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            "temperature": self.config.temperature,
-            "max_tokens": self.config.max_tokens,
-            "top_p": self.config.top_p,
-        }
+        use_ollama_native = self.config.num_ctx is not None
 
-        url = f"{endpoint.rstrip('/')}/v1/chat/completions"
+        if use_ollama_native:
+            # Ollama native /api/chat — reliably supports num_ctx via options
+            payload = {
+                "model": model_id,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                "stream": False,
+                "options": {
+                    "temperature": self.config.temperature,
+                    "top_p": self.config.top_p,
+                    "num_ctx": self.config.num_ctx,
+                    "num_predict": self.config.max_tokens,
+                },
+            }
+            url = f"{endpoint.rstrip('/')}/api/chat"
+        else:
+            # OpenAI-compatible endpoint (works with SGLang, vLLM, Ollama, etc.)
+            payload = {
+                "model": model_id,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                "temperature": self.config.temperature,
+                "max_tokens": self.config.max_tokens,
+                "top_p": self.config.top_p,
+            }
+            url = f"{endpoint.rstrip('/')}/v1/chat/completions"
+
         start_time = time.monotonic()
         last_error = None
         max_retries = self.config.max_retries
@@ -259,12 +283,18 @@ class EvalHarness:
 
                 data = resp.json()
 
-                # Extract response text
-                choice = data.get("choices", [{}])[0]
-                raw_output = choice.get("message", {}).get("content", "")
-
-                # Token usage
-                usage = data.get("usage", {})
+                if use_ollama_native:
+                    # Ollama native response format
+                    raw_output = data.get("message", {}).get("content", "")
+                    usage = {
+                        "prompt_tokens": data.get("prompt_eval_count", 0),
+                        "completion_tokens": data.get("eval_count", 0),
+                    }
+                else:
+                    # OpenAI-compatible response format
+                    choice = data.get("choices", [{}])[0]
+                    raw_output = choice.get("message", {}).get("content", "")
+                    usage = data.get("usage", {})
 
                 return ModelOutput(
                     pmid=example.pmid,
