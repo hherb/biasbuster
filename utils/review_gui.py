@@ -58,10 +58,12 @@ def load_annotations_for_review(
     return rows
 
 
-def create_app(db: Database, model_name: str) -> None:
+def create_app(db: Database, model_name: str, all_models: list[str] | None = None) -> None:
     """Create the NiceGUI review application."""
     rows = load_annotations_for_review(db, model_name)
     state = {"modified": False, "rows": rows, "model_name": model_name}
+    if all_models is None:
+        all_models = [m for m in db.get_model_names() if m != "human"]
 
     # --- Column definitions for AG Grid ---
     column_defs = [
@@ -190,7 +192,13 @@ def create_app(db: Database, model_name: str) -> None:
 
     # Header
     with ui.header().classes("items-center justify-between q-px-md"):
-        ui.label(f"Reviewing: {model_name} annotations").classes("text-h6")
+        with ui.row().classes("items-center gap-4"):
+            ui.label("Reviewing:").classes("text-h6")
+            model_select = ui.select(
+                all_models,
+                value=model_name,
+                on_change=lambda e: switch_model(e.value),
+            ).props("dense outlined dark").classes("min-w-[200px]")
         with ui.row().classes("items-center gap-2"):
             status_label = ui.label("No changes").classes("text-caption")
             save_btn = ui.button("Save", on_click=lambda: do_save())
@@ -274,9 +282,8 @@ def create_app(db: Database, model_name: str) -> None:
 
         # CSV export button
         async def export_csv():
-            from annotators import REVIEW_CSV_COLUMNS
-            output_path = Path(f"dataset/export/{model_name}_review.csv")
-            db.export_review_csv(model_name, output_path)
+            output_path = Path(f"dataset/export/{state['model_name']}_review.csv")
+            db.export_review_csv(state["model_name"], output_path)
             ui.notify(f"CSV exported to {output_path}", type="positive")
 
         ui.button(
@@ -305,6 +312,28 @@ def create_app(db: Database, model_name: str) -> None:
             with ui.tab_panel("Abstract"):
                 abstract_container = ui.column().classes("w-full")
         detail_panels.visible = False
+
+    def switch_model(new_model: str):
+        """Reload grid data for a different model."""
+        if state["modified"]:
+            ui.notify("Save or discard changes before switching models", type="warning")
+            model_select.value = state["model_name"]
+            return
+        new_rows = load_annotations_for_review(db, new_model)
+        state["rows"] = new_rows
+        state["model_name"] = new_model
+        grid.options["rowData"] = new_rows
+        grid.update()
+        ui.page_title(f"Review: {new_model}")
+        # Reset filters
+        filter_input.set_value("")
+        grid.run_grid_method("setGridOption", "quickFilterText", "")
+        update_stats()
+        # Reset detail panel
+        detail_placeholder.visible = True
+        detail_tabs.visible = False
+        detail_panels.visible = False
+        ui.notify(f"Loaded {len(new_rows)} annotations for {new_model}", type="info")
 
     # --- Event handlers ---
     async def on_cell_changed(e):
@@ -469,37 +498,17 @@ def main():
     db = Database(db_path)
     db.initialize()
 
-    model_name = args.model
-    if not model_name:
-        models = db.get_model_names()
-        models = [m for m in models if m != "human"]
+    models = [m for m in db.get_model_names() if m != "human"]
 
-        if not models:
-            print("No model annotations found in database")
-            print("Usage: uv run python -m utils.review_gui --model anthropic")
-            db.close()
-            sys.exit(1)
+    if not models:
+        print("No model annotations found in database")
+        print("Usage: uv run python -m utils.review_gui --model anthropic")
+        db.close()
+        sys.exit(1)
 
-        if len(models) == 1:
-            model_name = models[0]
-        else:
-            print("Available models:")
-            for i, m in enumerate(models, 1):
-                print(f"  {i}. {m}")
-            print()
+    model_name = args.model if args.model in models else models[0]
 
-            while True:
-                try:
-                    choice = input(f"Select model (1-{len(models)}): ").strip()
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(models):
-                        model_name = models[idx]
-                        break
-                except (ValueError, EOFError):
-                    pass
-                print(f"Please enter a number between 1 and {len(models)}")
-
-    create_app(db, model_name)
+    create_app(db, model_name, all_models=models)
     ui.run(
         title=f"Review: {model_name}",
         port=args.port,
