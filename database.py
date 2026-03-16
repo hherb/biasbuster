@@ -90,12 +90,30 @@ CREATE TABLE IF NOT EXISTS human_reviews (
     FOREIGN KEY (pmid, model_name) REFERENCES annotations(pmid, model_name)
 );
 
+-- Evaluation outputs (separate from annotation pipeline)
+CREATE TABLE IF NOT EXISTS eval_outputs (
+    pmid TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'zero-shot',
+    raw_output TEXT,
+    parsed_annotation JSON,
+    overall_severity TEXT,
+    overall_bias_probability REAL,
+    latency_seconds REAL,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    error TEXT,
+    evaluated_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (pmid, model_id, mode)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_papers_source ON papers(source);
 CREATE INDEX IF NOT EXISTS idx_enrichments_suspicion ON enrichments(suspicion_level);
 CREATE INDEX IF NOT EXISTS idx_annotations_model ON annotations(model_name);
 CREATE INDEX IF NOT EXISTS idx_annotations_severity ON annotations(overall_severity);
 CREATE INDEX IF NOT EXISTS idx_human_reviews_validated ON human_reviews(validated);
+CREATE INDEX IF NOT EXISTS idx_eval_outputs_model ON eval_outputs(model_id);
 """
 
 
@@ -500,6 +518,57 @@ class Database:
             "SELECT DISTINCT model_name FROM annotations ORDER BY model_name"
         ).fetchall()
         return [r["model_name"] for r in rows]
+
+    # ---- Evaluation outputs ----
+
+    def upsert_eval_output(
+        self, pmid: str, model_id: str, mode: str, output: dict
+    ) -> bool:
+        """Insert or update an evaluation output. Returns True if row was written."""
+        try:
+            cursor = self.conn.execute(
+                """INSERT INTO eval_outputs
+                   (pmid, model_id, mode, raw_output, parsed_annotation,
+                    overall_severity, overall_bias_probability,
+                    latency_seconds, input_tokens, output_tokens, error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(pmid, model_id, mode) DO UPDATE SET
+                       raw_output = excluded.raw_output,
+                       parsed_annotation = excluded.parsed_annotation,
+                       overall_severity = excluded.overall_severity,
+                       overall_bias_probability = excluded.overall_bias_probability,
+                       latency_seconds = excluded.latency_seconds,
+                       input_tokens = excluded.input_tokens,
+                       output_tokens = excluded.output_tokens,
+                       error = excluded.error,
+                       evaluated_at = datetime('now')""",
+                (
+                    pmid,
+                    model_id,
+                    mode,
+                    output.get("raw_output"),
+                    json.dumps(output["parsed_annotation"]) if output.get("parsed_annotation") else None,
+                    output.get("overall_severity"),
+                    output.get("overall_bias_probability"),
+                    output.get("latency_seconds"),
+                    output.get("input_tokens"),
+                    output.get("output_tokens"),
+                    output.get("error"),
+                ),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.warning(f"Failed to upsert eval output {pmid}/{model_id}: {e}")
+            return False
+
+    def get_evaluated_pmids(self, model_id: str, mode: str) -> set[str]:
+        """Get PMIDs already evaluated by a model+mode (successful only)."""
+        rows = self.conn.execute(
+            "SELECT pmid FROM eval_outputs WHERE model_id = ? AND mode = ? AND error IS NULL",
+            (model_id, mode),
+        ).fetchall()
+        return {r["pmid"] for r in rows}
 
     # ---- Human reviews ----
 

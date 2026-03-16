@@ -159,46 +159,60 @@ def _outputs_to_dicts(all_outputs: dict) -> dict[str, list]:
     return raw_outputs
 
 
-def _get_db(db_path: Optional[Path] = None):
-    """Get a Database instance for incremental storage."""
+def _resolve_db_path(db_path: Optional[Path] = None) -> Path:
+    """Resolve the database path from config or default."""
+    if db_path is not None:
+        return db_path
+    import importlib
+    try:
+        Config = importlib.import_module("config").Config
+        return Path(Config().db_path)
+    except Exception:
+        return Path("dataset/biasbuster.db")
+
+
+def _open_db(db_path: Optional[Path] = None):
+    """Open a Database instance (context manager). Returns None if DB doesn't exist."""
     import importlib
     Database = importlib.import_module("database").Database
-
-    if db_path is None:
-        try:
-            Config = importlib.import_module("config").Config
-            db_path = Path(Config().db_path)
-        except Exception:
-            db_path = Path("dataset/biasbuster.db")
-
-    if not db_path.exists():
+    resolved = _resolve_db_path(db_path)
+    if not resolved.exists():
         return None
+    return Database(str(resolved))
 
-    return Database(str(db_path))
 
-
-def _get_evaluated_pmids(db, model_id: str) -> set[str]:
-    """Return the set of PMIDs already evaluated by this model in the DB."""
+def _get_evaluated_pmids(db, model_id: str, mode: str) -> set[str]:
+    """Return the set of PMIDs already evaluated by this model+mode in the DB."""
     if db is None:
         return set()
-    rows = db.conn.execute(
-        "SELECT pmid FROM annotations WHERE model_name = ?", (model_id,)
-    ).fetchall()
-    return {r["pmid"] for r in rows}
+    return db.get_evaluated_pmids(model_id, mode)
 
 
-def _make_on_result_callback(db, model_id: str, gt_by_pmid: dict):
-    """Create a callback that parses and stores each result incrementally."""
+def _make_on_result_callback(db, model_id: str, mode: str, gt_by_pmid: dict):
+    """Create a callback that stores each result incrementally to eval_outputs.
+
+    The callback is synchronous and called from the single-threaded asyncio
+    event loop, so SQLite access is safe without additional locking.
+    """
     from .scorer import parse_model_output, attach_ground_truth
 
-    existing_pmids = {r["pmid"] for r in db.conn.execute(
-        "SELECT pmid FROM papers"
-    ).fetchall()} if db else set()
-
     def on_result(output):
-        if not db or output.error or not output.pmid:
+        if db is None:
             return
-        if output.pmid not in existing_pmids:
+
+        # Build the output dict — always store raw output + latency,
+        # even on error, so we have a record of the attempt.
+        output_dict = {
+            "raw_output": output.raw_output,
+            "latency_seconds": output.latency_seconds,
+            "input_tokens": output.input_tokens,
+            "output_tokens": output.output_tokens,
+            "error": output.error,
+        }
+
+        if output.error or not output.pmid:
+            if output.pmid:
+                db.upsert_eval_output(output.pmid, model_id, mode, output_dict)
             return
 
         parsed = parse_model_output(
@@ -207,6 +221,8 @@ def _make_on_result_callback(db, model_id: str, gt_by_pmid: dict):
             model_id=model_id,
         )
         if not parsed.parse_success:
+            logger.warning(f"PMID {output.pmid}: parse failed for {model_id}, storing raw output only")
+            db.upsert_eval_output(output.pmid, model_id, mode, output_dict)
             return
 
         gt = gt_by_pmid.get(output.pmid, {})
@@ -214,7 +230,10 @@ def _make_on_result_callback(db, model_id: str, gt_by_pmid: dict):
             parsed = attach_ground_truth(parsed, gt)
 
         annotation = _assessment_to_annotation(parsed)
-        db.upsert_annotation(output.pmid, model_id, annotation)
+        output_dict["parsed_annotation"] = annotation
+        output_dict["overall_severity"] = annotation.get("overall_severity")
+        output_dict["overall_bias_probability"] = annotation.get("overall_bias_probability")
+        db.upsert_eval_output(output.pmid, model_id, mode, output_dict)
 
     return on_result
 
@@ -280,7 +299,7 @@ async def _run_single_model(
 
 async def run_inference(args) -> dict[str, list]:
     """Run inference through the harness."""
-    from .harness import EvalConfig, EvalHarness, load_test_set
+    from .harness import load_test_set
 
     # Build model list
     models = {}
@@ -301,8 +320,31 @@ async def run_inference(args) -> dict[str, list]:
     gt_by_pmid = {ex.pmid: ex.ground_truth for ex in all_examples}
 
     # Get DB for incremental persistence and checkpoint/resume
-    db = _get_db()
     force = getattr(args, "force_reevaluation", False)
+    db = _open_db()
+    if db is None:
+        logger.warning("Database not found — results will only be saved to JSONL")
+        return await _run_inference_inner(
+            models, all_examples, gt_by_pmid, None, force, args,
+        )
+
+    with db:
+        return await _run_inference_inner(
+            models, all_examples, gt_by_pmid, db, force, args,
+        )
+
+
+async def _run_inference_inner(
+    models: dict,
+    all_examples: list,
+    gt_by_pmid: dict,
+    db,
+    force: bool,
+    args,
+) -> dict[str, list]:
+    """Inner inference loop with DB connection managed by caller."""
+    from .harness import EvalConfig, EvalHarness
+    mode = args.mode
 
     # Sequential mode: run one model, pause, run the next
     if args.sequential and len(models) > 1:
@@ -314,7 +356,7 @@ async def run_inference(args) -> dict[str, list]:
             if force:
                 examples = all_examples
             else:
-                done_pmids = _get_evaluated_pmids(db, model_id)
+                done_pmids = _get_evaluated_pmids(db, model_id, mode)
                 examples = [ex for ex in all_examples if ex.pmid not in done_pmids]
                 if len(examples) < len(all_examples):
                     skipped = len(all_examples) - len(examples)
@@ -336,7 +378,7 @@ async def run_inference(args) -> dict[str, list]:
                 )
                 sys.exit(1)
 
-            on_result = _make_on_result_callback(db, model_id, gt_by_pmid) if db else None
+            on_result = _make_on_result_callback(db, model_id, mode, gt_by_pmid) if db else None
             outputs = await _run_single_model(
                 model_id, endpoint, examples, args, on_result=on_result,
             )
@@ -375,7 +417,7 @@ async def run_inference(args) -> dict[str, list]:
             if force:
                 examples = all_examples
             else:
-                done_pmids = _get_evaluated_pmids(db, model_id)
+                done_pmids = _get_evaluated_pmids(db, model_id, mode)
                 examples = [ex for ex in all_examples if ex.pmid not in done_pmids]
                 if len(examples) < len(all_examples):
                     skipped = len(all_examples) - len(examples)
@@ -395,7 +437,7 @@ async def run_inference(args) -> dict[str, list]:
             logger.info(f"Mode:       {config.mode}")
             logger.info(f"{'='*60}")
 
-            on_result = _make_on_result_callback(db, model_id, gt_by_pmid) if db else None
+            on_result = _make_on_result_callback(db, model_id, mode, gt_by_pmid) if db else None
             outputs = await harness.evaluate_model(
                 model_id, endpoint, examples, on_result=on_result,
             )
@@ -446,49 +488,38 @@ def _store_assessments_in_db(
     db_path: Optional[Path] = None,
 ):
     """Persist parsed eval assessments into the SQLite annotations table."""
-    # Import from project root — evaluation/ is a subpackage
-    import importlib
-    Database = importlib.import_module("database").Database
-
-    if db_path is None:
-        try:
-            Config = importlib.import_module("config").Config
-            db_path = Path(Config().db_path)
-        except Exception:
-            db_path = Path("dataset/biasbuster.db")
-
-    if not db_path.exists():
-        logger.warning(f"Database not found at {db_path}, skipping DB storage")
+    db = _open_db(db_path)
+    if db is None:
+        logger.warning("Database not found, skipping DB storage")
         return
 
-    db = Database(str(db_path))
+    with db:
+        # Ensure papers exist for all PMIDs (FK constraint)
+        existing_pmids = {r["pmid"] for r in db.conn.execute(
+            "SELECT pmid FROM papers"
+        ).fetchall()}
 
-    # Ensure papers exist for all PMIDs (FK constraint)
-    existing_pmids = {r["pmid"] for r in db.conn.execute(
-        "SELECT pmid FROM papers"
-    ).fetchall()}
+        stored = 0
+        skipped = 0
+        fk_missing = 0
+        for model_id, assessments in all_assessments.items():
+            for parsed in assessments:
+                if not parsed.pmid or not parsed.parse_success:
+                    skipped += 1
+                    continue
+                if parsed.pmid not in existing_pmids:
+                    fk_missing += 1
+                    continue
+                annotation = _assessment_to_annotation(parsed)
+                db.upsert_annotation(parsed.pmid, model_id, annotation)
+                stored += 1
 
-    stored = 0
-    skipped = 0
-    fk_missing = 0
-    for model_id, assessments in all_assessments.items():
-        for parsed in assessments:
-            if not parsed.pmid or not parsed.parse_success:
-                skipped += 1
-                continue
-            if parsed.pmid not in existing_pmids:
-                fk_missing += 1
-                continue
-            annotation = _assessment_to_annotation(parsed)
-            db.upsert_annotation(parsed.pmid, model_id, annotation)
-            stored += 1
-
-    if fk_missing:
-        logger.warning(
-            f"{fk_missing} PMIDs not in papers table — run the collection "
-            f"pipeline first or use --reanalyse with the matching database"
-        )
-    logger.info(f"Stored {stored} annotations in DB, skipped {skipped}")
+        if fk_missing:
+            logger.warning(
+                f"{fk_missing} PMIDs not in papers table — run the collection "
+                f"pipeline first or use --reanalyse with the matching database"
+            )
+        logger.info(f"Stored {stored} annotations in DB, skipped {skipped}")
 
 
 def analyse_outputs(
