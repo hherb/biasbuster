@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,11 @@ class EvalConfig:
     requests_per_second: float = 2.0
     max_concurrent: int = 3
 
+    # Network resilience
+    request_timeout_seconds: float = 300.0
+    max_retries: int = 3
+    retry_base_delay_seconds: float = 5.0
+
     # Output
     output_dir: str = "eval_results"
 
@@ -180,7 +186,7 @@ class EvalHarness:
         self.client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self):
-        self.client = httpx.AsyncClient(timeout=120.0)
+        self.client = httpx.AsyncClient(timeout=self.config.request_timeout_seconds)
         return self
 
     async def __aexit__(self, *args):
@@ -196,6 +202,8 @@ class EvalHarness:
         """
         Send a single example to a model endpoint and collect the response.
         Uses OpenAI-compatible /v1/chat/completions format.
+        Retries on transient errors (5xx, timeouts, connection errors) with
+        exponential backoff.
         """
         system_prompt = (
             FINE_TUNED_SYSTEM_PROMPT if self.config.mode == "fine-tuned"
@@ -214,46 +222,84 @@ class EvalHarness:
             "top_p": self.config.top_p,
         }
 
+        url = f"{endpoint.rstrip('/')}/v1/chat/completions"
         start_time = time.monotonic()
+        last_error = None
+        max_retries = self.config.max_retries
+        base_delay = self.config.retry_base_delay_seconds
 
-        try:
-            # Try /v1/chat/completions (standard OpenAI-compatible)
-            url = f"{endpoint.rstrip('/')}/v1/chat/completions"
-            resp = await self.client.post(url, json=payload)
+        for attempt in range(max_retries):
+            try:
+                resp = await self.client.post(url, json=payload)
 
-            if resp.status_code != 200:
+                if resp.status_code >= 500:
+                    last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                    if attempt < max_retries - 1:
+                        wait = 2 ** attempt * base_delay
+                        logger.warning(
+                            f"PMID {example.pmid}: {last_error}, "
+                            f"retrying in {wait}s (attempt {attempt + 1}/{max_retries})"
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+                    return ModelOutput(
+                        pmid=example.pmid,
+                        model_id=model_id,
+                        error=last_error,
+                        latency_seconds=time.monotonic() - start_time,
+                    )
+
+                if resp.status_code != 200:
+                    return ModelOutput(
+                        pmid=example.pmid,
+                        model_id=model_id,
+                        error=f"HTTP {resp.status_code}: {resp.text[:200]}",
+                        latency_seconds=time.monotonic() - start_time,
+                    )
+
+                data = resp.json()
+
+                # Extract response text
+                choice = data.get("choices", [{}])[0]
+                raw_output = choice.get("message", {}).get("content", "")
+
+                # Token usage
+                usage = data.get("usage", {})
+
                 return ModelOutput(
                     pmid=example.pmid,
                     model_id=model_id,
-                    error=f"HTTP {resp.status_code}: {resp.text[:200]}",
+                    raw_output=raw_output,
+                    latency_seconds=time.monotonic() - start_time,
+                    input_tokens=usage.get("prompt_tokens", 0),
+                    output_tokens=usage.get("completion_tokens", 0),
+                )
+
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+                last_error = str(e)
+                if attempt < max_retries - 1:
+                    wait = 2 ** attempt * base_delay
+                    logger.warning(
+                        f"PMID {example.pmid}: {last_error}, "
+                        f"retrying in {wait}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+
+            except Exception as e:
+                return ModelOutput(
+                    pmid=example.pmid,
+                    model_id=model_id,
+                    error=str(e),
                     latency_seconds=time.monotonic() - start_time,
                 )
 
-            data = resp.json()
-
-            # Extract response text
-            choice = data.get("choices", [{}])[0]
-            raw_output = choice.get("message", {}).get("content", "")
-
-            # Token usage
-            usage = data.get("usage", {})
-
-            return ModelOutput(
-                pmid=example.pmid,
-                model_id=model_id,
-                raw_output=raw_output,
-                latency_seconds=time.monotonic() - start_time,
-                input_tokens=usage.get("prompt_tokens", 0),
-                output_tokens=usage.get("completion_tokens", 0),
-            )
-
-        except Exception as e:
-            return ModelOutput(
-                pmid=example.pmid,
-                model_id=model_id,
-                error=str(e),
-                latency_seconds=time.monotonic() - start_time,
-            )
+        return ModelOutput(
+            pmid=example.pmid,
+            model_id=model_id,
+            error=f"Failed after {max_retries} retries: {last_error}",
+            latency_seconds=time.monotonic() - start_time,
+        )
 
     async def evaluate_model(
         self,
@@ -261,22 +307,38 @@ class EvalHarness:
         endpoint: str,
         examples: list[TestExample],
     ) -> list[ModelOutput]:
-        """Run all test examples through a single model."""
+        """Run all test examples through a single model with progress bar."""
         semaphore = asyncio.Semaphore(self.config.max_concurrent)
         delay = 1.0 / self.config.requests_per_second
-        outputs = []
+        errors = 0
+
+        pbar = tqdm(
+            total=len(examples),
+            desc=f"{model_id}",
+            unit="ex",
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}, {postfix}]",
+        )
+        pbar.set_postfix(errors=0)
 
         async def process_one(example: TestExample) -> ModelOutput:
+            nonlocal errors
             async with semaphore:
                 result = await self.query_model(model_id, endpoint, example)
                 await asyncio.sleep(delay)
+                if result.error:
+                    errors += 1
+                pbar.set_postfix(
+                    errors=errors,
+                    last_latency=f"{result.latency_seconds:.1f}s",
+                )
+                pbar.update(1)
                 return result
 
         tasks = [process_one(ex) for ex in examples]
         results = await asyncio.gather(*tasks)
         outputs = list(results)
+        pbar.close()
 
-        errors = sum(1 for o in outputs if o.error)
         logger.info(
             f"Model {model_id}: {len(outputs)} examples, "
             f"{errors} errors, "

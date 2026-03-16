@@ -422,6 +422,39 @@ class Database:
             )
             return False
 
+    def upsert_annotation(
+        self, pmid: str, model_name: str, annotation: dict
+    ) -> bool:
+        """Insert or update an annotation. Returns True if row was written."""
+        try:
+            cursor = self.conn.execute(
+                """INSERT INTO annotations
+                   (pmid, model_name, annotation,
+                    overall_severity, overall_bias_probability, confidence)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(pmid, model_name) DO UPDATE SET
+                       annotation = excluded.annotation,
+                       overall_severity = excluded.overall_severity,
+                       overall_bias_probability = excluded.overall_bias_probability,
+                       confidence = excluded.confidence,
+                       annotated_at = datetime('now')""",
+                (
+                    pmid,
+                    model_name,
+                    json.dumps(annotation),
+                    annotation.get("overall_severity"),
+                    annotation.get("overall_bias_probability"),
+                    annotation.get("confidence"),
+                ),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.warning(
+                f"Failed to upsert annotation {pmid}/{model_name}: {e}"
+            )
+            return False
+
     def get_annotations(
         self,
         model_name: Optional[str] = None,

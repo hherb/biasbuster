@@ -64,6 +64,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 logging.basicConfig(
     level=logging.INFO,
@@ -145,8 +146,17 @@ def _outputs_to_dicts(all_outputs: dict) -> dict[str, list]:
     return raw_outputs
 
 
-def _wait_for_endpoint(endpoint: str, model_id: str, timeout: int = 300):
-    """Wait for an endpoint to become ready, polling every 5 seconds."""
+ENDPOINT_WAIT_TIMEOUT_SECONDS = 300
+ENDPOINT_POLL_INTERVAL_SECONDS = 5
+ENDPOINT_HEALTH_CHECK_TIMEOUT_SECONDS = 5
+
+
+def _wait_for_endpoint(
+    endpoint: str,
+    model_id: str,
+    timeout: int = ENDPOINT_WAIT_TIMEOUT_SECONDS,
+):
+    """Wait for an endpoint to become ready, polling periodically."""
     import time
     import httpx
 
@@ -155,13 +165,13 @@ def _wait_for_endpoint(endpoint: str, model_id: str, timeout: int = 300):
     start = time.monotonic()
     while time.monotonic() - start < timeout:
         try:
-            resp = httpx.get(url, timeout=5.0)
+            resp = httpx.get(url, timeout=ENDPOINT_HEALTH_CHECK_TIMEOUT_SECONDS)
             if resp.status_code == 200:
                 logger.info(f"{model_id} is ready at {endpoint}")
                 return True
         except (httpx.ConnectError, httpx.TimeoutException):
             pass
-        time.sleep(5)
+        time.sleep(ENDPOINT_POLL_INTERVAL_SECONDS)
     logger.error(f"Timed out waiting for {model_id} at {endpoint} after {timeout}s")
     return False
 
@@ -276,6 +286,78 @@ def load_saved_outputs(output_dir: Path) -> dict[str, list]:
     return raw_outputs
 
 
+def _assessment_to_annotation(parsed) -> dict:
+    """Convert a ParsedAssessment into the annotation dict format used by the DB."""
+
+    def _dim_dict(dim_score) -> dict:
+        d = {"severity": dim_score.predicted_severity}
+        d.update(dim_score.predicted_flags)
+        return d
+
+    return {
+        "statistical_reporting": _dim_dict(parsed.statistical_reporting),
+        "spin": _dim_dict(parsed.spin),
+        "outcome_reporting": _dim_dict(parsed.outcome_reporting),
+        "conflict_of_interest": _dim_dict(parsed.conflict_of_interest),
+        "methodology": _dim_dict(parsed.methodology),
+        "overall_severity": parsed.overall_severity,
+        "overall_bias_probability": parsed.overall_bias_probability,
+        "confidence": "eval_unrated",
+        "recommended_verification_steps": parsed.verification_steps_mentioned,
+        "reasoning": parsed.thinking_text or parsed.raw_output,
+    }
+
+
+def _store_assessments_in_db(
+    all_assessments: dict[str, list],
+    db_path: Optional[Path] = None,
+):
+    """Persist parsed eval assessments into the SQLite annotations table."""
+    # Import from project root — evaluation/ is a subpackage
+    import importlib
+    Database = importlib.import_module("database").Database
+
+    if db_path is None:
+        try:
+            Config = importlib.import_module("config").Config
+            db_path = Path(Config().db_path)
+        except Exception:
+            db_path = Path("dataset/biasbuster.db")
+
+    if not db_path.exists():
+        logger.warning(f"Database not found at {db_path}, skipping DB storage")
+        return
+
+    db = Database(str(db_path))
+
+    # Ensure papers exist for all PMIDs (FK constraint)
+    existing_pmids = {r["pmid"] for r in db.conn.execute(
+        "SELECT pmid FROM papers"
+    ).fetchall()}
+
+    stored = 0
+    skipped = 0
+    fk_missing = 0
+    for model_id, assessments in all_assessments.items():
+        for parsed in assessments:
+            if not parsed.pmid or not parsed.parse_success:
+                skipped += 1
+                continue
+            if parsed.pmid not in existing_pmids:
+                fk_missing += 1
+                continue
+            annotation = _assessment_to_annotation(parsed)
+            db.upsert_annotation(parsed.pmid, model_id, annotation)
+            stored += 1
+
+    if fk_missing:
+        logger.warning(
+            f"{fk_missing} PMIDs not in papers table — run the collection "
+            f"pipeline first or use --reanalyse with the matching database"
+        )
+    logger.info(f"Stored {stored} annotations in DB, skipped {skipped}")
+
+
 def analyse_outputs(
     raw_outputs: dict[str, list],
     test_set_path: Path,
@@ -339,7 +421,10 @@ def analyse_outputs(
             dim_eval = getattr(evaluation, dim)
             logger.info(f"  {dim}: F1={dim_eval.binary.f1:.3f}, κ={dim_eval.ordinal.weighted_kappa():.3f}")
 
-    # Save individual model evaluations
+    # Store assessments in SQLite (primary storage)
+    _store_assessments_in_db(all_assessments)
+
+    # Save individual model evaluations (secondary export)
     output_dir.mkdir(parents=True, exist_ok=True)
     for model_id, evaluation in all_evaluations.items():
         safe_name = model_id.replace("/", "_").replace(" ", "_")
