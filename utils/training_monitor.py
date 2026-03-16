@@ -39,28 +39,40 @@ class MetricsReader:
         new_data = False
         with open(self.path, "r") as f:
             f.seek(self._last_pos)
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                entry_type = entry.get("type")
-                if entry_type == "header":
-                    self.header = entry
+            raw = f.read()
+        if not raw:
+            return False
+        # Only process complete lines (last chunk may be a partial write)
+        if raw.endswith("\n"):
+            lines = raw.split("\n")
+            self._last_pos += len(raw.encode())
+        else:
+            last_newline = raw.rfind("\n")
+            if last_newline == -1:
+                return False  # no complete line yet
+            lines = raw[: last_newline + 1].split("\n")
+            self._last_pos += len(raw[: last_newline + 1].encode())
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            entry_type = entry.get("type")
+            if entry_type == "header":
+                self.header = entry
+                self._start_time = time.time()
+                new_data = True
+            elif entry_type == "metrics":
+                self.metrics.append(entry)
+                if self._start_time is None:
                     self._start_time = time.time()
-                    new_data = True
-                elif entry_type == "metrics":
-                    self.metrics.append(entry)
-                    if self._start_time is None:
-                        self._start_time = time.time()
-                    new_data = True
-                elif entry_type == "completed":
-                    self.completed = True
-                    new_data = True
-            self._last_pos = f.tell()
+                new_data = True
+            elif entry_type == "completed":
+                self.completed = True
+                new_data = True
         return new_data
 
     @property
@@ -85,10 +97,10 @@ class MetricsReader:
     def eta_seconds(self) -> float | None:
         if not self._start_time or not self.total_steps or not self.current_step:
             return None
-        elapsed = time.time() - self._start_time
         progress = self.current_step / self.total_steps
-        if progress <= 0 or progress >= 1:
+        if progress < 0.05 or progress >= 1:
             return None
+        elapsed = time.time() - self._start_time
         return elapsed * (1 - progress) / progress
 
     @property

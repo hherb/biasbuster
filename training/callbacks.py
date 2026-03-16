@@ -138,14 +138,16 @@ if __name__ == "__main__":
         global_step = 0
         epoch = 0.0
 
-    cb.on_train_begin(FakeArgs(), FakeState(), None)
+    fake_args = FakeArgs()
+    fake_state = FakeState()
+    cb.on_train_begin(fake_args, fake_state, None)
 
     # Simulate training
     total = 200
     warmup = int(total * 0.1)
     for step in range(10, total + 1, 10):
-        FakeState.global_step = step
-        FakeState.epoch = round(step / total * 3, 4)
+        fake_state.global_step = step
+        fake_state.epoch = round(step / total * 3, 4)
         # Synthetic loss: starts high, decays with noise
         base_loss = 2.5 * math.exp(-step / 80) + 0.3
         loss = base_loss + 0.05 * math.sin(step / 7)
@@ -158,10 +160,10 @@ if __name__ == "__main__":
         logs = {"loss": round(loss, 4), "learning_rate": lr, "grad_norm": round(0.8 + 0.3 * math.sin(step / 5), 3)}
         if step % 50 == 0:
             logs["eval_loss"] = round(loss + 0.05, 4)
-        cb.on_log(FakeArgs(), FakeState, None, logs=logs)
+        cb.on_log(fake_args, fake_state, None, logs=logs)
 
-    FakeState.global_step = total
-    cb.on_train_end(FakeArgs(), FakeState, None)
+    fake_state.global_step = total
+    cb.on_train_end(fake_args, fake_state, None)
 
     print(f"Wrote synthetic metrics to: {out / 'metrics.jsonl'}")
     with open(out / "metrics.jsonl") as f:
