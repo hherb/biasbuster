@@ -30,6 +30,7 @@ from transformers import (
 )
 from trl import SFTTrainer
 
+from training.callbacks import MetricsLoggerCallback
 from training.configs import LoRATrainingConfig, get_config
 from training.data_utils import load_alpaca_jsonl, make_formatting_func
 
@@ -137,6 +138,18 @@ def build_trainer(
     # --- Formatting func for SFTTrainer --------------------------------------
     formatting_func = make_formatting_func(tokenizer)
 
+    # --- Metrics callback ----------------------------------------------------
+    metrics_callback = MetricsLoggerCallback(
+        output_dir=cfg.output_dir,
+        extra_config={
+            "model_name_or_path": cfg.model_name_or_path,
+            "lora_r": cfg.lora_r,
+            "lora_alpha": cfg.lora_alpha,
+            "lora_dropout": cfg.lora_dropout,
+            "max_seq_length": cfg.max_seq_length,
+        },
+    )
+
     # --- Trainer -------------------------------------------------------------
     trainer = SFTTrainer(
         model=model,
@@ -147,6 +160,7 @@ def build_trainer(
         formatting_func=formatting_func,
         max_seq_length=cfg.max_seq_length,
         packing=False,
+        callbacks=[metrics_callback],
     )
     return trainer
 
