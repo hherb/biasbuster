@@ -17,6 +17,16 @@
 
 set -euo pipefail
 
+# Use the project venv Python if available, so convert_hf_to_gguf.py
+# can find transformers/gguf even when run under sudo.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+if [[ -x "$PROJECT_DIR/.venv/bin/python3" ]]; then
+    PYTHON="$PROJECT_DIR/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
 MERGED_DIR="${1:?Usage: $0 <merged-dir> <ollama-model-name> [--gguf <quant>]}"
 MODEL_NAME="${2:?Usage: $0 <merged-dir> <ollama-model-name> [--gguf <quant>]}"
 GGUF_QUANT=""
@@ -62,14 +72,14 @@ if [[ -n "$GGUF_QUANT" ]]; then
 
     if echo "$DIRECT_TYPES" | tr ' ' '\n' | grep -iqx "$GGUF_QUANT"; then
         echo "==> Converting directly to GGUF ($GGUF_QUANT) — single-pass, no fp16 intermediate..."
-        python3 "$LLAMA_CPP/convert_hf_to_gguf.py" "$MERGED_DIR" \
+        "$PYTHON" "$LLAMA_CPP/convert_hf_to_gguf.py" "$MERGED_DIR" \
             --outfile "$QUANT_GGUF" --outtype "$QUANT_LOWER"
     else
         # Two-pass: fp16 conversion then llama-quantize (for Q4_K_M, Q5_K_M, etc.)
         FP16_GGUF="$GGUF_DIR/${MODEL_NAME}-f16.gguf"
 
         echo "==> Converting to GGUF (fp16)..."
-        python3 "$LLAMA_CPP/convert_hf_to_gguf.py" "$MERGED_DIR" \
+        "$PYTHON" "$LLAMA_CPP/convert_hf_to_gguf.py" "$MERGED_DIR" \
             --outfile "$FP16_GGUF" --outtype f16
 
         echo "==> Quantizing to $GGUF_QUANT..."
