@@ -144,8 +144,59 @@ def _safe_dict(val, default_severity="none"):
     return {"severity": default_severity}
 
 
+def _normalize_json(data: dict) -> dict:
+    """Unwrap nested model output and normalize dimension key names.
+
+    Models wrap their assessments in various top-level keys
+    (bias_assessment, assessment, dimensions) and may prefix dimension
+    names with numbers ("1. Statistical Reporting").  This function
+    flattens to the canonical key names the scorer expects.
+    """
+    # Unwrap one level of nesting
+    for wrapper_key in ("bias_assessment", "assessment", "dimensions"):
+        if wrapper_key in data and isinstance(data[wrapper_key], dict):
+            inner = data[wrapper_key]
+            # Merge inner keys into top level, preserving top-level overrides
+            merged = {**inner, **{k: v for k, v in data.items() if k != wrapper_key}}
+            data = merged
+            break
+
+    # Normalize numbered/variant key names → canonical keys
+    key_map = {
+        "statistical_reporting": "statistical_reporting",
+        "statistical reporting": "statistical_reporting",
+        "spin": "spin",
+        "outcome_reporting": "outcome_reporting",
+        "outcome reporting": "outcome_reporting",
+        "conflict_of_interest": "conflict_of_interest",
+        "conflict of interest": "conflict_of_interest",
+        "methodology": "methodology",
+        "methodological_red_flags": "methodology",
+        "methodological red flags": "methodology",
+    }
+    normalized = {}
+    for k, v in data.items():
+        # Strip leading number+punctuation ("1. ", "2) ", etc.)
+        clean = re.sub(r"^\d+[\.\)\-\s]+\s*", "", k).strip().lower()
+        canon = key_map.get(clean)
+        if canon:
+            normalized[canon] = v
+        else:
+            normalized[k] = v
+
+    # Also look for severity/rating normalization within each dimension
+    for dim_key in ("statistical_reporting", "spin", "outcome_reporting",
+                     "conflict_of_interest", "methodology"):
+        dim = normalized.get(dim_key)
+        if isinstance(dim, dict) and "severity" not in dim and "rating" in dim:
+            dim["severity"] = dim["rating"]
+
+    return normalized
+
+
 def _parse_from_json(data: dict, result: ParsedAssessment) -> ParsedAssessment:
     """Parse from a JSON-formatted model response."""
+    data = _normalize_json(data)
 
     # Statistical reporting
     sr = _safe_dict(data.get("statistical_reporting", {}))
@@ -363,9 +414,31 @@ def attach_ground_truth(
 ) -> ParsedAssessment:
     """
     Attach human-validated ground truth labels to a parsed assessment.
-    ground_truth should match the annotation schema from llm_prelabel.
+    ground_truth can be either:
+    - Native annotation schema (with statistical_reporting, spin, etc. keys)
+    - Alpaca format (with "output" field containing the annotated text/JSON)
     """
     gt = ground_truth
+
+    # If this looks like Alpaca format, parse the output field to extract labels
+    if "output" in gt and "statistical_reporting" not in gt:
+        gt_parsed = parse_model_output(
+            raw_output=gt["output"], pmid=parsed.pmid, model_id="ground_truth"
+        )
+        # Copy parsed ground truth severities into the expected dict format
+        gt = {
+            "statistical_reporting": {"severity": gt_parsed.statistical_reporting.predicted_severity,
+                                       **gt_parsed.statistical_reporting.predicted_flags},
+            "spin": {"severity": gt_parsed.spin.predicted_severity,
+                     **gt_parsed.spin.predicted_flags},
+            "outcome_reporting": {"severity": gt_parsed.outcome_reporting.predicted_severity,
+                                   **gt_parsed.outcome_reporting.predicted_flags},
+            "conflict_of_interest": {"severity": gt_parsed.conflict_of_interest.predicted_severity,
+                                      **gt_parsed.conflict_of_interest.predicted_flags},
+            "methodology": {"severity": gt_parsed.methodology.predicted_severity,
+                            **gt_parsed.methodology.predicted_flags},
+            "overall_severity": gt_parsed.overall_severity,
+        }
 
     # Statistical reporting
     sr_gt = gt.get("statistical_reporting", {})
