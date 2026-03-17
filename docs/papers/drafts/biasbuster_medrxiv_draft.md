@@ -16,7 +16,7 @@
 
 **Methods:** The pipeline integrates five data sources: retracted papers via Crossref/Retraction Watch (known-biased positives), Cochrane Risk of Bias 2.0 assessments via Europe PMC (expert ground truth), PubMed randomized controlled trials filtered by MeSH domain (general population), ClinicalTrials.gov registry data (outcome switching detection), and CMS Open Payments/ORCID (conflict of interest verification). Abstracts undergo heuristic enrichment (effect size auditing, funding classification) before structured annotation by multiple LLMs using identical prompts. Inter-model agreement is evaluated with Cohen's kappa, McNemar's test, and Wilcoxon signed-rank tests. Training data is exported in three fine-tuning formats with chain-of-thought reasoning and actionable verification steps.
 
-**Results:** We present the system architecture, annotation taxonomy, evaluation framework, and preliminary inter-model agreement analysis. The pipeline produces annotations across five bias domains with structured severity ratings, evidence quotes, and database-specific verification guidance (e.g., "check CMS Open Payments for author X," "compare registered vs. published primary outcome on ClinicalTrials.gov").
+**Results:** We present the system architecture, annotation taxonomy, evaluation framework, and zero-shot baseline evaluation of two open-weight models. On an 89-example test set, both Qwen 3.5-27B and OLMo-3.1-32B-Instruct achieved identical binary bias detection F1 (0.989) with perfect recall, but poor severity calibration (weighted κ = 0.021 and 0.066, respectively). Qwen significantly outperformed OLMo on conflict of interest detection (F1 0.928 vs. 0.667, p < 0.05), while OLMo showed better ordinal severity agreement (within-one 89.9% vs. 64.0%). Preliminary LoRA fine-tuning of OLMo reduced training loss from 2.28 to 0.55 over 3 epochs, achieving 85.1% token accuracy. The pipeline produces annotations across five bias domains with structured severity ratings, evidence quotes, and database-specific verification guidance.
 
 **Conclusions:** BiasBuster addresses a critical gap in bias detection tooling by providing reproducible, multi-source training data with verification-focused annotations. The pipeline's modular design enables community extension to additional data sources and bias domains.
 
@@ -208,6 +208,66 @@ The five-domain annotation schema produces structured assessments with per-domai
 ### Enrichment Pre-Screening
 
 The effect size auditor stratifies abstracts into three suspicion levels based on statistical reporting patterns. In preliminary analysis of PubMed RCTs, approximately 30--40% of abstracts score >= 0.3 (high suspicion), reflecting the well-documented prevalence of relative-only reporting in clinical trial abstracts.^4^ This pre-screening directs annotation resources toward abstracts most likely to exhibit reporting bias while ensuring representation of low-suspicion examples as negative training data.
+
+### Zero-Shot Baseline Evaluation
+
+To establish baseline performance before fine-tuning, we evaluated two open-weight models in zero-shot mode on an 89-example test set: Qwen 3.5-27B (q8_0 quantization) and OLMo-3.1-32B-Instruct (q8_0 quantization), both served via Ollama on a DGX Spark.
+
+**Table 2. Zero-shot baseline: overall performance.**
+
+| Metric | Qwen 3.5-27B | OLMo-3.1-32B |
+|--------|:---:|:---:|
+| Binary F1 | 0.989 | 0.989 |
+| Precision | 0.978 | 0.978 |
+| Recall | 1.000 | 1.000 |
+| Severity κ (weighted) | 0.021 | 0.066 |
+| Calibration error | 0.404 | 0.670 |
+| Parse failures | 0 | 0 |
+
+Both models achieved identical binary classification performance (F1 = 0.989), detecting the presence of *any* bias concern with near-perfect recall. However, severity calibration was poor for both models: weighted kappa values of 0.021 (Qwen) and 0.066 (OLMo) indicate near-chance agreement with ground-truth severity levels, reflecting the difficulty of zero-shot ordinal classification on our five-level scale.
+
+**Table 3. Zero-shot baseline: per-dimension binary F1 scores.**
+
+| Dimension | Qwen 3.5-27B | OLMo-3.1-32B | Significant difference |
+|-----------|:---:|:---:|:---:|
+| Statistical reporting | 0.853 | 0.846 | No |
+| Spin (Boutron) | 0.921 | 0.896 | No |
+| Outcome reporting | 0.950 | 0.940 | No |
+| Conflict of interest | 0.928 | 0.667 | Yes (p < 0.05) |
+| Methodology | 0.863 | 0.852 | No |
+
+The only statistically significant difference was in conflict of interest detection, where Qwen substantially outperformed OLMo (F1 0.928 vs. 0.667). OLMo's low COI F1 was driven by poor recall (0.500 vs. 0.917), suggesting the model frequently failed to flag undisclosed conflicts. Across other dimensions, both models performed comparably.
+
+**Table 4. Zero-shot baseline: ordinal severity agreement.**
+
+| Metric | Qwen 3.5-27B | OLMo-3.1-32B |
+|--------|:---:|:---:|
+| Mean absolute error | 1.281 | 0.584 |
+| Exact match | 14.6% | 51.7% |
+| Within-one agreement | 64.0% | 89.9% |
+| Weighted kappa | 0.021 | 0.066 |
+
+OLMo showed substantially better ordinal calibration (MAE 0.584 vs. 1.281; within-one agreement 89.9% vs. 64.0%), suggesting its severity ratings are better calibrated to the ground-truth scale despite comparable binary performance.
+
+**Table 5. Zero-shot baseline: verification source knowledge.**
+
+| Source | Qwen 3.5-27B | OLMo-3.1-32B |
+|--------|:---:|:---:|
+| CMS Open Payments | 98% | 85% |
+| ClinicalTrials.gov | 98% | 99% |
+| ORCID | 88% | 93% |
+| Retraction Watch | 100% | 96% |
+| Europe PMC | 100% | 100% |
+
+Both models demonstrated strong knowledge of verification databases, with Qwen showing a modest advantage in CMS Open Payments awareness (98% vs. 85%). Neither model generated extended reasoning chains (`<think>` blocks) in zero-shot mode, confirming the need for chain-of-thought fine-tuning.
+
+Inference latency on the DGX Spark averaged 150.8 seconds per abstract for Qwen and 87.5 seconds for OLMo, at comparable throughput (~6.5 tokens/second). Both models achieved a 0% error rate across the test set.
+
+### OLMo-3.1-32B LoRA Fine-Tuning (Preliminary)
+
+As a preliminary training run, we fine-tuned OLMo-3.1-32B-Instruct using LoRA (r=16, α=32, dropout=0.05) for 3 epochs (531 steps) with a learning rate of 2×10⁻⁴ (cosine schedule), batch size 1 with gradient accumulation of 4, and maximum sequence length of 4,096 tokens. Training was conducted on a DGX Spark GPU.
+
+Training loss decreased from 2.281 (step 10) to 0.547 (step 530), with a final mean token accuracy of 0.851. The best checkpoint was selected at step 350 by lowest evaluation loss (0.819). The final evaluation loss at step 500 was 0.873, indicating mild overfitting in the final epoch. Peak GPU memory usage was 69.5 GiB. Full evaluation of the fine-tuned model against the zero-shot baseline is pending.
 
 ### Training Data Format
 
