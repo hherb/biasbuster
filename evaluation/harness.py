@@ -238,7 +238,7 @@ class EvalHarness:
         """
         if self.config.system_prompt_override:
             system_prompt = self.config.system_prompt_override
-        elif self.config.mode == "fine-tuned":
+        elif self.config.mode in ("fine-tuned", "enriched"):
             system_prompt = FINE_TUNED_SYSTEM_PROMPT
         else:
             system_prompt = ZERO_SHOT_SYSTEM_PROMPT

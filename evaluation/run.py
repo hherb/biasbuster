@@ -96,8 +96,9 @@ def parse_args():
 
     # Mode
     parser.add_argument(
-        "--mode", choices=["zero-shot", "fine-tuned"], default="zero-shot",
-        help="Evaluation mode (affects system prompt)",
+        "--mode", choices=["zero-shot", "fine-tuned", "enriched"], default="zero-shot",
+        help="Evaluation mode: zero-shot (simple prompt), fine-tuned (training prompt), "
+             "enriched (training prompt on base model — for prompt-only A/B testing)",
     )
 
     # System prompt override
