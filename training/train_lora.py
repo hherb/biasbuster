@@ -26,9 +26,8 @@ from peft import LoraConfig, get_peft_model, TaskType
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    TrainingArguments,
 )
-from trl import SFTTrainer
+from trl import SFTConfig, SFTTrainer
 
 from training.callbacks import MetricsLoggerCallback
 from training.configs import LoRATrainingConfig, get_config
@@ -85,6 +84,7 @@ def build_trainer(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer.model_max_length = cfg.max_seq_length
 
     # --- Base model ----------------------------------------------------------
     logger.info(f"Loading model: {cfg.model_name_or_path} (bf16)")
@@ -110,7 +110,7 @@ def build_trainer(
     print_trainable_params(model)
 
     # --- Training args -------------------------------------------------------
-    training_args = TrainingArguments(
+    training_args = SFTConfig(
         output_dir=cfg.output_dir,
         num_train_epochs=cfg.num_train_epochs,
         per_device_train_batch_size=cfg.per_device_train_batch_size,
@@ -133,6 +133,7 @@ def build_trainer(
         dataloader_num_workers=0,
         max_steps=cfg.max_steps,
         remove_unused_columns=False,
+        packing=False,
     )
 
     # --- Formatting func for SFTTrainer --------------------------------------
@@ -158,8 +159,6 @@ def build_trainer(
         eval_dataset=val_dataset,
         processing_class=tokenizer,
         formatting_func=formatting_func,
-        max_seq_length=cfg.max_seq_length,
-        packing=False,
         callbacks=[metrics_callback],
     )
     return trainer
