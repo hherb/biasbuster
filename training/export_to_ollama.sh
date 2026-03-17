@@ -52,24 +52,37 @@ if [[ -n "$GGUF_QUANT" ]]; then
     GGUF_DIR="$(dirname "$MERGED_DIR")/gguf"
     mkdir -p "$GGUF_DIR"
 
-    FP16_GGUF="$GGUF_DIR/${MODEL_NAME}-f16.gguf"
     QUANT_GGUF="$GGUF_DIR/${MODEL_NAME}-${GGUF_QUANT}.gguf"
 
-    echo "==> Converting to GGUF (fp16)..."
-    python3 "$LLAMA_CPP/convert_hf_to_gguf.py" "$MERGED_DIR" \
-        --outfile "$FP16_GGUF" --outtype f16
+    # For quantization types supported by convert_hf_to_gguf.py (f32, f16,
+    # bf16, q8_0, auto), convert directly in one pass — avoids creating a
+    # ~64 GB fp16 intermediate that doubles peak memory and disk usage.
+    DIRECT_TYPES="q8_0 f32 f16 bf16 auto Q8_0 F32 F16 BF16"
+    QUANT_LOWER="$(echo "$GGUF_QUANT" | tr '[:upper:]' '[:lower:]')"
 
-    echo "==> Quantizing to $GGUF_QUANT..."
-    "$LLAMA_CPP/build/bin/llama-quantize" "$FP16_GGUF" "$QUANT_GGUF" "$GGUF_QUANT"
+    if echo "$DIRECT_TYPES" | tr ' ' '\n' | grep -iqx "$GGUF_QUANT"; then
+        echo "==> Converting directly to GGUF ($GGUF_QUANT) — single-pass, no fp16 intermediate..."
+        python3 "$LLAMA_CPP/convert_hf_to_gguf.py" "$MERGED_DIR" \
+            --outfile "$QUANT_GGUF" --outtype "$QUANT_LOWER"
+    else
+        # Two-pass: fp16 conversion then llama-quantize (for Q4_K_M, Q5_K_M, etc.)
+        FP16_GGUF="$GGUF_DIR/${MODEL_NAME}-f16.gguf"
+
+        echo "==> Converting to GGUF (fp16)..."
+        python3 "$LLAMA_CPP/convert_hf_to_gguf.py" "$MERGED_DIR" \
+            --outfile "$FP16_GGUF" --outtype f16
+
+        echo "==> Quantizing to $GGUF_QUANT..."
+        "$LLAMA_CPP/build/bin/llama-quantize" "$FP16_GGUF" "$QUANT_GGUF" "$GGUF_QUANT"
+
+        echo "    Intermediate fp16 GGUF kept at: $FP16_GGUF"
+    fi
 
     echo "==> Creating Ollama model: $MODEL_NAME"
     MODELFILE="$(mktemp /tmp/Modelfile.XXXXXX)"
     echo "FROM $QUANT_GGUF" > "$MODELFILE"
     ollama create "$MODEL_NAME" -f "$MODELFILE"
     rm -f "$MODELFILE"
-
-    echo "==> Cleaning up intermediate fp16 GGUF..."
-    rm -f "$FP16_GGUF"
 
 else
     # =========================================================================
