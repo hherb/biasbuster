@@ -71,30 +71,9 @@ ClinicalTrials.gov, ORCID, Europe PMC, or Retraction Watch.
 
 Respond in JSON format."""
 
-# System prompt for fine-tuned models (matches training format)
-FINE_TUNED_SYSTEM_PROMPT = """You are a biomedical research integrity analyst. Given a clinical trial abstract,
-assess it for potential bias across five domains:
-
-1. STATISTICAL REPORTING: Does the abstract report only relative measures (RRR, OR, HR)
-   without absolute measures (ARR, NNT, baseline risk)? Sole reliance on relative measures
-   inflates perceived benefit and is a strong indicator of potential bias.
-
-2. SPIN: Do the conclusions match the actual results? Look for claims of benefit when
-   the primary outcome was not statistically significant, inappropriate causal language,
-   and emphasis on secondary analyses.
-
-3. OUTCOME REPORTING: Are outcomes patient-centred or surrogate? Is there evidence of
-   outcome switching from the trial registry? Are composite endpoints disaggregated?
-
-4. CONFLICT OF INTEREST: Is funding disclosed? Are authors affiliated with the sponsor?
-   Suggest verification steps using CMS Open Payments, ClinicalTrials.gov, ORCID,
-   Europe PMC, and country-specific databases (Medicines Australia, EFPIA).
-
-5. METHODOLOGICAL RED FLAGS: Inappropriate comparator? Enrichment design?
-   Per-protocol only? Premature stopping?
-
-Provide your reasoning step by step, then a structured assessment with recommended
-verification steps citing specific databases and URLs."""
+# System prompt for fine-tuned models — imported from export.py to stay in sync
+# with training data. Do NOT duplicate the prompt here; update export.py instead.
+from export import SYSTEM_PROMPT as FINE_TUNED_SYSTEM_PROMPT
 
 
 @dataclass
