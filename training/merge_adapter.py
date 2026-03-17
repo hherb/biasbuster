@@ -103,10 +103,11 @@ def main():
         max_shard_size="2GB",
     )
 
-    # Save tokenizer
+    # Save tokenizer from the base model — the adapter copy may have a
+    # broken tokenizer_class (e.g. "TokenizersBackend" for OLMo).
     logger.info("Saving tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
-        args.adapter_path, trust_remote_code=True
+        args.base_model, trust_remote_code=True
     )
     tokenizer.save_pretrained(str(output_dir))
 
