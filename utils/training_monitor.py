@@ -147,7 +147,7 @@ def create_app(reader: MetricsReader, refresh_interval: float) -> None:
             ui.label("Training Loss").classes("text-subtitle2")
             loss_chart = ui.echart({
                 "tooltip": {"trigger": "axis"},
-                "legend": {"data": ["train_loss", "eval_loss"]},
+                "legend": {"data": ["train_loss", "eval_loss"], "top": 0, "right": 0},
                 "xAxis": {"type": "value", "name": "Step", "nameLocation": "middle", "nameGap": 25},
                 "yAxis": {"type": "value", "name": "Loss"},
                 "series": [
@@ -156,7 +156,7 @@ def create_app(reader: MetricsReader, refresh_interval: float) -> None:
                     {"name": "eval_loss", "type": "scatter", "data": [],
                      "symbolSize": 8, "itemStyle": {"color": "#ee6666"}},
                 ],
-                "grid": {"left": 60, "right": 20, "bottom": 40, "top": 40},
+                "grid": {"left": 60, "right": 20, "bottom": 40, "top": 30},
             }).style("height: 300px;")
 
         with ui.card().classes("flex-grow").style("min-width: 45%;"):
@@ -181,7 +181,7 @@ def create_app(reader: MetricsReader, refresh_interval: float) -> None:
             ui.label("GPU Memory (GiB)").classes("text-subtitle2")
             gpu_chart = ui.echart({
                 "tooltip": {"trigger": "axis"},
-                "legend": {"data": ["allocated", "max_allocated"]},
+                "legend": {"data": ["allocated", "max_allocated"], "top": 0, "right": 0},
                 "xAxis": {"type": "value", "name": "Step", "nameLocation": "middle", "nameGap": 25},
                 "yAxis": {"type": "value", "name": "GiB"},
                 "series": [
