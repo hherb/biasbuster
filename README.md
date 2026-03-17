@@ -30,15 +30,26 @@ bias_dataset_builder/
 │   ├── comparison.py          # Statistical comparison + report generation (JSON/MD/CSV)
 │   ├── run.py                 # CLI entry point (--model-a / --model-b)
 │   └── selftest.py            # Self-test with synthetic data
+├── training/
+│   ├── train_lora.py          # LoRA fine-tuning (SFTTrainer + PEFT)
+│   ├── configs.py             # Centralised hyperparameters and model presets
+│   ├── callbacks.py           # MetricsLoggerCallback → metrics.jsonl
+│   ├── data_utils.py          # Alpaca JSONL loading and chat formatting
+│   ├── merge_adapter.py       # Merge LoRA adapter into base model
+│   └── export_to_ollama.sh    # Convert merged model to Ollama (safetensors/GGUF)
 ├── utils/
 │   ├── completeness_checker.py # Check labelling coverage per model
 │   ├── agreement_analyzer.py   # Inter-model agreement metrics
-│   └── review_gui.py           # NiceGUI web-based review tool (DB-backed)
+│   ├── review_gui.py           # NiceGUI web-based review tool (DB-backed)
+│   └── training_monitor.py     # Real-time training dashboard (NiceGUI)
 ├── database.py                # SQLite backend (single source of truth)
 ├── migrate_jsonl_to_sqlite.py # Idempotent JSONL → SQLite migration script
 ├── config.py                  # Configuration and API keys
 ├── pipeline.py                # Orchestration pipeline
-└── export.py                  # Export to fine-tuning formats (Alpaca, ShareGPT)
+├── export.py                  # Export to fine-tuning formats (Alpaca, ShareGPT)
+├── run_training.sh            # Launch LoRA training in NGC Docker
+├── run_merge.sh               # Launch adapter merge in NGC Docker
+└── TRAINING_INTERPRETATION.md # Guide to interpreting training monitor charts
 ```
 
 ## Bias Taxonomy
@@ -198,6 +209,14 @@ flowchart TD
         X3[OpenAI chat]
     end
 
+    subgraph Train
+        T1[LoRA Fine-tuning<br/>SFTTrainer + PEFT]
+        T2[Merge Adapter]
+        T3[Export to Ollama]
+    end
+
+    TM[Training Monitor<br/>NiceGUI dashboard]
+
     subgraph Compare
         M1[Per-dimension F1 & kappa]
         M2[McNemar / Wilcoxon tests]
@@ -209,6 +228,8 @@ flowchart TD
     DB --> Annotate --> DB
     DB --> HR --> DB
     DB --> Export
+    Export --> T1 --> T2 --> T3
+    T1 -.->|metrics.jsonl| TM
     DB --> Compare
 ```
 
@@ -353,6 +374,35 @@ Training saves checkpoints every 50 steps. To resume after interruption:
 ```bash
 ./run_training.sh qwen3.5-27b --resume
 ```
+
+### Training Monitor
+
+A real-time NiceGUI dashboard that visualises training progress by reading the
+`metrics.jsonl` file written by `MetricsLoggerCallback`. Run it on the host
+while training runs in the NGC Docker container (the training output directory
+is volume-mounted).
+
+```bash
+# Auto-detect latest metrics.jsonl under training_output/
+uv run python -m utils.training_monitor
+
+# Point to a specific run
+uv run python -m utils.training_monitor --metrics-dir training_output/olmo-3.1-32b-lora
+
+# Custom port and refresh interval
+uv run python -m utils.training_monitor --port 8081 --refresh 5
+```
+
+The dashboard shows:
+- **Training & eval loss** curves (train loss as line, eval loss as scatter points)
+- **Learning rate schedule** (warmup + cosine decay)
+- **GPU memory** (allocated vs peak)
+- **Gradient norm** over time
+- **Hyperparameters table** (all LoRA and training config)
+- **Progress bar** with step count, epoch, and ETA
+
+See [TRAINING_INTERPRETATION.md](TRAINING_INTERPRETATION.md) for a detailed
+guide to interpreting every metric and parameter on the dashboard.
 
 ### LoRA Configuration (Controlled Comparison)
 
