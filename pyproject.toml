@@ -10,6 +10,8 @@ dependencies = [
     "tqdm",
     "anthropic",
     "nicegui>=3.8.0",
+    "tokenizers>=0.22.2",
+    "huggingface-hub>=0.34.0,<1.0",
 ]
 
 [dependency-groups]
