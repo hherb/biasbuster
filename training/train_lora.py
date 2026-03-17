@@ -91,7 +91,7 @@ def build_trainer(
     model = AutoModelForCausalLM.from_pretrained(
         cfg.model_name_or_path,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        device_map={"": 0},
         trust_remote_code=True,
         attn_implementation="sdpa",  # native PyTorch SDPA; works on SM121 via NGC
     )

@@ -33,19 +33,14 @@ def make_formatting_func(tokenizer):
     formatted string (SFTTrainer expects a list).
     """
 
-    def _format(examples):
-        texts = []
-        for system, instruction, output in zip(
-            examples["system"], examples["instruction"], examples["output"]
-        ):
-            messages = [
-                {"role": "system", "content": system},
-                {"role": "user", "content": instruction},
-                {"role": "assistant", "content": output},
-            ]
-            texts.append(tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=False
-            ))
-        return texts
+    def _format(example):
+        messages = [
+            {"role": "system", "content": example["system"]},
+            {"role": "user", "content": example["instruction"]},
+            {"role": "assistant", "content": example["output"]},
+        ]
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=False
+        )
 
     return _format
