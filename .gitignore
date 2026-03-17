@@ -13,7 +13,6 @@ wheels/
 config.py
 
 # Dataset outputs
-dataset/
 dataset.old/
 
 # Training outputs (checkpoints, merged models, GGUF)
@@ -26,5 +25,3 @@ eval_results/
 llama.cpp
 llama.cpp/*
 
-#drafts
-docs/papers/drafts/*
