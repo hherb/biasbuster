@@ -100,6 +100,13 @@ def parse_args():
         help="Evaluation mode (affects system prompt)",
     )
 
+    # System prompt override
+    parser.add_argument(
+        "--system-prompt", type=Path, default=None,
+        help="Path to a text file containing a custom system prompt "
+             "(overrides the mode-based default). Useful for A/B testing prompts.",
+    )
+
     # Generation parameters
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--max-tokens", type=int, default=4000)
@@ -297,6 +304,7 @@ async def _run_single_model(
         output_dir=str(args.output),
         num_ctx=args.num_ctx,
         think=args.think,
+        system_prompt_override=getattr(args, "_system_prompt_text", None),
     )
 
     async with EvalHarness(config) as harness:
@@ -322,6 +330,14 @@ async def run_inference(args) -> dict[str, list]:
     if not models:
         logger.error("No models configured. Provide --model-a/--endpoint-a and/or --model-b/--endpoint-b")
         sys.exit(1)
+
+    # Load custom system prompt if provided
+    if args.system_prompt:
+        args._system_prompt_text = args.system_prompt.read_text().strip()
+        logger.info(f"Using custom system prompt from {args.system_prompt} "
+                     f"({len(args._system_prompt_text)} chars)")
+    else:
+        args._system_prompt_text = None
 
     # Load test set
     all_examples = load_test_set(args.test_set)
@@ -420,6 +436,7 @@ async def _run_inference_inner(
         output_dir=str(args.output),
         num_ctx=args.num_ctx,
         think=args.think,
+        system_prompt_override=getattr(args, "_system_prompt_text", None),
     )
 
     raw_outputs = {}

@@ -113,6 +113,9 @@ class EvalConfig:
     # Evaluation mode
     mode: str = "zero-shot"        # zero-shot or fine-tuned
 
+    # Optional system prompt override (bypasses mode-based selection)
+    system_prompt_override: Optional[str] = None
+
     # Rate limiting
     requests_per_second: float = 2.0
     max_concurrent: int = 3
@@ -233,10 +236,12 @@ class EvalHarness:
         Retries on transient errors (5xx, timeouts, connection errors) with
         exponential backoff.
         """
-        system_prompt = (
-            FINE_TUNED_SYSTEM_PROMPT if self.config.mode == "fine-tuned"
-            else ZERO_SHOT_SYSTEM_PROMPT
-        )
+        if self.config.system_prompt_override:
+            system_prompt = self.config.system_prompt_override
+        elif self.config.mode == "fine-tuned":
+            system_prompt = FINE_TUNED_SYSTEM_PROMPT
+        else:
+            system_prompt = ZERO_SHOT_SYSTEM_PROMPT
         user_message = build_user_message(example)
 
         use_ollama_native = self.config.num_ctx is not None
