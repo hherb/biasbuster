@@ -9,6 +9,66 @@
 - Sufficient GPU memory (tested on DGX Spark with 128 GB)
 - The NGC PyTorch container image: `nvcr.io/nvidia/pytorch:25.11-py3`
 
+## Download the Base Model from HuggingFace
+
+Training requires the full-precision base model weights from HuggingFace (not the quantized Ollama versions used for evaluation). These are large downloads:
+
+| Model | HuggingFace ID | Download Size |
+|-------|----------------|---------------|
+| Qwen 3.5 27B | `Qwen/Qwen3.5-27B` | ~54 GB |
+| OLMo 3.1 32B | `allenai/OLMo-3.1-32B-Instruct` | ~64 GB |
+
+### Option A: Pre-download (Recommended)
+
+Pre-downloading avoids surprises during training startup and lets you verify the download completed successfully:
+
+```bash
+# Install the HuggingFace CLI (if not already available)
+uv tool install huggingface_hub
+
+# Download the model you plan to fine-tune
+hf download Qwen/Qwen3.5-27B
+# or
+hf download allenai/OLMo-3.1-32B-Instruct
+```
+
+Models are cached in `~/.cache/huggingface/hub/`. The training script mounts this directory into the Docker container, so the model is available without re-downloading.
+
+### Option B: Automatic Download
+
+If you skip the manual download, HuggingFace `transformers` will download the model automatically when training starts. This works but has drawbacks:
+
+- The download happens inside the Docker container, with no progress indication beyond log output
+- If the download is interrupted, you must restart training from scratch (the partial download is not reliably resumed inside Docker)
+- For very large models, the download can take over an hour depending on your connection
+
+### Gated Models
+
+Some HuggingFace models require accepting a license agreement before download. If you encounter an access error:
+
+1. Visit the model page on [huggingface.co](https://huggingface.co) (e.g., `https://huggingface.co/Qwen/Qwen3.5-27B`)
+2. Accept the license/terms if prompted
+3. Generate an access token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+4. Log in locally:
+
+```bash
+hf login
+```
+
+The token is stored in `~/.cache/huggingface/token` and is automatically available inside the training container.
+
+### Verifying the Download
+
+```bash
+# List cached models
+hf scan-cache
+
+# Check a specific model is complete
+ls ~/.cache/huggingface/hub/models--Qwen--Qwen3.5-27B/snapshots/
+```
+
+A complete download will have a single snapshot directory containing `model.safetensors.*` shards, `config.json`, and tokenizer files.
+
 ## Start Training
 
 ```bash
