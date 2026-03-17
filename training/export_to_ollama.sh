@@ -17,15 +17,19 @@
 
 set -euo pipefail
 
-# Use the project venv Python if available, so convert_hf_to_gguf.py
-# can find transformers/gguf even when run under sudo.
+# convert_hf_to_gguf.py needs torch, transformers, gguf, etc. which may not
+# be in the project venv. Use a dedicated venv for the converter, created
+# automatically on first run.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-if [[ -x "$PROJECT_DIR/.venv/bin/python3" ]]; then
-    PYTHON="$PROJECT_DIR/.venv/bin/python3"
-else
-    PYTHON="python3"
+GGUF_VENV="$PROJECT_DIR/llama.cpp/.venv"
+
+if [[ ! -x "$GGUF_VENV/bin/python3" ]]; then
+    echo "==> Creating llama.cpp converter venv (first run only)..."
+    python3 -m venv "$GGUF_VENV"
+    "$GGUF_VENV/bin/pip" install --quiet torch transformers gguf numpy sentencepiece protobuf
 fi
+PYTHON="$GGUF_VENV/bin/python3"
 
 MERGED_DIR="${1:?Usage: $0 <merged-dir> <ollama-model-name> [--gguf <quant>]}"
 MODEL_NAME="${2:?Usage: $0 <merged-dir> <ollama-model-name> [--gguf <quant>]}"
@@ -88,11 +92,7 @@ if [[ -n "$GGUF_QUANT" ]]; then
         echo "    Intermediate fp16 GGUF kept at: $FP16_GGUF"
     fi
 
-    echo "==> Creating Ollama model: $MODEL_NAME"
-    MODELFILE="$(mktemp /tmp/Modelfile.XXXXXX)"
-    echo "FROM $QUANT_GGUF" > "$MODELFILE"
-    ollama create "$MODEL_NAME" -f "$MODELFILE"
-    rm -f "$MODELFILE"
+    MODEL_SOURCE="$QUANT_GGUF"
 
 else
     # =========================================================================
@@ -110,12 +110,36 @@ else
         fi
     done
 
-    echo "==> Creating Ollama model: $MODEL_NAME"
-    MODELFILE="$(mktemp /tmp/Modelfile.XXXXXX)"
-    echo "FROM $RESOLVED/" > "$MODELFILE"
-    ollama create "$MODEL_NAME" -f "$MODELFILE"
-    rm -f "$MODELFILE"
+    MODEL_SOURCE="$RESOLVED/"
+fi
 
+# Build Modelfile with ChatML template (used by OLMo 3.1 and Qwen).
+# This prevents Ollama from injecting the base model's default system prompt
+# (e.g. OLMo's "You do not currently have access to any functions").
+echo "==> Creating Ollama model: $MODEL_NAME"
+MODELFILE="$(mktemp /tmp/Modelfile.XXXXXX)"
+cat > "$MODELFILE" <<'MODELFILE_EOF'
+FROM {{MODEL_SOURCE}}
+
+TEMPLATE """{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+"""
+
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
+MODELFILE_EOF
+
+# Substitute the model source path into the Modelfile
+sed -i "s|{{MODEL_SOURCE}}|${MODEL_SOURCE}|g" "$MODELFILE"
+
+ollama create "$MODEL_NAME" -f "$MODELFILE"
+rm -f "$MODELFILE"
+
+# Clean up hard-link directory if we created one
+if [[ -n "${RESOLVED:-}" ]]; then
     echo "==> Cleaning up hard-link directory..."
     rm -rf "$RESOLVED"
 fi
