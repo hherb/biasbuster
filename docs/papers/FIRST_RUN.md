@@ -270,9 +270,19 @@ Fine-tune the best-performing small model (likely 9B class) with:
 - Same LoRA configuration as the OLMo run (to isolate size effects)
 - Focus evaluation on **severity calibration improvement** — this is the metric that fine-tuning should improve most
 
-### 6.4 Unchanged Parameters
+### 6.4 Hyperparameter Considerations for 9B Models
 
-LoRA configuration, learning rate, epoch count, and other hyperparameters will remain identical across runs to isolate the effect of prompt/data improvements and model size.
+The initial fine-tuning run uses identical hyperparameters across all model sizes to isolate the effect of prompt/data improvements. However, the current configuration was designed for 27-32B models and is likely suboptimal for 9B:
+
+| Parameter | Current (32B) | Suggested (9B) | Rationale |
+|-----------|---------------|----------------|-----------|
+| `lora_r` | 16 | 32–64 | Smaller models have fewer parameters; higher rank compensates by giving LoRA more capacity to learn task-specific patterns |
+| `lora_alpha` | 32 | 2× `lora_r` | Maintain the alpha/r ratio of 2 to keep the effective learning rate scaling consistent |
+| `learning_rate` | 2e-4 | 3e-4 to 5e-4 | Smaller models tolerate higher learning rates without instability; faster convergence on limited data |
+| `gradient_accumulation_steps` | 4 | 2 | 9B fits comfortably in memory; smaller effective batch size may help with our relatively small dataset (706 examples) |
+| `lora_dropout` | 0.05 | 0.05–0.1 | Smaller models overfit faster; slightly higher dropout may improve generalisation |
+
+**Recommended approach:** Complete the current 9B run with identical settings first (controlled comparison), then run a second 9B experiment with the optimised hyperparameters above. This gives us both the controlled comparison and the best achievable 9B performance. The delta between the two runs quantifies how much hyperparameter tuning matters vs. the prompt/data improvements.
 
 ## 7. Key Takeaways
 
