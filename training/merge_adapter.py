@@ -74,25 +74,34 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load base model
+    # Load base model on CPU to minimise memory pressure during save.
+    # GPU is not needed — LoRA merge is just arithmetic on weight tensors.
     logger.info(f"Loading base model: {args.base_model}")
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        low_cpu_mem_usage=True,
+        device_map="cpu",
         trust_remote_code=True,
     )
 
     # Load and merge adapter
     logger.info(f"Loading adapter: {args.adapter_path}")
-    model = PeftModel.from_pretrained(model, args.adapter_path)
+    model = PeftModel.from_pretrained(
+        model, args.adapter_path, device_map="cpu"
+    )
 
     logger.info("Merging adapter weights into base model...")
     model = model.merge_and_unload()
 
-    # Save merged model
+    # Save merged model in 2 GB shards to avoid memory spikes from
+    # serialising the entire state dict at once.
     logger.info(f"Saving merged model to {output_dir}")
-    model.save_pretrained(str(output_dir), safe_serialization=True)
+    model.save_pretrained(
+        str(output_dir),
+        safe_serialization=True,
+        max_shard_size="2GB",
+    )
 
     # Save tokenizer
     logger.info("Saving tokenizer...")
