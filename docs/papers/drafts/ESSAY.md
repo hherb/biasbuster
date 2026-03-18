@@ -103,6 +103,28 @@ be searched for the lead author given industry sponsorship...
 
 The thinking chain teaches the model to reason step-by-step through each domain *and* to select which verification databases are relevant based on the study's characteristics. This is the key training signal -- not just "this study is biased" but "here's why, and here's where to check."
 
+### Why Natural Language, Not Function Calls?
+
+An obvious question: if the model is recommending database lookups, why not train it to emit structured tool calls -- JSON function signatures that an agent can execute directly?
+
+We considered this. Modern tool-use formats (OpenAI function calling, Qwen's ReACT format, Anthropic's tool_use blocks) would let the model output something like:
+
+```json
+{"tool": "search_open_payments", "args": {"physician_last": "Smith", "physician_first": "John"}}
+```
+
+We chose natural language verification steps instead, for three reasons:
+
+**1. The model serves two audiences.** A human reviewer reading the assessment needs to understand *what to check and why* -- "Check CMS Open Payments for author payment records from Pfizer, given that this is an industry-funded cardiovascular trial" is immediately actionable for a human. A JSON function call is not. Natural language serves both the human reader and an automated agent that can parse it downstream.
+
+**2. Tool-use training requires multi-turn examples.** Function-calling models are trained on sequences where the model emits a tool call, receives a tool result, then continues reasoning. Building these multi-turn training examples requires actually executing the tools during data generation -- calling ClinicalTrials.gov, ORCID, and Open Payments for every training abstract, then incorporating the results into the annotation. We had 920 training examples. Running 5-6 API calls per example, handling failures and rate limits, and generating coherent multi-turn reasoning chains would have multiplied the data generation effort by an order of magnitude. Natural language verification steps can be synthesised from the annotation metadata alone.
+
+**3. The set of verification databases is small and stable.** There are exactly six databases the model recommends: ClinicalTrials.gov, CMS Open Payments, ORCID, Europe PMC, Retraction Watch, and Medicines Australia/EFPIA. Pattern matching ("ClinicalTrials.gov" in step text) is 100% reliable for routing to the correct API. If we had dozens of tools with overlapping capabilities, structured function calls would be worth the training cost. With six well-separated databases, keyword routing is simpler, cheaper, and just as accurate.
+
+The practical result: our verification agent wrapper parses natural language steps with simple regex patterns, extracts parameters (NCT IDs, author names, PMIDs) from the text, and dispatches to the existing API clients. It works because the model was trained to cite specific database names in specific contexts -- consistently enough that keyword matching never fails.
+
+This is a deliberately pragmatic choice. If we later need the model to chain multiple tool calls iteratively (e.g., "search ORCID, find an industry affiliation, then check Open Payments for that company"), we would need structured tool-use training. But for the current single-pass verification architecture, natural language is the right tradeoff.
+
 ## The Hardware: Running on a DGX Spark
 
 All training and inference runs on an NVIDIA DGX Spark -- a desktop-class machine with 128 GB of unified memory and a GB10 Blackwell GPU. This is not a datacenter; it sits on a desk. The constraint shaped our architecture: SGLang and vLLM don't yet support the ARM/Blackwell combination, so all local inference runs through Ollama.

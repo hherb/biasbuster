@@ -62,6 +62,9 @@ class MetricsReader:
                 continue
             entry_type = entry.get("type")
             if entry_type == "header":
+                # New training run detected — clear stale data from previous run
+                self.metrics.clear()
+                self.completed = False
                 self.header = entry
                 self._start_time = time.time()
                 new_data = True
