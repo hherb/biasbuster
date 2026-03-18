@@ -1,6 +1,8 @@
 # 8. Fine-Tuning with LoRA
 
-**What you'll do:** Fine-tune a base model using LoRA (Low-Rank Adaptation) on your exported training data. Training runs inside an NGC Docker container.
+**What you'll do:** Fine-tune a base model using LoRA (Low-Rank Adaptation) on your exported training data. Training runs inside an NGC Docker container on an NVIDIA GPU.
+
+> **Apple Silicon?** If you're training on an M-series Mac instead of an NVIDIA GPU, see [Chapter 8b: Fine-Tuning on Apple Silicon (MLX)](08b_training_mlx.md) instead.
 
 ## Prerequisites
 

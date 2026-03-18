@@ -5,9 +5,10 @@ BiasBuster is a toolkit for building curated training datasets to fine-tune larg
 ## Prerequisites
 
 - **Python 3.12+** and [uv](https://docs.astral.sh/uv/) package manager
-- **Docker** with GPU support (for training inside NGC containers)
+- **Training hardware** (one of):
+  - NVIDIA GPU with Docker (DGX Spark, A100, etc.) — for full-precision LoRA
+  - Apple Silicon Mac with 64-128 GB RAM (M1/M2/M3/M4) — for QLoRA via MLX
 - **Ollama** (for serving and evaluating models locally)
-- **GPU hardware** — tested on NVIDIA DGX Spark (128 GB unified memory); any GPU with 48+ GB VRAM should work
 - **API keys** — Anthropic and/or DeepSeek (for LLM annotation); NCBI API key (optional, increases PubMed rate limits)
 - **llama.cpp** (for GGUF quantization; clone into project root)
 
@@ -38,7 +39,8 @@ Collect ──> Enrich ──> Annotate ──> Human Review ──> Export
 5. [Creating Ground Truth (Human Review)](05_human_review.md)
 6. [Exporting Training Data](06_export.md)
 7. [Establishing a Baseline](07_baseline_evaluation.md)
-8. [Fine-Tuning with LoRA](08_training.md)
+8. [Fine-Tuning with LoRA](08_training.md) (NVIDIA GPU / DGX Spark)
+8b. [Fine-Tuning with LoRA on Apple Silicon](08b_training_mlx.md) (MLX — alternative to 8)
 9. [Merging, Quantizing & Deploying](09_merge_and_deploy.md)
 10. [Evaluating Fine-Tuned Models](10_evaluation.md)
 
