@@ -31,11 +31,15 @@ bias_dataset_builder/
 │   ├── run.py                 # CLI entry point (--model-a / --model-b)
 │   └── selftest.py            # Self-test with synthetic data
 ├── training/
-│   ├── train_lora.py          # LoRA fine-tuning (SFTTrainer + PEFT)
-│   ├── configs.py             # Centralised hyperparameters and model presets
-│   ├── callbacks.py           # MetricsLoggerCallback → metrics.jsonl
-│   ├── data_utils.py          # Alpaca JSONL loading and chat formatting
-│   ├── merge_adapter.py       # Merge LoRA adapter into base model
+│   ├── train_lora.py          # LoRA fine-tuning (SFTTrainer + PEFT, DGX Spark)
+│   ├── train_lora_mlx.py      # LoRA/QLoRA fine-tuning (MLX, Apple Silicon)
+│   ├── configs.py             # Hyperparameters and model presets (PyTorch)
+│   ├── configs_mlx.py         # Hyperparameters and model presets (MLX)
+│   ├── callbacks.py           # MetricsLoggerCallback → metrics.jsonl (PyTorch)
+│   ├── callbacks_mlx.py       # MLXMetricsLoggerCallback → metrics.jsonl (MLX)
+│   ├── data_utils.py          # Alpaca JSONL loading, chat formatting, MLX conversion
+│   ├── merge_adapter.py       # Merge LoRA adapter (PyTorch/PEFT)
+│   ├── merge_adapter_mlx.py   # Fuse LoRA adapter (MLX)
 │   └── export_to_ollama.sh    # Convert merged model to Ollama (safetensors/GGUF)
 ├── utils/
 │   ├── completeness_checker.py # Check labelling coverage per model
@@ -48,7 +52,10 @@ bias_dataset_builder/
 ├── pipeline.py                # Orchestration pipeline
 ├── export.py                  # Export to fine-tuning formats (Alpaca, ShareGPT)
 ├── run_training.sh            # Launch LoRA training in NGC Docker
+├── run_training_mlx.sh        # Launch LoRA training on Apple Silicon (MLX)
 ├── run_merge.sh               # Launch adapter merge in NGC Docker
+├── run_merge_mlx.sh           # Launch adapter merge on Apple Silicon (MLX)
+├── MLX_TRAINING.md            # Step-by-step MLX fine-tuning guide
 └── TRAINING_INTERPRETATION.md # Guide to interpreting training monitor charts
 ```
 

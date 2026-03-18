@@ -70,6 +70,16 @@ bash training/export_to_ollama.sh training_output/qwen3.5-27b-merged qwen3.5-27b
 # Training monitor (run on host while training runs in Docker)
 uv run python -m utils.training_monitor --metrics-dir training_output/qwen3.5-27b-lora
 
+# MLX Training (on Apple Silicon Macs — no Docker)
+uv sync --group mlx                                    # install MLX dependencies
+./run_training_mlx.sh qwen3.5-9b-4bit                  # full training (64GB Mac)
+./run_training_mlx.sh qwen3.5-27b-4bit --max-iters 5   # smoke test
+./run_training_mlx.sh qwen3.5-27b-8bit --resume        # resume (128GB Mac)
+
+# MLX merge and export to Ollama
+./run_merge_mlx.sh qwen3.5-27b-4bit
+./run_merge_mlx.sh qwen3.5-27b-4bit --quantize Q4_K_M  # with GGUF quantization
+
 # Add a new dependency
 uv add <package>
 ```
@@ -91,8 +101,11 @@ There is no formal test suite — modules have `if __name__ == "__main__":` demo
 
 Human review (using the NiceGUI web tool) is a manual step between Annotate and Export.
 
-**Training pipeline** (`training/` — runs in NGC Docker on DGX Spark):
-6. **Train** — LoRA fine-tuning via `train_lora.py` using TRL's `SFTTrainer`. Reads alpaca JSONL from Export stage. Supports checkpoint/resume, live metrics logging via `MetricsLoggerCallback`, and a real-time NiceGUI dashboard (`utils/training_monitor.py`). After training, merge adapter into base model (`merge_adapter.py`) and export to Ollama (`export_to_ollama.sh`).
+**Training pipeline** (`training/` — two backends):
+6. **Train** — LoRA fine-tuning with two backends:
+   - **DGX Spark** (NGC Docker): `train_lora.py` via TRL's `SFTTrainer` for Qwen3.5-27B / OLMo-3.1-32B.
+   - **Apple Silicon** (native macOS): `train_lora_mlx.py` via `mlx_lm.tuner` for pre-quantized Qwen models (9B/27B in 4-bit/8-bit QLoRA).
+   Both backends write identical `metrics.jsonl` for live monitoring via the NiceGUI dashboard (`utils/training_monitor.py`). After training, merge adapter and export to Ollama (`export_to_ollama.sh`).
 
 ### Module Pattern
 
@@ -106,7 +119,10 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
   - `annotators/__init__.py` also contains `is_retraction_notice()` for filtering bare retraction notices
 - **Schemas** (`schemas/`): `bias_taxonomy.py` defines the full bias taxonomy as dataclasses and enums. `schemas/__init__.py` exports `extract_abstract_sections()` used by both `spin_detector` and `effect_size_auditor`.
 - **Evaluation** (`evaluation/`): Harness for running models, scoring outputs, computing metrics (binary F1, ordinal kappa, calibration, verification quality), and generating head-to-head comparison reports with statistical tests.
-- **Training** (`training/`): LoRA fine-tuning pipeline. `train_lora.py` is the main entry point (uses TRL `SFTTrainer`). `configs.py` centralises all hyperparameters as a `LoRATrainingConfig` dataclass with model presets. `callbacks.py` provides `MetricsLoggerCallback` that writes `metrics.jsonl` for live monitoring. `data_utils.py` handles alpaca JSONL loading and chat template formatting. `merge_adapter.py` merges LoRA adapters into the base model for inference.
+- **Training** (`training/`): LoRA fine-tuning pipeline with two backends:
+  - **PyTorch/TRL** (DGX Spark): `train_lora.py` using TRL's `SFTTrainer`, `configs.py` for hyperparameters, `callbacks.py` for metrics, `merge_adapter.py` for adapter fusion.
+  - **MLX** (Apple Silicon): `train_lora_mlx.py` using `mlx_lm.tuner`, `configs_mlx.py` for MLX-specific presets (Qwen 9B/27B in 4-bit/8-bit), `callbacks_mlx.py` bridging to the same `metrics.jsonl` format, `merge_adapter_mlx.py` for adapter fusion via `mlx_lm.fuse`.
+  - Shared: `data_utils.py` handles alpaca JSONL loading, chat template formatting, and alpaca→chat format conversion for MLX-lm.
 - **Training Monitor** (`utils/training_monitor.py`): NiceGUI web dashboard that reads `metrics.jsonl` and displays live loss curves, learning rate schedule, GPU memory, gradient norms, and hyperparameters. Run with `uv run python -m utils.training_monitor`.
 
 ### Data Flow
