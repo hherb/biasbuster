@@ -24,12 +24,12 @@ MODEL_PRESETS = {
 _9B_OVERRIDES: dict = {
     "lora_r": 32,                       # more LoRA capacity for smaller model
     "lora_alpha": 64,                   # maintain alpha/r = 2
-    "learning_rate": 4e-4,              # 9B tolerates higher LR
-    "gradient_accumulation_steps": 2,   # smaller effective batch (2 vs 4)
-    "num_train_epochs": 5,              # more exposure with smaller batch
+    "learning_rate": 2e-4,              # match 27B default — 4e-4 caused early saturation
+    "gradient_accumulation_steps": 4,   # match 27B default — smoother gradients
+    "num_train_epochs": 3,              # match 27B default — 5 epochs wasted compute
     "lora_dropout": 0.08,               # slightly higher to combat overfitting
-    "warmup_ratio": 0.06,              # shorter warmup with more total steps
-    "save_total_limit": 5,             # more checkpoints for longer run
+    "warmup_ratio": 0.1,               # match 27B default
+    "save_total_limit": 3,             # match 27B default
     "weight_decay": 0.02,              # regularisation for small model
     "label_smoothing_factor": 0.05,    # soften targets for better calibration
 }
