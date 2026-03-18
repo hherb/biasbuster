@@ -118,6 +118,8 @@ def build_trainer(
         learning_rate=cfg.learning_rate,
         lr_scheduler_type=cfg.lr_scheduler_type,
         warmup_ratio=cfg.warmup_ratio,
+        weight_decay=cfg.weight_decay,
+        label_smoothing_factor=cfg.label_smoothing_factor,
         bf16=cfg.bf16,
         gradient_checkpointing=cfg.gradient_checkpointing,
         gradient_checkpointing_kwargs={"use_reentrant": False},
@@ -148,6 +150,8 @@ def build_trainer(
             "lora_alpha": cfg.lora_alpha,
             "lora_dropout": cfg.lora_dropout,
             "max_seq_length": cfg.max_seq_length,
+            "weight_decay": cfg.weight_decay,
+            "label_smoothing_factor": cfg.label_smoothing_factor,
         },
     )
 

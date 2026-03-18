@@ -10,6 +10,7 @@ Converts validated bias assessments to fine-tuning data formats:
 import json
 import logging
 import random
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -117,6 +118,25 @@ def _build_statistical_reasoning(parts: list[str], annotation: dict) -> None:
             parts.append(
                 "Statistical reporting concerns: " + "; ".join(issues) + "."
             )
+    else:
+        # Explain why no statistical reporting concerns were found
+        positives = []
+        if stat.get("absolute_reported"):
+            positives.append("absolute measures are reported")
+        if stat.get("baseline_risk_reported"):
+            positives.append("baseline risk is provided")
+        if stat.get("nnt_reported"):
+            positives.append("NNT is reported")
+        if positives:
+            parts.append(
+                "Statistical reporting appears adequate: "
+                + "; ".join(positives) + "."
+            )
+        else:
+            parts.append(
+                "Statistical reporting appears balanced with both relative "
+                "and absolute measures provided."
+            )
     if stat.get("evidence_quotes"):
         parts.append(f"Key text: {stat['evidence_quotes'][0]}")
 
@@ -148,12 +168,22 @@ def _build_spin_reasoning(parts: list[str], annotation: dict) -> None:
             "Spin is LOW — some overstatement present but conclusions include "
             "appropriate uncertainty or acknowledge limitations."
         )
+    else:
+        parts.append(
+            "Spin is NONE (Boutron taxonomy) — conclusions accurately reflect "
+            "the reported results with appropriate acknowledgment of limitations."
+        )
 
 
 def _build_outcome_reasoning(parts: list[str], annotation: dict) -> None:
     """Add outcome reporting reasoning to thinking chain."""
     outcome = annotation.get("outcome_reporting", {})
     if outcome.get("severity", "none") == "none":
+        parts.append(
+            "Primary outcomes appear patient-centred (e.g., mortality, quality "
+            "of life, functional status). No surrogate endpoint or composite "
+            "disaggregation concerns identified."
+        )
         return
     issues = []
     if outcome.get("surrogate_without_validation"):
@@ -178,6 +208,17 @@ def _build_coi_reasoning(parts: list[str], annotation: dict) -> None:
     """Add conflict of interest reasoning with database selection to thinking chain."""
     coi = annotation.get("conflict_of_interest", {})
     if coi.get("severity", "none") == "none":
+        funding_type = coi.get("funding_type", "unclear")
+        if funding_type == "public":
+            parts.append(
+                "Publicly funded study with no apparent industry conflicts. "
+                "Funding and COI disclosures appear adequate."
+            )
+        else:
+            parts.append(
+                "No significant conflict of interest concerns identified "
+                "based on available abstract information."
+            )
         return
     funding_type = coi.get("funding_type", "unclear")
     if funding_type == "industry":
@@ -203,6 +244,11 @@ def _build_methodology_reasoning(parts: list[str], annotation: dict) -> None:
     """Add methodology reasoning to thinking chain."""
     meth = annotation.get("methodology", {})
     if meth.get("severity", "none") == "none":
+        parts.append(
+            "No significant methodological red flags identified. Study "
+            "design appears appropriate with adequate comparator, follow-up "
+            "duration, and analysis approach."
+        )
         return
     issues = []
     if meth.get("per_protocol_only"):
@@ -321,10 +367,11 @@ def build_structured_response(annotation: dict) -> str:
     """Build the structured response portion (after thinking)."""
     parts = []
 
-    # Statistical reporting
+    # Statistical reporting — always present
     stat = annotation.get("statistical_reporting", {})
-    if stat.get("severity", "none") != "none":
-        parts.append(f"## Statistical Reporting: {stat['severity'].upper()}")
+    stat_sev = stat.get("severity", "none")
+    parts.append(f"## Statistical Reporting: {stat_sev.upper()}")
+    if stat_sev != "none":
         if stat.get("relative_only"):
             parts.append(
                 "- Only relative measures reported without absolute risk reduction or NNT"
@@ -334,45 +381,60 @@ def build_structured_response(annotation: dict) -> str:
         if stat.get("evidence_quotes"):
             for q in stat["evidence_quotes"][:2]:
                 parts.append(f'  > "{q}"')
+    else:
+        parts.append("- No significant statistical reporting concerns identified")
 
-    # Spin
+    # Spin — always present
     spin = annotation.get("spin", {})
-    if spin.get("severity", "none") != "none":
-        parts.append(f"\n## Spin: {spin.get('spin_level', spin['severity']).upper()}")
+    spin_sev = spin.get("severity", "none")
+    spin_label = spin.get("spin_level", spin_sev)
+    parts.append(f"\n## Spin: {spin_label.upper()}")
+    if spin_sev != "none":
         if not spin.get("conclusion_matches_results", True):
             parts.append("- Conclusions do not accurately reflect the reported results")
         if spin.get("focus_on_secondary_when_primary_ns"):
             parts.append("- Primary outcome not significant; emphasis on secondary/subgroup analyses")
         if spin.get("inappropriate_extrapolation"):
             parts.append("- Results extrapolated beyond the studied population")
+    else:
+        parts.append("- Conclusions appear to accurately reflect the reported results")
 
-    # Outcome reporting
+    # Outcome reporting — always present
     outcome = annotation.get("outcome_reporting", {})
-    if outcome.get("severity", "none") != "none":
-        parts.append(f"\n## Outcome Reporting: {outcome['severity'].upper()}")
+    outcome_sev = outcome.get("severity", "none")
+    parts.append(f"\n## Outcome Reporting: {outcome_sev.upper()}")
+    if outcome_sev != "none":
         if outcome.get("surrogate_without_validation"):
             parts.append("- Surrogate endpoint used without established link to patient outcomes")
         if outcome.get("composite_not_disaggregated"):
             parts.append("- Composite endpoint not disaggregated")
+    else:
+        parts.append("- Primary outcomes appear patient-centred with no reporting concerns")
 
-    # COI
+    # COI — always present
     coi = annotation.get("conflict_of_interest", {})
-    if coi.get("severity", "none") != "none":
-        parts.append(f"\n## Conflict of Interest: {coi['severity'].upper()}")
+    coi_sev = coi.get("severity", "none")
+    parts.append(f"\n## Conflict of Interest: {coi_sev.upper()}")
+    if coi_sev != "none":
         parts.append(f"- Funding: {coi.get('funding_type', 'unclear')}")
         if coi.get("industry_author_affiliations"):
             parts.append("- Author(s) affiliated with study sponsor")
         if not coi.get("coi_disclosed"):
             parts.append("- COI not disclosed in abstract")
+    else:
+        parts.append("- Funding and COI disclosures appear adequate")
 
-    # Methodology
+    # Methodology — always present
     meth = annotation.get("methodology", {})
-    if meth.get("severity", "none") != "none":
-        parts.append(f"\n## Methodology: {meth['severity'].upper()}")
+    meth_sev = meth.get("severity", "none")
+    parts.append(f"\n## Methodology: {meth_sev.upper()}")
+    if meth_sev != "none":
         if meth.get("inappropriate_comparator"):
             parts.append("- Comparator may be inappropriate (placebo when active standard exists)")
         if meth.get("per_protocol_only"):
             parts.append("- Only per-protocol analysis reported (no ITT)")
+    else:
+        parts.append("- No significant methodological red flags identified")
 
     # Verification steps (synthesize missing database citations)
     steps = _synthesize_verification_steps(annotation)
@@ -467,6 +529,76 @@ def to_openai_chat_format(annotation: dict, include_thinking: bool = True) -> di
     }
 
 
+_SEVERITY_RE = re.compile(
+    r"## Overall:.*?(NONE|LOW|MODERATE|HIGH|CRITICAL)", re.IGNORECASE,
+)
+
+
+def _extract_overall_severity(example: dict) -> str:
+    """Extract overall severity from a converted training example's output."""
+    output = example.get("output", "")
+    if not output:
+        # ShareGPT or OpenAI chat format
+        for msg in example.get("conversations", example.get("messages", [])):
+            if msg.get("from") == "gpt" or msg.get("role") == "assistant":
+                output = msg.get("value", msg.get("content", ""))
+                break
+    match = _SEVERITY_RE.search(output)
+    return match.group(1).lower() if match else "unknown"
+
+
+def oversample_rare_severities(
+    examples: list[dict],
+    min_fraction: float = 0.05,
+) -> list[dict]:
+    """Duplicate rare severity examples so every class has at least ``min_fraction``.
+
+    Only apply to training data — never to val/test.
+
+    Args:
+        examples: Converted training examples (alpaca, sharegpt, or openai_chat).
+        min_fraction: Minimum fraction of total for each severity class.
+
+    Returns:
+        Augmented list with rare classes oversampled.
+    """
+    from collections import Counter
+
+    # Count current distribution
+    severity_map: dict[str, list[int]] = {}
+    for i, ex in enumerate(examples):
+        sev = _extract_overall_severity(ex)
+        severity_map.setdefault(sev, []).append(i)
+
+    counts = {sev: len(idxs) for sev, idxs in severity_map.items()}
+    total = len(examples)
+    min_count = max(1, int(total * min_fraction))
+
+    augmented = list(examples)
+    for sev, idxs in severity_map.items():
+        if sev == "unknown":
+            continue
+        current = len(idxs)
+        if current < min_count:
+            # Duplicate to reach min_count
+            needed = min_count - current
+            dupes = (idxs * ((needed // current) + 2))[:needed]
+            for idx in dupes:
+                augmented.append(examples[idx])
+            logger.info(
+                f"Oversampled {sev.upper()}: {current} -> {current + needed} "
+                f"(+{needed} duplicates)"
+            )
+
+    # Log final distribution
+    final_counts = Counter(_extract_overall_severity(ex) for ex in augmented)
+    logger.info(
+        f"Training severity distribution after oversampling: "
+        f"{dict(sorted(final_counts.items()))}"
+    )
+    return augmented
+
+
 def export_dataset(
     annotations: list[dict],
     output_dir: Path,
@@ -505,6 +637,7 @@ def export_dataset(
     n_val = int(n * val_split)
 
     train_data = converted[:n_train]
+    train_data = oversample_rare_severities(train_data)
     val_data = converted[n_train : n_train + n_val]
     test_data = converted[n_train + n_val :]
 
