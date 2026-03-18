@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 BMLibrarian Bias Detection Dataset Builder — a toolkit for building curated training datasets to fine-tune LLMs for detecting bias in biomedical abstracts. The fine-tuned model learns to assess bias across 5 domains and suggest specific verification steps citing real databases.
 
 ## Hardware Environment
-This project runs on a DGX Spark (ARM/Blackwell/GB10 architecture). Do not suggest x86-specific solutions. Always consider ARM compatibility, GPU memory constraints, and quantization requirements when recommending ML/inference approaches.
+This project runs either on a DGX Spark (ARM/Blackwell/GB10 architecture) or on an Apple M series processor. Do not suggest x86-specific solutions. Always consider ARM compatibility, GPU memory constraints, and quantization requirements when recommending ML/inference approaches.
 
 ## Python Coding Standards
 1. We prefer pure functions over complex code with side effects. Ideally packaged as reusable library modules.
