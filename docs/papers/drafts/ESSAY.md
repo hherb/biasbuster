@@ -60,7 +60,7 @@ Rather than relying on a single source of "biased" and "unbiased" labels, we tri
 
 ### LLM Annotation with Operational Definitions
 
-With candidate abstracts collected and enriched, we used Claude to generate structured 5-domain bias assessments with severity ratings, evidence quotes, and verification step recommendations. But early annotation revealed a problem: inter-model disagreement was ~55% on 898 shared abstracts between Claude and DeepSeek.
+With candidate abstracts collected and enriched, we used Claude to generate structured 5-domain bias assessments with severity ratings, evidence quotes, and verification step recommendations. But early annotation revealed a problem: inter-model disagreement was ~55% on 898 shared abstracts between Claude and DeepSeek. (The dataset has since grown to 1,521 annotated examples through continued pipeline runs.)
 
 The fix was operational definitions -- nine explicit principles that resolved the ambiguities:
 
@@ -131,7 +131,7 @@ All training and inference runs on an NVIDIA DGX Spark -- a desktop-class machin
 
 LoRA fine-tuning of a 9B model takes ~2.5 hours. A 32B model takes ~4.5 hours. Both fit comfortably in memory without quantisation during training (bf16). Inference on the fine-tuned 9B model runs at ~11 tokens/second.
 
-## Results: What We Learned in Two Fine-Tuning Runs
+## Results: What We Learned in Four Fine-Tuning Runs
 
 ### First Run: OLMo-3.1-32B
 
@@ -169,15 +169,57 @@ The enriched prompt is better at the coarse question -- "is this study biased at
 
 And the fine-tuned model produces reasoning chains, which is essential for a tool that needs to explain *why* it flagged something.
 
+### Third Run: The Aggressive Hyperparameters That Failed
+
+The Second Run had proposed 9B-optimised hyperparameters: a higher learning rate (4e-4 vs 2e-4), more epochs (5 vs 3), and a smaller effective batch size (2 vs 4). The reasoning was sound -- smaller models should tolerate more aggressive updates. The data was wrong.
+
+Simultaneously, we overhauled the training data. The dataset grew from 706 to 1,235 training examples (+75%), and the format changed substantially: all five bias domains are now always emitted (including explicit NONE assessments with substantive reasoning), and rare severity classes (HIGH/CRITICAL) were oversampled to ~5% of the training set.
+
+The training curves told the story immediately. Loss dropped from ~7.0 to ~2.5 in the first 100 steps, then plateaued at ~1.5-2.0 for the remaining 2,900 steps. The model learned everything it could in the first 10% of training and sat idle for the other 90%. The 4e-4 learning rate combined with a small batch size drove the model into a loss basin it couldn't escape. Five epochs and 3,090 steps were mostly wasted compute.
+
+### Fourth Run: Conservative Hyperparameters Win
+
+We reverted the learning dynamics to the 27B defaults (2e-4 LR, 3 epochs, effective batch 4) while keeping the 9B-specific LoRA capacity and regularisation settings (rank 32, dropout 0.08, weight decay 0.02, label smoothing 0.05). Same training data as the Third Run.
+
+The difference was stark. Training loss declined gradually through all 927 steps with no saturation plateau. Eval loss improved steadily from 1.267 to 1.101 -- still declining at completion, suggesting the model would benefit from a fourth epoch. The conservative config achieved better eval loss in 927 steps than the aggressive config managed in 3,090.
+
+**Evaluation confirmed the improvement across the board:**
+
+| What | Second Run (9B, 706 ex.) | Fourth Run (9B, 1,235 ex.) |
+|------|--------------------------|----------------------------|
+| Overall binary F1 | 0.804 | **0.924** |
+| Recall | 0.679 | **0.950** |
+| Precision | 0.986 | 0.898 |
+| Per-dimension F1 (avg) | 0.70 | **0.78** |
+| Ordinal kappa | 0.159 | 0.124 |
+| Verification score | 0.541 | 0.495 |
+| Thinking chains | 99% | **100%** |
+
+The recall problem from the Second Run is solved. The model is no longer too conservative -- it catches 95% of biased studies, up from 68%. Every per-dimension F1 improved: statistical reporting (0.73 to 0.81), spin (0.73 to 0.83), outcome reporting (0.76 to 0.84), COI (0.64 to 0.70), methodology (0.66 to 0.74).
+
+**Closing the gap to 32B.** The 9B model now nearly matches the 32B on binary detection (F1 0.924 vs 0.952, a gap of 0.028 -- down from 0.148). It actually *beats* the 32B on recall (0.950 vs 0.920) and verification quality (0.495 vs 0.368). The remaining gap is in severity calibration.
+
+### What Regressed -- and Why It Matters
+
+**Severity grading got worse, not better.** Ordinal kappa dropped from 0.159 to 0.124, despite better binary detection. The confusion matrices reveal a systematic "moderate collapse": when the model detects bias, it defaults to predicting MODERATE severity because MODERATE is the dominant non-NONE class in the training data (50% of Statistical Reporting labels, 36% of COI, 35% of Outcome Reporting). Only 2 of 36 true-LOW Statistical Reporting examples were predicted correctly -- the rest were called MODERATE or HIGH. The model has learned "biased means moderate" as a strong prior, with no reliable signal for distinguishing LOW from MODERATE.
+
+This is fundamentally a class imbalance problem. The training data contains enough examples (1,235) to learn the binary boundary between "biased" and "not biased," but far too few per-class examples to learn the ordinal boundaries between severity levels. HIGH and CRITICAL have only ~11 examples per dimension per class after oversampling.
+
+**CMS Open Payments collapsed from 57% to 22%.** Analysis of the training data shows Open Payments is mentioned in only 29.8% of examples, with a steep skew: 100% citation rate for HIGH COI severity, but only 16% for LOW and 13% for NONE. The model learned the strong HIGH-COI association and discarded the weaker signals. Since most test examples have LOW-MODERATE COI, the model defaults to not citing Open Payments.
+
 ### The Key Takeaways
 
 **Prompt engineering and fine-tuning solve different problems.** An enriched prompt handles coarse detection; fine-tuning adds granular domain-level analysis, severity calibration, and structured reasoning. They're complementary, not competing.
 
-**Verification source knowledge can be taught.** The First Run showed that fine-tuning can *destroy* database citation patterns. The Second Run showed that explicitly teaching database selection reasoning in the training data fixes this.
+**Verification source knowledge can be taught -- and lost.** The First Run showed that fine-tuning can *destroy* database citation patterns. The Second Run showed that explicitly teaching database selection reasoning in the training data fixes this. The Fourth Run showed that even with good training, citation patterns are fragile when the training signal is unevenly distributed across severity levels.
 
-**Severity calibration remains unsolved.** Both the 9B (kappa 0.159) and 32B (kappa 0.285) fine-tuned models struggle with ordinal severity grading. They can detect bias but can't consistently grade it. This is the next frontier.
+**Training data quality dominates hyperparameters.** Four runs have shown that the single biggest lever is the training data format -- not learning rate, not epoch count, not LoRA rank. The jump from 706 old-format examples to 1,235 new-format examples (with all five domains, NONE reasoning, and severity oversampling) produced a +0.120 F1 improvement. The hyperparameter change between the Third and Fourth Runs produced a +0.046 improvement in eval loss. Data quality wins by a wide margin.
 
-**Small models are viable for production use.** A 9B model fine-tuned on 706 examples achieves per-dimension F1 of 0.64-0.76 with near-perfect precision (0.986) and produces actionable verification recommendations. It runs on a single desktop GPU in ~4 minutes per abstract. For comparison, a human Cochrane reviewer takes hours.
+**Learning dynamics are model-size-agnostic for LoRA.** The 27B defaults (2e-4 LR, 3 epochs, effective batch 4) work equally well for both 9B and 32B models on this task. The 9B model's differentiation should be in LoRA capacity and regularisation (higher rank, more dropout, weight decay), not in learning rate or epoch count. Don't tune learning rate by model size for LoRA.
+
+**Severity calibration is a data problem, not a modelling problem.** Four training runs with different hyperparameters have left ordinal kappa stuck in the 0.12-0.29 range. The "moderate collapse" is driven by class imbalance in the training data, not by model capacity or learning dynamics. Fixing this requires either hundreds more boundary-case annotations, an ordinal-aware loss function, or post-hoc calibration.
+
+**Small models are viable for production use.** A 9B model fine-tuned on 1,235 examples achieves binary F1 of 0.924 with 95% recall, per-dimension F1 of 0.70-0.84, and produces actionable verification recommendations with step-by-step reasoning. It runs on a single desktop GPU. For comparison, a human Cochrane reviewer takes hours per paper.
 
 ## From Assessment to Action: The Verification Agent
 
@@ -196,9 +238,11 @@ This is where the verification-focused training pays off. Because the model was 
 
 ## What's Next
 
-**Hyperparameter optimisation for 9B models.** Our current results use hyperparameters designed for 32B models. The 9B model likely needs higher LoRA rank (32-64 instead of 16), a higher learning rate, and possibly more training epochs. We expect this to close the recall gap.
+**Solving the "moderate collapse."** The highest-impact next step is targeted annotation of 200+ boundary cases -- examples specifically chosen to illustrate the LOW-MODERATE distinction across all five dimensions. The model has enough data to learn "biased vs not biased" but not enough to learn the finer gradations. Alternatively, replacing standard cross-entropy with an ordinal regression loss (e.g., CORN or cumulative link) that penalises adjacent-class errors less than distant errors could teach the model that the severity scale has an ordering.
 
-**Severity calibration.** The hardest unsolved problem. We're exploring calibration-focused training examples, label smoothing, and post-hoc temperature scaling.
+**Fixing CMS Open Payments citation.** The export pipeline should cite CMS Open Payments as a verification step whenever COI severity is LOW or higher, not just HIGH. This would increase the training signal from 29.8% to ~70%+ of examples and address the collapsed citation rate.
+
+**One more epoch.** The Fourth Run's eval loss was still declining at epoch 3. A follow-up with 4 epochs at the same conservative config may yield marginal improvements -- though the diminishing-returns analysis suggests the bigger gains will come from addressing the training data imbalance.
 
 **Full-text analysis.** Abstracts contain only a fraction of the information needed for thorough bias assessment. Full-text analysis -- especially of methods sections, funding disclosures, and supplementary statistical tables -- is the natural next step.
 
@@ -208,12 +252,12 @@ This is where the verification-focused training pays off. Because the model was 
 
 BiasBuster is not a replacement for peer review or systematic review methodology. It's a screening tool -- a first pass that can flag the abstracts most deserving of careful human scrutiny, and point the reviewer exactly where to look.
 
-The medical literature is too large for manual screening and too important for uncritical trust. A 9B-parameter model running on a single desktop GPU, trained on 706 examples, can now detect five dimensions of bias with F1 above 0.64 on every dimension, produce step-by-step reasoning explaining its assessment, and recommend specific databases where each claim can be verified.
+The medical literature is too large for manual screening and too important for uncritical trust. A 9B-parameter model running on a single desktop GPU, trained on 1,235 examples over four iterative runs, can now detect five dimensions of bias with F1 above 0.70 on every dimension and 0.924 overall, catch 95% of biased studies, produce step-by-step reasoning explaining its assessment, and recommend specific databases where each claim can be verified. It nearly matches a model four times its size on binary detection, and beats it on recall.
 
-It's not perfect. But it's fast, it's explainable, and it gets better with every training run.
+It's not perfect -- severity grading remains coarse and one verification source still needs better training signal. But it's fast, it's explainable, and four training runs have shown a clear trajectory: each round of data improvement moves the needle more than any amount of hyperparameter tuning.
 
 ---
 
-*BiasBuster is open source. The pipeline, training data, evaluation harness, and fine-tuned model weights are available at [repository link]. Built on an NVIDIA DGX Spark with Qwen3.5-9B, LoRA fine-tuning via TRL/PEFT, and Ollama for inference.*
+*BiasBuster is open source. The pipeline, training data, evaluation harness, and fine-tuned model weights are available at [repository link]. Built on an NVIDIA DGX Spark with Qwen3.5-9B (and OLMo-3.1-32B), LoRA fine-tuning via TRL/PEFT, and Ollama for inference.*
 
 *This work is part of BMLibrarian, a project aiming to fully automate systematic literature review for biomedical research.*

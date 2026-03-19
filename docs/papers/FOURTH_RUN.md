@@ -3,7 +3,7 @@
 **Date:** 2026-03-19
 **Model:** Qwen3.5-9B (fine-tuned with LoRA)
 **Hardware:** NVIDIA DGX Spark (128 GB unified memory, GB10/Blackwell)
-**Status:** Training completed; pending evaluation
+**Status:** Training and evaluation completed
 
 ## 1. Background
 
@@ -107,9 +107,83 @@ The train loss (3.85) is much higher than eval loss (1.10) — a 3.5x gap. This 
 - **Dropout (0.08)** is active during training but disabled during eval, inflating training loss.
 - Both are regularisation techniques that improve generalisation at the cost of higher training loss — a healthy pattern.
 
-## 5. Analysis
+## 5. Evaluation Results
 
-### 5.1 The Conservative Approach Won
+### 5.1 Success Criteria
+
+| Criterion | Target | Result | |
+|-----------|--------|--------|---|
+| Binary F1 | > 0.90 | **0.924** | **PASS** |
+| Recall | > 0.85 | **0.950** | **PASS** |
+| Ordinal kappa | > 0.20 | 0.124 | FAIL |
+| Verification score | > 0.50 | 0.495 | FAIL (marginal) |
+
+### 5.2 Overall Performance vs Second Run
+
+| Metric | Second Run (9B, old data) | Fourth Run (9B, new data) | Delta |
+|--------|--------------------------|---------------------------|-------|
+| Binary F1 | 0.804 | **0.924** | **+0.120** |
+| Precision | 0.986 | 0.898 | -0.088 |
+| Recall | 0.679 | **0.950** | **+0.271** |
+| Ordinal kappa | 0.159 | 0.124 | -0.035 |
+| Exact match | 0.417 | 0.271 | -0.146 |
+| Within-one | 0.748 | 0.764 | +0.016 |
+| MAE (severity) | 0.878 | 1.076 | +0.198 |
+| Calibration error | 0.913 | **0.840** | -0.073 |
+| Verification score | 0.541 | 0.495 | -0.046 |
+| Thinking chains | 99% | **100%** | +1% |
+| Mean thinking length | 1125 chars | 1289 chars | +164 |
+| Parse failures | 0 | 0 | — |
+
+The **recall problem from the Second Run is solved** — up from 0.679 to 0.950. The model is no longer too conservative.
+
+### 5.3 Per-Dimension Binary F1 (all improved)
+
+| Dimension | Second Run | Fourth Run | Delta |
+|-----------|-----------|------------|-------|
+| Statistical reporting | 0.730 | **0.806** | +0.076 |
+| Spin | 0.727 | **0.826** | +0.099 |
+| Outcome reporting | 0.755 | **0.839** | +0.084 |
+| COI | 0.639 | **0.698** | +0.059 |
+| Methodology | 0.656 | **0.737** | +0.081 |
+
+Every dimension improved. The enriched training data with explicit NONE assessments is paying off.
+
+### 5.4 Closing the Gap to 32B
+
+| Metric | 32B FT (First Run) | 9B FT (Fourth Run) | Gap |
+|--------|-------------------|---------------------|-----|
+| Binary F1 | 0.952 | 0.924 | 0.028 (was 0.148) |
+| Recall | 0.920 | **0.950** | **9B wins** |
+| Precision | 0.988 | 0.898 | 0.090 |
+| Ordinal kappa | 0.285 | 0.124 | 0.161 |
+| Verification | 0.368 | **0.495** | **9B wins** |
+
+The 9B model now nearly matches the 32B on binary detection (gap narrowed from 0.148 to 0.028) and beats it on recall and verification. The remaining gap is in severity calibration.
+
+### 5.5 Verification Source Rates
+
+| Source | Second Run | Fourth Run | Delta |
+|--------|-----------|------------|-------|
+| ClinicalTrials.gov | 99% | 99% | — |
+| ORCID | 94% | **100%** | +6% |
+| Retraction Watch | 95% | **100%** | +5% |
+| Europe PMC | 98% | **100%** | +2% |
+| CMS Open Payments | 57% | **22%** | **-35%** |
+
+Four of five sources are now at or near 100%. CMS Open Payments collapsed from 57% to 22%, dragging the mean verification score below target.
+
+### 5.6 What Regressed and Why
+
+**Ordinal kappa dropped (0.159 → 0.124).** The confusion matrices reveal a systematic pattern: the model over-predicts MODERATE and HIGH while almost never predicting LOW. For example, in Statistical Reporting, only 2 of 36 true-LOW examples were predicted as LOW — the rest were predicted as MODERATE (24) or HIGH (7). This "moderate collapse" occurs across all dimensions.
+
+**CMS Open Payments collapsed (57% → 22%).** The training data only mentions Open Payments in 29.8% of examples. By COI severity: 13% for NONE, 16% for LOW, 45% for MODERATE, 100% for HIGH. The model learned the strong HIGH-COI → Open Payments association but lost the weaker MODERATE-COI signal.
+
+**Precision dropped (0.986 → 0.898).** This is the expected trade-off for the massive recall improvement (+0.271). More true positives caught, but also 13 false positives (vs 1 previously).
+
+## 6. Analysis
+
+### 6.1 The Conservative Approach Won
 
 The aggressive 9B hyperparameters (4e-4 LR, batch 2, 5 epochs) were counterproductive. The conservative revision (2e-4 LR, batch 4, 3 epochs) produced:
 - Better final eval loss (1.10 vs 1.15)
@@ -118,42 +192,108 @@ The aggressive 9B hyperparameters (4e-4 LR, batch 2, 5 epochs) were counterprodu
 
 **Conclusion:** For this task and dataset size, learning dynamics are not model-size-dependent. The 27B defaults work equally well for 9B. The 9B model's differentiation should be in LoRA capacity and regularisation, not learning rate or epoch count.
 
-### 5.2 More Epochs May Help
+### 6.2 More Epochs May Help
 
 The eval loss was still declining at epoch 3.00 (1.101, down from 1.267). This suggests 3 epochs may be insufficient for the expanded dataset. A follow-up run with 4-5 epochs at the conservative learning rate (2e-4) may yield further improvement without the saturation seen with 4e-4 LR.
 
 However, the improvement rate was slowing: Δ per 50 steps went from -0.038 (steps 50-100) to -0.003 (steps 850-900). Diminishing returns suggest 4 epochs would capture most remaining gain; 5 may not be worth the compute.
 
-### 5.3 The Training Data Change Dominates
+### 6.3 The Training Data Change Dominates
 
-The single biggest change between the Second Run and Third/Fourth Runs is not hyperparameters — it's the training data. The new format (all 5 domains always emitted, NONE reasoning, oversampled rare severities) produces fundamentally different targets. Loss values across data formats are not comparable.
+The single biggest change between the Second Run and Third/Fourth Runs is the training data, not hyperparameters. The new format (all 5 domains always emitted, NONE reasoning, oversampled rare severities) produces fundamentally different targets. The evaluation confirms this produced a dramatically better model on binary detection (+0.120 F1, +0.271 recall).
 
-The evaluation harness (next step) will determine whether the higher absolute loss translates to better or worse downstream task performance. It's plausible that the model is learning a harder but more useful task.
+### 6.4 Why Severity Grading Regressed
 
-## 6. Next Steps
+The ordinal kappa dropped from 0.159 to 0.124 despite better binary detection. Analysis of the training data distribution reveals why:
 
-1. **Merge LoRA adapter and export to Ollama:**
-   ```bash
-   ./run_merge.sh qwen3.5-9b
-   bash training/export_to_ollama.sh training_output/qwen3.5-9b-merged qwen3.5-9b-biasbuster
-   ```
+**Per-dimension severity distribution in training data (1,235 examples):**
 
-2. **Run evaluation harness** against the 144-example test set and compare with Second Run results.
+| Dimension | NONE | LOW | MODERATE | HIGH | CRITICAL |
+|-----------|------|-----|----------|------|----------|
+| Statistical Reporting | 36% | **9%** | 50% | 4% | 1% |
+| Spin | 41% | 42% | 13% | 4% | 0% |
+| Outcome Reporting | 39% | 22% | 35% | 3% | 2% |
+| COI | 29% | 30% | 36% | 4% | 1% |
+| Methodology | 49% | 25% | 21% | 3% | 2% |
 
-3. **Success criteria** (from SECOND_RUN.md §6.4):
-   - Binary F1 > 0.90
-   - Recall > 0.85
-   - Ordinal kappa > 0.20
-   - Verification score > 0.50
+**The "moderate collapse" problem:** In several dimensions, MODERATE is the dominant non-NONE class (Statistical Reporting 50%, COI 36%, Outcome 35%). The model learns that when something is biased, "moderate" is almost always the right answer. LOW is severely underrepresented in Statistical Reporting (9%) and rare in absolute terms for HIGH/CRITICAL across all dimensions (2-4%).
 
-4. **If eval loss was still declining**, consider a fifth run with 4 epochs at 2e-4 LR to capture remaining improvement without overfitting.
+**What the confusion matrices show:** For Statistical Reporting, 24 of 36 true-LOW examples were predicted as MODERATE. For Spin, 45 of 62 true-LOW examples were predicted as MODERATE. The model has learned "biased → moderate" as a strong default, with no reliable signal for distinguishing LOW from MODERATE.
 
-## 7. Key Takeaways
+**Root cause: insufficient training signal for ordinal boundaries.** The model sees ~1,235 examples of binary bias/no-bias decisions but only ~113 LOW examples in Statistical Reporting (9%) and ~32 HIGH Outcome Reporting examples (3%). The ordinal boundaries between severity levels require far more examples per class than the binary boundary.
 
-1. **Aggressive LR causes saturation, not faster convergence.** The 4e-4 LR drove the model to a loss basin it couldn't escape. The 2e-4 LR produced sustained learning throughout all 3 epochs.
+### 6.5 Why CMS Open Payments Collapsed
 
-2. **Compute efficiency matters.** The Fourth Run achieved better results in 927 steps than the Third Run did in 3,090. Fewer epochs with better learning dynamics beat more epochs with early saturation.
+Training data analysis shows CMS Open Payments is mentioned in only **29.8% of training examples** overall, with a highly skewed distribution by COI severity:
 
-3. **Monitor your training curves.** The saturation in the Third Run was immediately obvious from the charts. Without the real-time training monitor, this would have been discovered only after a full evaluation cycle — wasting hours of GPU time and days of elapsed time.
+| COI Severity | Open Payments Citation Rate | n |
+|-------------|----------------------------|---|
+| NONE | 13% | 352 |
+| LOW | 16% | 371 |
+| MODERATE | 45% | 442 |
+| HIGH | **100%** | 48 |
+| CRITICAL | 38% | 8 |
 
-4. **Don't tune learning rate by model size for LoRA.** With LoRA fine-tuning on structured output tasks, the base model size doesn't significantly affect optimal learning rate. The adapter parameters are what's being optimised, and their learning dynamics are similar across model scales.
+The model learned the strong HIGH-COI → Open Payments association (100% in training) but the weaker MODERATE-COI signal (45%) didn't survive fine-tuning. Since most test examples have LOW-MODERATE COI, the model defaults to not citing Open Payments.
+
+**Comparison:** The Second Run's training data (old format) may have had Open Payments mentioned more consistently across severity levels, explaining the 57% → 22% regression.
+
+### 6.6 Is This a Data Quantity Problem?
+
+**For binary detection: No.** 1,235 examples is sufficient — F1 0.924 and recall 0.950 are strong results. The enriched training data quality (not quantity) drove the improvement.
+
+**For ordinal severity: Yes.** The fundamental issue is class imbalance within the ordinal scale. The model sees enough examples to learn "biased vs not biased" but not enough to learn the finer gradations. Specifically:
+
+- **LOW vs MODERATE boundary:** Needs hundreds more examples per dimension where the distinction is clear and consistent. Currently, annotators themselves may not agree on this boundary — the ground truth may be noisy.
+- **HIGH/CRITICAL:** Only 57 HIGH and 57 CRITICAL examples in training (after oversampling). For 5 dimensions, that's ~11 per dimension per class — far too few for reliable learning.
+
+**For CMS Open Payments: Partly.** The 29.8% mention rate means ~368 training examples cite it. This should be sufficient if the citation pattern were consistent. The problem is that the citation is strongly correlated with HIGH COI severity (100%) but weakly correlated with MODERATE (45%) — the model learned the strong signal and discarded the weak one.
+
+## 7. Recommendations for Future Runs
+
+### 7.1 Improving Severity Grading
+
+**A. Targeted annotation for boundary cases (highest impact, most effort):**
+Annotate 200+ examples specifically chosen to illustrate the LOW-MODERATE boundary across all 5 dimensions. These should be "hard" cases where the distinction matters — papers with subtle statistical issues, minor spin, ambiguous COI. This is expensive but addresses the root cause: the model doesn't have enough examples of what "LOW" looks like distinctly from "MODERATE".
+
+**B. Ordinal-aware loss function (medium impact, code change):**
+Replace standard cross-entropy with an ordinal regression loss (e.g., CORN or cumulative link) that penalises adjacent-class errors less than distant errors. Currently, predicting MODERATE for a true-LOW case is penalised the same as predicting CRITICAL. An ordinal loss would teach the model that the severity scale has an ordering.
+
+**C. Class-weighted loss (low impact, easy to implement):**
+Weight underrepresented classes higher in the loss function. For example, weight LOW 3x and HIGH/CRITICAL 5x relative to MODERATE. This is a blunt instrument but could reduce the "moderate collapse" at the cost of more noisy predictions.
+
+**D. Post-hoc calibration (no retraining needed):**
+Apply temperature scaling or Platt scaling to the model's severity outputs after training. This can fix systematic over/under-prediction patterns without retraining. However, it requires a calibration set separate from train/val/test.
+
+### 7.2 Fixing CMS Open Payments Citation
+
+**A. Ensure Open Payments is cited in all COI assessments (data fix):**
+Modify the export pipeline to include CMS Open Payments as a verification step whenever COI severity is LOW or higher, not just HIGH. This would increase the training signal from 29.8% to ~70%+ of examples.
+
+**B. Add explicit verification step reasoning in thinking chains:**
+The thinking chain should include reasoning about WHICH verification databases to consult and WHY. Currently, the verification steps may be listed without explanation, making it hard for the model to learn the decision logic.
+
+### 7.3 Full Cross-Model Summary (Updated)
+
+| Configuration | Size | n | Binary F1 | Recall | Kappa | Verification | Calibration | Thinking |
+|--------------|------|---|-----------|--------|-------|--------------|-------------|----------|
+| Qwen3.5-27B baseline (old prompt) | 27B | 89 | 0.989 | — | 0.021 | 0.539 | 0.404 | 0% |
+| OLMo-3.1-32B baseline (old prompt) | 32B | 89 | 0.989 | — | 0.066 | 0.528 | 0.670 | 0% |
+| **OLMo-3.1-32B fine-tuned** | **32B** | **89** | **0.952** | 0.920 | **0.285** | 0.368 | 0.731 | 100% |
+| Qwen3.5-9B enriched prompt | 9B | 115 | 0.866 | 0.793 | 0.118 | 0.495 | 0.922 | 0% |
+| Qwen3.5-9B fine-tuned (Second Run) | 9B | 115 | 0.804 | 0.679 | 0.159 | 0.541 | 0.913 | 99% |
+| **Qwen3.5-9B fine-tuned (Fourth Run)** | **9B** | **144** | **0.924** | **0.950** | 0.124 | 0.495 | **0.840** | **100%** |
+
+## 8. Key Takeaways
+
+1. **Binary detection is solved for 9B.** F1 0.924 and recall 0.950 meet the target. The gap to 32B narrowed from 0.148 to 0.028. The 9B model actually beats the 32B on recall (0.950 vs 0.920).
+
+2. **Severity grading requires more data, not better hyperparameters.** Four training runs have shown that ordinal kappa is stuck in the 0.12–0.16 range regardless of LR, epochs, or LoRA rank. The training data has a severe class imbalance that hyperparameters cannot fix.
+
+3. **The "moderate collapse" is the core severity problem.** The model defaults to predicting MODERATE for any non-NONE case because MODERATE is the modal class in most dimensions. Fixing this requires either more balanced training data or an ordinal-aware loss function.
+
+4. **CMS Open Payments needs explicit training signal.** The 29.8% mention rate in training data, concentrated at HIGH COI severity, is insufficient. The export pipeline should cite Open Payments more consistently across COI severity levels.
+
+5. **Conservative hyperparameters won decisively.** The 2e-4 LR / 3 epoch / batch 4 config produced better eval loss, better evaluation metrics, and 3.3x less compute than the aggressive config. Don't tune learning rate by model size for LoRA.
+
+6. **The eval loss was still declining.** A follow-up with 4 epochs at the same config may yield marginal improvements, but the bigger gains will come from addressing the training data imbalance.

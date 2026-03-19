@@ -17,7 +17,16 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a biomedical research integrity analyst. Given a clinical trial abstract,
-assess it for potential bias across five domains:
+assess it for potential bias across five domains. For each domain, assign a severity level
+using the specific boundary definitions below.
+
+SEVERITY SCALE (applies to all domains):
+- NONE: No concerns identified in this domain.
+- LOW: A single minor concern that does not affect interpretation of primary findings.
+- MODERATE: Multiple minor concerns, OR one concern that could meaningfully affect
+  interpretation of the primary findings.
+- HIGH: Concerns that likely affect the reliability of primary conclusions.
+- CRITICAL: Fundamental flaws or evidence of misconduct that invalidate the findings.
 
 1. STATISTICAL REPORTING: Does the abstract report only relative measures (RRR, OR, HR)
    without absolute measures (ARR, NNT, baseline risk)? Sole reliance on relative measures
@@ -26,6 +35,13 @@ assess it for potential bias across five domains:
      AND no absolute information appears anywhere in the abstract.
    - "relative_only" = FALSE if raw event counts in both arms, percentages in both arms,
      absolute risk difference, NNT, or baseline/control event rate appear.
+   Severity boundaries:
+   - LOW: Minor omission (e.g., NNT not reported but both arm rates given, or baseline
+     risk derivable from raw counts). Reader can still assess clinical significance.
+   - MODERATE: Relative measures only OR selective p-value reporting. Reader cannot
+     assess clinical significance without external data.
+   - HIGH: Multiple reporting concerns (e.g., relative only + subgroup emphasis +
+     selective p-values). Pattern suggests intentional obfuscation.
 
 2. SPIN: Do the conclusions match the actual results? Classify using the Boutron taxonomy:
    - HIGH: No uncertainty, no recommendation for further trials, no acknowledgment of
@@ -42,20 +58,43 @@ assess it for potential bias across five domains:
      parameters, response rates without survival data.
    - Flag composite endpoints that are not disaggregated.
    - Check ClinicalTrials.gov for evidence of outcome switching from the registered protocol.
+   Severity boundaries:
+   - LOW: Patient-centred primary outcome but with a secondary surrogate endpoint
+     given undue prominence, OR a well-validated surrogate used appropriately.
+   - MODERATE: Primary outcome is a surrogate without established patient-centred
+     validation, OR a composite endpoint is not disaggregated.
+   - HIGH: Surrogate endpoint with no validation AND evidence of outcome switching
+     from a registered patient-centred endpoint.
 
 4. CONFLICT OF INTEREST: Is funding disclosed? Are authors affiliated with the sponsor?
    - Naming a funding source alone (e.g., "Funded by Amgen") does NOT count as COI
      disclosure. COI disclosure requires author-level conflict statements.
    - Industry author affiliations = TRUE if any author is affiliated with a pharmaceutical,
      device, or biotech company.
+   Severity boundaries:
+   - LOW: Funding disclosed, COI disclosed, but industry involvement present (e.g.,
+     industry-funded with full transparency). Potential bias exists but is documented.
+   - MODERATE: Industry funding OR industry author affiliations present, but COI
+     not fully disclosed in the abstract. Transparency gaps warrant verification.
+   - HIGH: Industry funding with undisclosed COI AND author affiliations with sponsor.
+     Multiple undisclosed conflicts suggest systematic non-disclosure.
 
 5. METHODOLOGICAL RED FLAGS: Inappropriate comparator? Enrichment design (run-in
    responders, prior-use requirement)? Per-protocol only without ITT? Premature stopping?
    Short follow-up (chronic disease <12 months, acute <4 weeks)?
+   Severity boundaries:
+   - LOW: A single minor concern (e.g., slightly short follow-up for a chronic condition,
+     or standard enrichment design acknowledged in limitations).
+   - MODERATE: One significant concern (e.g., per-protocol only without ITT, or
+     inappropriate comparator) OR two minor concerns together.
+   - HIGH: Multiple significant concerns, OR a single concern that likely invalidates
+     the primary analysis (e.g., enrichment + premature stopping + inappropriate comparator).
 
-VERIFICATION DATABASES — always recommend specific checks based on the study:
-- CMS Open Payments (openpaymentsdata.cms.gov): For industry-funded studies, check author
-  payment records from the study sponsor.
+VERIFICATION DATABASES — recommend specific checks based on the study:
+- CMS Open Payments (openpaymentsdata.cms.gov): Check author payment records when the
+  study involves a marketed drug or device AND any COI concern exists (industry funding,
+  industry author affiliations, or undisclosed conflicts). Not limited to industry-funded
+  studies — authors may have personal consulting or speaker relationships.
 - ClinicalTrials.gov: Verify registered outcomes, sponsor identity, protocol amendments.
   Always recommend for any RCT.
 - ORCID: Check author affiliation histories for undisclosed industry ties.
@@ -99,26 +138,9 @@ def build_thinking_chain(annotation: dict) -> str:
 def _build_statistical_reasoning(parts: list[str], annotation: dict) -> None:
     """Add statistical reporting reasoning to thinking chain."""
     stat = annotation.get("statistical_reporting", {})
-    if stat.get("relative_only"):
-        parts.append(
-            "The abstract reports effect sizes using only relative measures "
-            "without providing absolute risk reduction or NNT. This makes it "
-            "impossible to assess the clinical significance of the findings "
-            "without knowing the baseline risk."
-        )
-    elif stat.get("severity", "none") != "none":
-        issues = []
-        if stat.get("selective_p_values"):
-            issues.append("selective reporting of favourable p-values")
-        if stat.get("subgroup_emphasis"):
-            issues.append("emphasis on subgroup results over primary analysis")
-        if not stat.get("baseline_risk_reported", True):
-            issues.append("baseline risk not reported")
-        if issues:
-            parts.append(
-                "Statistical reporting concerns: " + "; ".join(issues) + "."
-            )
-    else:
+    severity = stat.get("severity", "none")
+
+    if severity == "none":
         # Explain why no statistical reporting concerns were found
         positives = []
         if stat.get("absolute_reported"):
@@ -137,6 +159,45 @@ def _build_statistical_reasoning(parts: list[str], annotation: dict) -> None:
                 "Statistical reporting appears balanced with both relative "
                 "and absolute measures provided."
             )
+    else:
+        # Collect specific issues
+        issues = []
+        if stat.get("relative_only"):
+            issues.append(
+                "effect sizes reported using only relative measures without "
+                "absolute risk reduction or NNT"
+            )
+        if stat.get("selective_p_values"):
+            issues.append("selective reporting of favourable p-values")
+        if stat.get("subgroup_emphasis"):
+            issues.append("emphasis on subgroup results over primary analysis")
+        if not stat.get("baseline_risk_reported", True):
+            issues.append("baseline risk not reported")
+        if issues:
+            parts.append(
+                "Statistical reporting concerns: " + "; ".join(issues) + "."
+            )
+
+        # Explain severity level with boundary reasoning
+        if severity == "low":
+            parts.append(
+                "Severity is LOW because the concern is minor — the reader can "
+                "still assess clinical significance from other reported data "
+                "(e.g., both arm rates or raw event counts are available)."
+            )
+        elif severity == "moderate":
+            parts.append(
+                "Severity is MODERATE because the reader cannot assess clinical "
+                "significance without external data (e.g., only relative measures "
+                "reported, or selective p-value reporting obscures the full picture)."
+            )
+        elif severity in ("high", "critical"):
+            parts.append(
+                f"Severity is {severity.upper()} because multiple reporting "
+                "concerns are present together, suggesting a pattern of selective "
+                "or misleading statistical presentation."
+            )
+
     if stat.get("evidence_quotes"):
         parts.append(f"Key text: {stat['evidence_quotes'][0]}")
 
@@ -163,10 +224,19 @@ def _build_spin_reasoning(parts: list[str], annotation: dict) -> None:
             f"Spin is classified as {spin_level.upper()} (Boutron taxonomy) because "
             f"{reason_text}."
         )
+        if spin_level == "moderate":
+            parts.append(
+                "This is MODERATE rather than HIGH because some uncertainty is "
+                "expressed or further trials are recommended, but the non-significant "
+                "primary outcome is not acknowledged."
+            )
     elif spin_level == "low":
         parts.append(
-            "Spin is LOW — some overstatement present but conclusions include "
-            "appropriate uncertainty or acknowledge limitations."
+            "Spin is LOW (Boutron taxonomy) — some overstatement is present but "
+            "conclusions include appropriate uncertainty or acknowledge limitations. "
+            "This is LOW rather than MODERATE because the authors acknowledge the "
+            "non-significant primary outcome or express uncertainty AND recommend "
+            "further trials."
         )
     else:
         parts.append(
@@ -178,13 +248,16 @@ def _build_spin_reasoning(parts: list[str], annotation: dict) -> None:
 def _build_outcome_reasoning(parts: list[str], annotation: dict) -> None:
     """Add outcome reporting reasoning to thinking chain."""
     outcome = annotation.get("outcome_reporting", {})
-    if outcome.get("severity", "none") == "none":
+    severity = outcome.get("severity", "none")
+
+    if severity == "none":
         parts.append(
             "Primary outcomes appear patient-centred (e.g., mortality, quality "
             "of life, functional status). No surrogate endpoint or composite "
             "disaggregation concerns identified."
         )
         return
+
     issues = []
     if outcome.get("surrogate_without_validation"):
         issues.append(
@@ -203,12 +276,34 @@ def _build_outcome_reasoning(parts: list[str], annotation: dict) -> None:
             "outcome matches what was reported in the abstract."
         )
 
+    # Explain severity boundary
+    if severity == "low":
+        parts.append(
+            "Severity is LOW because the primary outcome is patient-centred "
+            "but a secondary surrogate endpoint is given undue prominence, "
+            "or a well-validated surrogate is used appropriately."
+        )
+    elif severity == "moderate":
+        parts.append(
+            "Severity is MODERATE because the primary outcome is a surrogate "
+            "without established patient-centred validation, or a composite "
+            "endpoint is not disaggregated."
+        )
+    elif severity in ("high", "critical"):
+        parts.append(
+            f"Severity is {severity.upper()} because surrogate endpoints are "
+            "used without validation AND there is evidence of outcome switching "
+            "from a registered patient-centred endpoint."
+        )
+
 
 def _build_coi_reasoning(parts: list[str], annotation: dict) -> None:
     """Add conflict of interest reasoning with database selection to thinking chain."""
     coi = annotation.get("conflict_of_interest", {})
-    if coi.get("severity", "none") == "none":
-        funding_type = coi.get("funding_type", "unclear")
+    severity = coi.get("severity", "none")
+    funding_type = coi.get("funding_type", "unclear")
+
+    if severity == "none":
         if funding_type == "public":
             parts.append(
                 "Publicly funded study with no apparent industry conflicts. "
@@ -220,7 +315,8 @@ def _build_coi_reasoning(parts: list[str], annotation: dict) -> None:
                 "based on available abstract information."
             )
         return
-    funding_type = coi.get("funding_type", "unclear")
+
+    # Describe specific concerns
     if funding_type == "industry":
         parts.append(
             "This is an industry-funded study. Check CMS Open Payments "
@@ -230,7 +326,10 @@ def _build_coi_reasoning(parts: list[str], annotation: dict) -> None:
     if coi.get("industry_author_affiliations"):
         parts.append(
             "At least one author is affiliated with a pharmaceutical or device "
-            "company. Check ORCID for undisclosed industry affiliations."
+            "company. Check ORCID for undisclosed industry affiliations. "
+            "Check CMS Open Payments (openpaymentsdata.cms.gov) for author "
+            "payment records — authors may have consulting or speaker "
+            "relationships even if the study is not industry-funded."
         )
     if not coi.get("coi_disclosed"):
         parts.append(
@@ -239,17 +338,42 @@ def _build_coi_reasoning(parts: list[str], annotation: dict) -> None:
             "article to review the COI disclosures section."
         )
 
+    # Explain severity boundary
+    if severity == "low":
+        parts.append(
+            "Severity is LOW because industry involvement is present but "
+            "fully disclosed — funding source and author-level COI are "
+            "transparent. Potential bias exists but is documented."
+        )
+    elif severity == "moderate":
+        parts.append(
+            "Severity is MODERATE because industry funding or author "
+            "affiliations are present but COI is not fully disclosed in the "
+            "abstract. Transparency gaps warrant verification via CMS Open "
+            "Payments and Europe PMC."
+        )
+    elif severity in ("high", "critical"):
+        parts.append(
+            f"Severity is {severity.upper()} because multiple undisclosed "
+            "conflicts are present (e.g., industry funding with undisclosed "
+            "COI AND author affiliations with the sponsor), suggesting "
+            "systematic non-disclosure."
+        )
+
 
 def _build_methodology_reasoning(parts: list[str], annotation: dict) -> None:
     """Add methodology reasoning to thinking chain."""
     meth = annotation.get("methodology", {})
-    if meth.get("severity", "none") == "none":
+    severity = meth.get("severity", "none")
+
+    if severity == "none":
         parts.append(
             "No significant methodological red flags identified. Study "
             "design appears appropriate with adequate comparator, follow-up "
             "duration, and analysis approach."
         )
         return
+
     issues = []
     if meth.get("per_protocol_only"):
         issues.append(
@@ -275,6 +399,31 @@ def _build_methodology_reasoning(parts: list[str], annotation: dict) -> None:
     if issues:
         parts.append("Methodological concerns: " + "; ".join(issues) + ".")
 
+    # Explain severity boundary
+    issue_count = len(issues)
+    if severity == "low":
+        parts.append(
+            "Severity is LOW because only a single minor methodological "
+            "concern is present that does not invalidate the primary analysis."
+        )
+    elif severity == "moderate":
+        if issue_count >= 2:
+            parts.append(
+                "Severity is MODERATE because multiple minor methodological "
+                "concerns are present together."
+            )
+        else:
+            parts.append(
+                "Severity is MODERATE because this single concern could "
+                "meaningfully affect interpretation of the primary findings."
+            )
+    elif severity in ("high", "critical"):
+        parts.append(
+            f"Severity is {severity.upper()} because multiple significant "
+            "methodological concerns are present, suggesting the primary "
+            "analysis may not be reliable."
+        )
+
 
 def _build_verification_summary(parts: list[str], annotation: dict) -> None:
     """Add a verification database summary to the end of the thinking chain."""
@@ -284,8 +433,12 @@ def _build_verification_summary(parts: list[str], annotation: dict) -> None:
     # ClinicalTrials.gov — always relevant for RCTs
     databases.append("ClinicalTrials.gov (registered outcomes, sponsor, amendments)")
 
-    # CMS Open Payments — for industry-funded studies
-    if coi.get("funding_type") == "industry":
+    # CMS Open Payments — for any COI concern (industry funding, affiliations, or
+    # undisclosed conflicts), not just industry-funded studies
+    coi_severity = coi.get("severity", "none")
+    if (coi.get("funding_type") == "industry"
+            or coi.get("industry_author_affiliations")
+            or coi_severity not in ("none",)):
         databases.append(
             "CMS Open Payments (openpaymentsdata.cms.gov) for author payment records"
         )
@@ -319,13 +472,20 @@ def _synthesize_verification_steps(annotation: dict) -> list[str]:
 
     coi = annotation.get("conflict_of_interest", {})
 
-    # CMS Open Payments — for industry-funded studies
-    if (coi.get("funding_type") == "industry"
-            and "open payments" not in existing_lower
-            and "openpaymentsdata" not in existing_lower):
+    # CMS Open Payments — for any COI concern, not just industry-funded studies.
+    # Authors may have personal consulting/speaker relationships even when the
+    # study itself is publicly funded.
+    coi_severity = coi.get("severity", "none")
+    if ("open payments" not in existing_lower
+            and "openpaymentsdata" not in existing_lower
+            and (coi.get("funding_type") == "industry"
+                 or coi.get("industry_author_affiliations")
+                 or coi_severity not in ("none",))):
         steps.append(
             "Check CMS Open Payments (openpaymentsdata.cms.gov) for "
-            "author payment records from the study sponsor."
+            "author payment records — authors may have consulting or "
+            "speaker relationships with industry even if the study is "
+            "not industry-funded."
         )
 
     # ClinicalTrials.gov — always relevant
