@@ -120,13 +120,15 @@ def build_thinking_chain(annotation: dict) -> str:
     reasoning = annotation.get("reasoning", "")
     if reasoning:
         parts.append(reasoning)
-    else:
-        # Build reasoning from individual domain assessments
-        _build_statistical_reasoning(parts, annotation)
-        _build_spin_reasoning(parts, annotation)
-        _build_outcome_reasoning(parts, annotation)
-        _build_coi_reasoning(parts, annotation)
-        _build_methodology_reasoning(parts, annotation)
+
+    # Always build domain-level reasoning with severity boundary explanations.
+    # When raw reasoning exists, this adds structured severity justifications
+    # and verification database selection logic that the raw text may lack.
+    _build_statistical_reasoning(parts, annotation)
+    _build_spin_reasoning(parts, annotation)
+    _build_outcome_reasoning(parts, annotation)
+    _build_coi_reasoning(parts, annotation)
+    _build_methodology_reasoning(parts, annotation)
 
     # Always end with a verification summary
     _build_verification_summary(parts, annotation)

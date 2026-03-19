@@ -1,9 +1,9 @@
 {
   "format": "alpaca",
   "include_thinking": true,
-  "total_examples": 1427,
-  "train": 1235,
-  "val": 142,
-  "test": 144,
+  "total_examples": 1557,
+  "train": 1347,
+  "val": 155,
+  "test": 157,
   "seed": 42
 }
