@@ -25,3 +25,6 @@ eval_results/
 llama.cpp
 llama.cpp/*
 
+dataset/biasbuster.db
+dataset/biasbuster.db-shm
+dataset/biasbuster.db-wal
