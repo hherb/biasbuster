@@ -216,21 +216,23 @@ def create_evaluation_tab(state: dict) -> None:
             ui.notify(str(exc), type="warning")
             _set_buttons_enabled(action_buttons, True)
 
-    def on_finish(code: int | None) -> None:
-        def _update() -> None:
-            _set_buttons_enabled(action_buttons, True)
-            if code == 0:
-                status_badge.text = "Complete"
-                status_badge.props("color=green")
-                ui.notify("Evaluation completed!", type="positive")
-                display_results()
-            else:
-                status_badge.text = "Failed"
-                status_badge.props("color=red")
-                ui.notify(f"Evaluation failed (exit code {code})", type="negative")
-        ui.timer(0, _update, once=True)
+    def _poll_completion() -> None:
+        """Check if the subprocess just finished (runs in UI context)."""
+        finished, code = runner.consume_finished()
+        if not finished:
+            return
+        _set_buttons_enabled(action_buttons, True)
+        if code == 0:
+            status_badge.text = "Complete"
+            status_badge.props("color=green")
+            ui.notify("Evaluation completed!", type="positive")
+            display_results()
+        else:
+            status_badge.text = "Failed"
+            status_badge.props("color=red")
+            ui.notify(f"Evaluation failed (exit code {code})", type="negative")
 
-    runner.on_finish(on_finish)
+    ui.timer(1.0, _poll_completion)
 
     baseline_btn.on_click(lambda: run_eval("zero-shot"))
     finetuned_btn.on_click(lambda: run_eval("fine-tuned"))

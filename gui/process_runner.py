@@ -2,7 +2,8 @@
 
 Provides a cross-platform ``ProcessRunner`` that launches long-running
 commands via ``asyncio.create_subprocess_exec``, captures stdout/stderr
-line-by-line, and exposes a callback interface for NiceGUI elements.
+line-by-line, and exposes a polling-based completion interface safe for
+NiceGUI's UI context.
 """
 
 from __future__ import annotations
@@ -23,21 +24,29 @@ _GRACEFUL_SHUTDOWN_TIMEOUT = 5
 class ProcessRunner:
     """Manages a single async subprocess with output streaming.
 
+    Completion is detected by polling :attr:`finished_code` from a
+    NiceGUI ``ui.timer`` rather than via callbacks, because NiceGUI
+    does not allow element creation (``ui.timer``, ``ui.notify``, etc.)
+    from background tasks.
+
     Attributes:
         status: One of ``"idle"``, ``"running"``, ``"completed"``,
             ``"failed"``, or ``"stopped"``.
         return_code: The process exit code once finished, else ``None``.
         output_lines: All captured stdout/stderr lines.
+        finished_code: Set to the exit code (or ``None``) exactly once
+            when the process finishes.  Call :meth:`consume_finished` from
+            a UI-context timer to retrieve and clear it.
     """
 
     def __init__(self) -> None:
         self.status: str = "idle"
         self.return_code: int | None = None
         self.output_lines: list[str] = []
+        self.finished_code: int | None | _Sentinel = _NOT_FINISHED
         self._process: asyncio.subprocess.Process | None = None
         self._read_task: asyncio.Task | None = None
         self._callbacks: list[Callable[[str], None]] = []
-        self._on_finish_callbacks: list[Callable[[int | None], None]] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -47,12 +56,18 @@ class ProcessRunner:
         """Register *callback* to be invoked for each new output line."""
         self._callbacks.append(callback)
 
-    def on_finish(self, callback: Callable[[int | None], None]) -> None:
-        """Register *callback* to be invoked when the process exits.
+    def consume_finished(self) -> tuple[bool, int | None]:
+        """Check whether the process has just finished.
 
-        The callback receives the return code (``None`` if killed).
+        Returns ``(True, exit_code)`` exactly once after the process
+        ends, then ``(False, None)`` on subsequent calls until the next
+        run.  Safe to call from a ``ui.timer`` callback.
         """
-        self._on_finish_callbacks.append(callback)
+        if self.finished_code is not _NOT_FINISHED:
+            code = self.finished_code
+            self.finished_code = _NOT_FINISHED
+            return True, code  # type: ignore[return-value]
+        return False, None
 
     async def start(
         self,
@@ -63,7 +78,7 @@ class ProcessRunner:
         """Launch *cmd* as an async subprocess.
 
         Args:
-            cmd: Command and arguments (e.g. ``["uv", "run", "python", "-m", ...]``).
+            cmd: Command and arguments.
             cwd: Working directory for the subprocess.
             env: Optional environment variable overrides.
 
@@ -90,12 +105,12 @@ class ProcessRunner:
         except FileNotFoundError as exc:
             self.status = "failed"
             self._emit(f"ERROR: command not found — {exc}\n")
-            self._fire_finish(None)
+            self.finished_code = None
             return
         except OSError as exc:
             self.status = "failed"
             self._emit(f"ERROR: could not start process — {exc}\n")
-            self._fire_finish(None)
+            self.finished_code = None
             return
 
         self._read_task = asyncio.create_task(self._stream_output())
@@ -135,7 +150,7 @@ class ProcessRunner:
         self.return_code = self._process.returncode
         self.status = "stopped"
         self._emit(f"Process stopped (exit code {self.return_code}).\n")
-        self._fire_finish(self.return_code)
+        self.finished_code = self.return_code
 
     @property
     def is_running(self) -> bool:
@@ -151,6 +166,7 @@ class ProcessRunner:
         self._read_task = None
         self.return_code = None
         self.output_lines.clear()
+        self.finished_code = _NOT_FINISHED
 
     def _emit(self, line: str) -> None:
         """Store *line* and notify all registered callbacks."""
@@ -160,13 +176,6 @@ class ProcessRunner:
                 cb(line)
             except Exception:
                 logger.exception("Output callback error")
-
-    def _fire_finish(self, code: int | None) -> None:
-        for cb in self._on_finish_callbacks:
-            try:
-                cb(code)
-            except Exception:
-                logger.exception("Finish callback error")
 
     async def _stream_output(self) -> None:
         """Read stdout line-by-line until EOF, then finalise status."""
@@ -192,4 +201,12 @@ class ProcessRunner:
                 self._emit(
                     f"\nProcess failed (exit code {self.return_code}).\n"
                 )
-        self._fire_finish(self.return_code)
+        self.finished_code = self.return_code
+
+
+class _Sentinel:
+    """Unique sentinel to distinguish 'not finished' from exit code None."""
+    pass
+
+
+_NOT_FINISHED = _Sentinel()

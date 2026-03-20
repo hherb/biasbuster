@@ -35,32 +35,34 @@ def _merged_dir_for(state: dict) -> str:
     return out_dir + "-merged"
 
 
-def _run_with_button_guard(
+def _poll_runner_completion(
     runner: ProcessRunner,
     btn: ui.button,
     status: ui.badge,
-    log: ui.log,
-    running_text: str,
     success_text: str,
     success_msg: str,
     fail_msg: str,
 ) -> None:
-    """Wire up on_finish callback with button disable/enable and status updates."""
+    """Create a polling timer that detects subprocess completion.
 
-    def on_finish(code: int | None) -> None:
-        def _update() -> None:
-            btn.props(remove="disabled")
-            if code == 0:
-                status.text = success_text
-                status.props("color=green")
-                ui.notify(success_msg, type="positive")
-            else:
-                status.text = "Failed"
-                status.props("color=red")
-                ui.notify(f"{fail_msg} (exit code {code})", type="negative")
-        ui.timer(0, _update, once=True)
+    Runs in NiceGUI's UI context so ``ui.notify()`` and element
+    creation are safe.
+    """
+    def _check() -> None:
+        finished, code = runner.consume_finished()
+        if not finished:
+            return
+        btn.props(remove="disabled")
+        if code == 0:
+            status.text = success_text
+            status.props("color=green")
+            ui.notify(success_msg, type="positive")
+        else:
+            status.text = "Failed"
+            status.props("color=red")
+            ui.notify(f"{fail_msg} (exit code {code})", type="negative")
 
-    runner.on_finish(on_finish)
+    ui.timer(1.0, _check)
 
 
 async def _start_guarded(
@@ -108,9 +110,8 @@ def create_export_tab(state: dict) -> None:
             merge_log = ui.log(max_lines=300).classes("w-full").style("height: 150px;")
 
     merge_runner.on_output(lambda line: merge_log.push(line.rstrip("\n")))
-    _run_with_button_guard(
-        merge_runner, merge_btn, merge_status, merge_log,
-        running_text="Merging...",
+    _poll_runner_completion(
+        merge_runner, merge_btn, merge_status,
         success_text="Done",
         success_msg="Adapter merged successfully!",
         fail_msg="Merge failed",
@@ -178,9 +179,8 @@ def create_export_tab(state: dict) -> None:
             gguf_log = ui.log(max_lines=300).classes("w-full").style("height: 150px;")
 
     gguf_runner.on_output(lambda line: gguf_log.push(line.rstrip("\n")))
-    _run_with_button_guard(
-        gguf_runner, gguf_btn, gguf_status, gguf_log,
-        running_text="Exporting...",
+    _poll_runner_completion(
+        gguf_runner, gguf_btn, gguf_status,
         success_text="Done",
         success_msg="GGUF export complete!",
         fail_msg="GGUF export failed",
@@ -249,9 +249,8 @@ def create_export_tab(state: dict) -> None:
             ollama_log = ui.log(max_lines=300).classes("w-full").style("height: 150px;")
 
     ollama_runner.on_output(lambda line: ollama_log.push(line.rstrip("\n")))
-    _run_with_button_guard(
-        ollama_runner, ollama_btn, ollama_status, ollama_log,
-        running_text="Importing...",
+    _poll_runner_completion(
+        ollama_runner, ollama_btn, ollama_status,
         success_text="Done",
         success_msg="Ollama import complete!",
         fail_msg="Ollama import failed",

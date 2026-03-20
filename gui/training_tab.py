@@ -300,24 +300,25 @@ def create_training_tab(state: dict) -> None:
             status_badge.text = "Stopped"
             status_badge.props("color=orange")
 
-    def on_process_finished(code: int | None) -> None:
-        # Schedule UI update to ensure it runs in NiceGUI's context
-        def _update() -> None:
-            start_btn.visible = True
-            stop_btn.visible = False
-            if code == 0:
-                status_badge.text = "Completed"
-                status_badge.props("color=green")
-                ui.notify("Training completed successfully!", type="positive")
-            elif runner.status != "stopped":
-                status_badge.text = "Failed"
-                status_badge.props("color=red")
-                ui.notify(f"Training failed (exit code {code})", type="negative")
-        ui.timer(0, _update, once=True)
+    def _poll_completion() -> None:
+        """Check if the training subprocess just finished (runs in UI context)."""
+        finished, code = runner.consume_finished()
+        if not finished:
+            return
+        start_btn.visible = True
+        stop_btn.visible = False
+        if code == 0:
+            status_badge.text = "Completed"
+            status_badge.props("color=green")
+            ui.notify("Training completed successfully!", type="positive")
+        elif runner.status != "stopped":
+            status_badge.text = "Failed"
+            status_badge.props("color=red")
+            ui.notify(f"Training failed (exit code {code})", type="negative")
 
-    runner.on_finish(on_process_finished)
     start_btn.on_click(on_start)
     stop_btn.on_click(on_stop)
 
-    # Start polling timer
+    # Start polling timers (charts + completion detection)
     ui.timer(REFRESH_INTERVAL, update_charts)
+    ui.timer(1.0, _poll_completion)
