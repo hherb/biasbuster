@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from nicegui import ui
@@ -137,11 +138,37 @@ def create_evaluation_tab(state: dict) -> None:
 
     action_buttons = [baseline_btn, finetuned_btn, reanalyse_btn]
 
+    # ── Progress indicator ───────────────────────────────────────────
+    progress_row = ui.row().classes("items-center gap-4 w-full q-mt-sm")
+    progress_row.set_visibility(False)
+    with progress_row:
+        progress_bar = ui.linear_progress(value=0, show_value=False).classes(
+            "flex-grow"
+        ).props("rounded size=20px color=primary")
+        progress_label = ui.label("").classes("text-caption text-grey-8 no-wrap")
+
+    # Regex to parse structured progress lines from the harness.
+    _PROGRESS_RE = re.compile(r"^EVAL_PROGRESS:(\d+)/(\d+):(\d+):(.+)$")
+
+    def _handle_output(line: str) -> None:
+        """Forward line to log and update progress bar if applicable."""
+        stripped = line.rstrip("\n")
+        m = _PROGRESS_RE.match(stripped)
+        if m:
+            done, total, errs, model = int(m[1]), int(m[2]), int(m[3]), m[4]
+            frac = done / total if total else 0
+            progress_bar.set_value(frac)
+            err_part = f"  ({errs} errors)" if int(errs) else ""
+            progress_label.set_text(f"{model}: {done} / {total}{err_part}")
+            progress_row.set_visibility(True)
+        else:
+            log_widget.push(stripped)
+
     # ── Log output ────────────────────────────────────────────────────
     with ui.expansion("Evaluation Log", icon="terminal").classes("w-full q-mt-sm"):
         log_widget = ui.log(max_lines=1000).classes("w-full").style("height: 250px;")
 
-    runner.on_output(lambda line: log_widget.push(line.rstrip("\n")))
+    runner.on_output(_handle_output)
 
     # ── Results area ──────────────────────────────────────────────────
     results_container = ui.column().classes("w-full q-mt-md gap-4")
@@ -211,6 +238,9 @@ def create_evaluation_tab(state: dict) -> None:
             return
 
         log_widget.clear()
+        progress_bar.set_value(0)
+        progress_label.set_text("")
+        progress_row.set_visibility(True)
         status_badge.text = "Running..."
         status_badge.props("color=blue")
         _set_buttons_enabled(action_buttons, False)
@@ -227,6 +257,7 @@ def create_evaluation_tab(state: dict) -> None:
         finished, code = runner.consume_finished()
         if not finished:
             return
+        progress_row.set_visibility(False)
         _set_buttons_enabled(action_buttons, True)
         if code == 0:
             status_badge.text = "Complete"
@@ -256,6 +287,9 @@ def create_evaluation_tab(state: dict) -> None:
             "--output", out_dir,
         ]
         log_widget.clear()
+        progress_bar.set_value(0)
+        progress_label.set_text("")
+        progress_row.set_visibility(True)
         status_badge.text = "Re-analysing..."
         status_badge.props("color=blue")
         _set_buttons_enabled(action_buttons, False)

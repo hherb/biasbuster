@@ -380,16 +380,25 @@ class EvalHarness:
         delay = 1.0 / self.config.requests_per_second
         errors = 0
 
+        total = len(examples)
+        completed = 0
         pbar = tqdm(
-            total=len(examples),
+            total=total,
             desc=f"{model_id}",
             unit="ex",
             bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}, {postfix}]",
         )
         pbar.set_postfix(errors=0)
 
+        # Structured progress line for GUI parsing (not affected by tqdm TTY issues)
+        def _emit_progress() -> None:
+            print(
+                f"EVAL_PROGRESS:{completed}/{total}:{errors}:{model_id}",
+                flush=True,
+            )
+
         async def process_one(example: TestExample) -> ModelOutput:
-            nonlocal errors
+            nonlocal errors, completed
             async with semaphore:
                 result = await self.query_model(model_id, endpoint, example)
                 await asyncio.sleep(delay)
@@ -397,11 +406,13 @@ class EvalHarness:
                     errors += 1
                 if on_result:
                     on_result(result)
+                completed += 1
                 pbar.set_postfix(
                     errors=errors,
                     last_latency=f"{result.latency_seconds:.1f}s",
                 )
                 pbar.update(1)
+                _emit_progress()
                 return result
 
         tasks = [process_one(ex) for ex in examples]
