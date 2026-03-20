@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-MODEL="${1:?Usage: $0 <qwen3.5-27b|olmo-3.1-32b> [--quantize <quant>]}"
+MODEL="${1:?Usage: $0 <qwen3.5-27b|qwen3.5-9b|olmo-3.1-32b|gpt-oss-20b> [--quantize <quant>]}"
 shift
 
 QUANTIZE=""

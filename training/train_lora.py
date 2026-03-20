@@ -29,6 +29,11 @@ from transformers import (
 )
 from trl import SFTConfig, SFTTrainer
 
+try:
+    from transformers import Mxfp4Config  # available in transformers ≥ 4.57
+except ImportError:
+    Mxfp4Config = None  # type: ignore[assignment,misc]
+
 from training.callbacks import MetricsLoggerCallback
 from training.configs import LoRATrainingConfig, get_config
 from training.data_utils import load_alpaca_jsonl, make_formatting_func
@@ -88,12 +93,31 @@ def build_trainer(
 
     # --- Base model ----------------------------------------------------------
     logger.info(f"Loading model: {cfg.model_name_or_path} (bf16)")
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg.model_name_or_path,
+
+    load_kwargs: dict = dict(
         torch_dtype=torch.bfloat16,
-        device_map={"": 0},
+        device_map="auto",
         trust_remote_code=True,
-        attn_implementation="sdpa",  # native PyTorch SDPA; works on SM121 via NGC
+        attn_implementation=cfg.attn_implementation,
+    )
+
+    # GPT-OSS MoE: expert weights are stored in MXFP4 format. The backward
+    # pass is not implemented for MXFP4, so we dequantize to BF16 on load to
+    # allow gradient flow through frozen expert layers during LoRA training.
+    # Ref: https://developers.openai.com/cookbook/articles/gpt-oss/fine-tune-transfomers
+    if cfg.mxfp4_dequantize:
+        if Mxfp4Config is None:
+            raise RuntimeError(
+                "Mxfp4Config requires transformers >= 4.57. "
+                "Upgrade: pip install 'transformers>=4.57'"
+            )
+        load_kwargs["quantization_config"] = Mxfp4Config(dequantize=True)
+        logger.info("  MXFP4 dequantize=True (MoE expert weights → BF16)")
+
+    logger.info(f"  attn_implementation={cfg.attn_implementation}")
+
+    model = AutoModelForCausalLM.from_pretrained(
+        cfg.model_name_or_path, **load_kwargs
     )
     model.config.use_cache = False  # required for gradient checkpointing
 

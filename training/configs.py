@@ -23,6 +23,8 @@ MODEL_PRESETS = {
 
 # Overrides for gpt-oss MoE models.  Conservative LR to avoid expert collapse;
 # target only attention layers (skip expert FFNs and router) for stable training.
+# MXFP4 expert weights must be dequantized for gradient flow (backward pass not
+# implemented for MXFP4); attn_implementation="eager" per OpenAI cookbook.
 _MOE_OVERRIDES: dict = {
     "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
     "learning_rate": 1e-5,
@@ -34,6 +36,8 @@ _MOE_OVERRIDES: dict = {
     "warmup_ratio": 0.1,
     "save_total_limit": 3,
     "weight_decay": 0.01,
+    "mxfp4_dequantize": True,
+    "attn_implementation": "eager",
 }
 
 # Overrides for 9B-class models.  Rationale documented in SECOND_RUN.md §6.4.
@@ -78,6 +82,10 @@ class LoRATrainingConfig:
     max_grad_norm: float = 1.0
     weight_decay: float = 0.0
     label_smoothing_factor: float = 0.0
+
+    # MoE / MXFP4 — set automatically for gpt-oss models
+    mxfp4_dequantize: bool = False
+    attn_implementation: str = "sdpa"
 
     # Checkpointing
     save_steps: int = 50

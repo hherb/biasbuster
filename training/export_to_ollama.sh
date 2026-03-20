@@ -113,12 +113,27 @@ else
     MODEL_SOURCE="$RESOLVED/"
 fi
 
-# Build Modelfile with ChatML template (used by OLMo 3.1 and Qwen).
-# This prevents Ollama from injecting the base model's default system prompt
-# (e.g. OLMo's "You do not currently have access to any functions").
+# Build Modelfile.  The chat template depends on the model family:
+#   - Qwen / OLMo: ChatML (<|im_start|> / <|im_end|>)
+#   - GPT-OSS:     Harmony format (<|start|> / <|end|>) — do NOT override,
+#                   let Ollama use the template from the tokenizer config.
 echo "==> Creating Ollama model: $MODEL_NAME"
 MODELFILE="$(mktemp /tmp/Modelfile.XXXXXX)"
-cat > "$MODELFILE" <<'MODELFILE_EOF'
+
+if echo "$MODEL_NAME" | grep -qi "gpt-oss"; then
+    # GPT-OSS uses the Harmony response format.  The merged model's
+    # tokenizer_config.json includes the correct chat_template.jinja;
+    # Ollama picks it up automatically.  We only set stop tokens.
+    cat > "$MODELFILE" <<MODELFILE_EOF
+FROM ${MODEL_SOURCE}
+
+PARAMETER stop "<|end|>"
+PARAMETER stop "<|endoftext|>"
+MODELFILE_EOF
+else
+    # ChatML template for Qwen / OLMo.  Prevents Ollama from injecting the
+    # base model's default system prompt (e.g. OLMo's function-calling preamble).
+    cat > "$MODELFILE" <<'MODELFILE_EOF'
 FROM {{MODEL_SOURCE}}
 
 TEMPLATE """{{- if .System }}<|im_start|>system
@@ -131,9 +146,9 @@ TEMPLATE """{{- if .System }}<|im_start|>system
 PARAMETER stop "<|im_end|>"
 PARAMETER stop "<|endoftext|>"
 MODELFILE_EOF
-
-# Substitute the model source path into the Modelfile
-sed -i "s|{{MODEL_SOURCE}}|${MODEL_SOURCE}|g" "$MODELFILE"
+    # Substitute the model source path into the Modelfile
+    sed -i "s|{{MODEL_SOURCE}}|${MODEL_SOURCE}|g" "$MODELFILE"
+fi
 
 ollama create "$MODEL_NAME" -f "$MODELFILE"
 rm -f "$MODELFILE"
