@@ -59,18 +59,18 @@ def _build_eval_cmd(state: dict, mode: str) -> list[str] | None:
 
 
 def _find_eval_json(output_dir: Path) -> list[Path]:
-    """Find all ``*_evaluation.json`` files in *output_dir*."""
+    """Find all ``*_evaluation.json`` files under *output_dir* (recursive)."""
     if not output_dir.exists():
         return []
-    return sorted(output_dir.glob("*_evaluation.json"))
+    return sorted(output_dir.rglob("*_evaluation.json"))
 
 
 def _find_comparison_md(output_dir: Path) -> Path | None:
-    """Return the latest comparison Markdown report, if any."""
+    """Return the latest comparison Markdown report (recursive)."""
     if not output_dir.exists():
         return None
     candidates = sorted(
-        output_dir.glob("comparison_*.md"),
+        output_dir.rglob("comparison_*.md"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -165,8 +165,14 @@ def create_evaluation_tab(state: dict) -> None:
                     continue
 
                 model_id = data.get("model_id", fpath.stem)
+                # Show which subdirectory this came from (e.g. "baseline", "fine_tuned")
+                rel = fpath.parent.relative_to(out_dir)
+                run_label = str(rel) if str(rel) != "." else ""
                 with ui.card().classes("w-full"):
-                    ui.label(model_id).classes("text-subtitle1 text-bold")
+                    with ui.row().classes("items-center gap-2"):
+                        ui.label(model_id).classes("text-subtitle1 text-bold")
+                        if run_label:
+                            ui.badge(run_label, color="blue-grey")
                     ui.label(_summary_text(data)).classes("text-caption text-grey")
 
                     rows = _parse_eval_rows(data)
