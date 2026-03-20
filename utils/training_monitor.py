@@ -111,7 +111,7 @@ class MetricsReader:
         return any("gpu_mem_gib" in m for m in self.metrics)
 
 
-def _format_eta(seconds: float | None) -> str:
+def format_eta(seconds: float | None) -> str:
     if seconds is None:
         return "—"
     if seconds < 60:
@@ -251,7 +251,7 @@ def create_app(reader: MetricsReader, refresh_interval: float) -> None:
         progress_label.text = (
             f"Step {current}/{total} | Epoch {reader.current_epoch:.2f}"
         )
-        eta_label.text = f"ETA: {_format_eta(reader.eta_seconds)}"
+        eta_label.text = f"ETA: {format_eta(reader.eta_seconds)}"
 
         # --- Loss chart ---
         train_loss_data = [

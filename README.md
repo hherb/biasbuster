@@ -41,6 +41,15 @@ bias_dataset_builder/
 │   ├── merge_adapter.py       # Merge LoRA adapter (PyTorch/PEFT)
 │   ├── merge_adapter_mlx.py   # Fuse LoRA adapter (MLX)
 │   └── export_to_ollama.sh    # Convert merged model to Ollama (safetensors/GGUF)
+├── gui/
+│   ├── __main__.py             # Entry point: uv run python -m gui
+│   ├── app.py                  # Main page with 4-tab layout
+│   ├── state.py                # Shared state, platform detection, settings persistence
+│   ├── process_runner.py       # Async subprocess wrapper with output streaming
+│   ├── settings_tab.py         # Model selector, hyperparameters, data paths
+│   ├── training_tab.py         # Training with live loss/LR/GPU charts
+│   ├── evaluation_tab.py       # Evaluation runner and results display
+│   └── export_tab.py           # Merge adapter, GGUF quantise, Ollama import
 ├── utils/
 │   ├── completeness_checker.py # Check labelling coverage per model
 │   ├── agreement_analyzer.py   # Inter-model agreement metrics
@@ -331,6 +340,69 @@ Features:
 - **Export CSV** button for offline review in spreadsheets
 - **Direct DB save** — changes are written to the `human_reviews` table
 - **Stats bar** showing validation progress
+
+## Fine-Tuning Workbench (GUI)
+
+A NiceGUI-based web application that provides a graphical interface for the
+full fine-tuning workflow — from model selection through training, evaluation,
+and export. Designed for users who prefer not to use the CLI directly.
+
+```bash
+# Launch the workbench (opens at http://localhost:8080)
+uv run python -m gui
+
+# Use a different port
+uv run python -m gui --port 9090
+```
+
+The workbench has four tabs:
+
+### Settings Tab
+
+- **Model selector** — dropdown populated from available presets, auto-detected
+  by platform (TRL presets on Linux, MLX presets on macOS, all on Windows)
+- **Hyperparameters** — learning rate, epochs, LoRA rank, batch size, gradient
+  accumulation, max sequence length. Selecting a model auto-populates with
+  preset defaults; changes are passed through to the training scripts
+- **Data paths** — training/validation/test JSONL file paths
+- **Evaluation endpoints** — model names and OpenAI-compatible endpoint URLs
+- Settings persist to `~/.biasbuster/gui_settings.json` across sessions
+
+### Evaluation Tab
+
+- **Run Baseline** (zero-shot) or **Run Fine-Tuned** evaluations
+- **Re-analyse** previously saved results without re-running inference
+- Streams subprocess log output in real time
+- Displays per-dimension metrics tables (F1, Precision, Recall, Kappa)
+- Shows comparison reports if two models are evaluated
+
+### Fine-Tuning Tab
+
+- **Start/Stop** training with the selected model and hyperparameters
+- Live charts (same as the standalone training monitor):
+  - Training & eval loss curves
+  - Learning rate schedule
+  - GPU memory usage (shown automatically when data is available)
+  - Gradient norm
+- Progress bar with step count, epoch, and ETA
+- Hyperparameters table populated from the training run
+- Raw process log in a collapsible panel
+
+### Export Tab
+
+- **Merge Adapter** — merges the LoRA adapter into the base model
+- **GGUF Export** — converts the merged model to GGUF with selectable
+  quantisation (Q4_K_M, Q5_K_M, q8_0, f16, bf16)
+- **Ollama Import** — imports the merged model directly into Ollama
+- Each operation runs independently with its own progress log
+
+### Cross-Platform Support
+
+| Platform | Training | Evaluation | Export |
+|----------|----------|------------|--------|
+| Linux (DGX Spark) | TRL/PEFT via `uv run` | Yes | Yes |
+| macOS (Apple Silicon) | MLX via `uv run` | Yes | Yes |
+| Windows | Not supported | Yes | Limited |
 
 ## Fine-Tuning (LoRA)
 

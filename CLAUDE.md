@@ -80,6 +80,10 @@ uv sync --group mlx                                    # install MLX dependencie
 ./run_merge_mlx.sh qwen3.5-27b-4bit
 ./run_merge_mlx.sh qwen3.5-27b-4bit --quantize Q4_K_M  # with GGUF quantization
 
+# Fine-Tuning Workbench GUI (all-in-one: settings → train → evaluate → export)
+uv run python -m gui
+uv run python -m gui --port 9090
+
 # Add a new dependency
 uv add <package>
 ```
@@ -124,6 +128,7 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
   - **MLX** (Apple Silicon): `train_lora_mlx.py` using `mlx_lm.tuner`, `configs_mlx.py` for MLX-specific presets (Qwen 9B/27B in 4-bit/8-bit), `callbacks_mlx.py` bridging to the same `metrics.jsonl` format, `merge_adapter_mlx.py` for adapter fusion via `mlx_lm.fuse`.
   - Shared: `data_utils.py` handles alpaca JSONL loading, chat template formatting, and alpaca→chat format conversion for MLX-lm.
 - **Training Monitor** (`utils/training_monitor.py`): NiceGUI web dashboard that reads `metrics.jsonl` and displays live loss curves, learning rate schedule, GPU memory, gradient norms, and hyperparameters. Run with `uv run python -m utils.training_monitor`.
+- **Fine-Tuning Workbench** (`gui/`): NiceGUI 4-tab GUI (`uv run python -m gui`) wrapping the entire fine-tuning workflow. `state.py` handles platform detection and settings persistence (`~/.biasbuster/gui_settings.json`). `process_runner.py` provides an async subprocess wrapper. Tab modules (`settings_tab.py`, `training_tab.py`, `evaluation_tab.py`, `export_tab.py`) each build their UI and launch operations as subprocesses. The training tab reuses `MetricsReader` from `utils/training_monitor.py` for live chart updates. Both training scripts (`train_lora.py`, `train_lora_mlx.py`) accept optional `--lr`, `--epochs`, `--lora-rank`, `--batch-size`, `--grad-accum`, `--max-seq-len` CLI args for GUI-driven hyperparameter overrides.
 
 ### Data Flow
 

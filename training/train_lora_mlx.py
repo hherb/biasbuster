@@ -138,12 +138,30 @@ def main() -> int:
         default=-1,
         help="Cap training iterations (for smoke testing; -1 = compute from epochs)",
     )
+    # Optional hyperparameter overrides (used by the GUI workbench)
+    parser.add_argument("--lr", type=float, default=None, help="Override learning rate")
+    parser.add_argument("--epochs", type=int, default=None, help="Override number of epochs")
+    parser.add_argument("--lora-rank", type=int, default=None, help="Override LoRA rank")
+    parser.add_argument("--batch-size", type=int, default=None, help="Override batch size")
+    parser.add_argument("--max-seq-len", type=int, default=None, help="Override max sequence length")
     args = parser.parse_args()
 
     # --- Config --------------------------------------------------------------
     cfg = get_mlx_config(args.model, output_dir=args.output_dir)
     if args.max_iters > 0:
         cfg.max_iters = args.max_iters
+    # Apply optional hyperparameter overrides
+    if args.lr is not None:
+        cfg.learning_rate = args.lr
+    if args.epochs is not None:
+        cfg.num_train_epochs = args.epochs
+    if args.lora_rank is not None:
+        cfg.lora_rank = args.lora_rank
+        cfg.lora_scale = float(args.lora_rank * 2)  # maintain scale/rank = 2
+    if args.batch_size is not None:
+        cfg.batch_size = args.batch_size
+    if args.max_seq_len is not None:
+        cfg.max_seq_length = args.max_seq_len
 
     logger.info("Model: %s", cfg.model_name_or_path)
     logger.info("Output: %s", cfg.output_dir)

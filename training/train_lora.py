@@ -203,6 +203,13 @@ def main():
         default=-1,
         help="Cap training steps (for smoke testing; -1 = unlimited)",
     )
+    # Optional hyperparameter overrides (used by the GUI workbench)
+    parser.add_argument("--lr", type=float, default=None, help="Override learning rate")
+    parser.add_argument("--epochs", type=int, default=None, help="Override number of epochs")
+    parser.add_argument("--lora-rank", type=int, default=None, help="Override LoRA rank (r)")
+    parser.add_argument("--batch-size", type=int, default=None, help="Override per-device batch size")
+    parser.add_argument("--grad-accum", type=int, default=None, help="Override gradient accumulation steps")
+    parser.add_argument("--max-seq-len", type=int, default=None, help="Override max sequence length")
     args = parser.parse_args()
 
     # --- Config --------------------------------------------------------------
@@ -213,6 +220,20 @@ def main():
         cfg.val_file = args.val_file
     if args.max_steps > 0:
         cfg.max_steps = args.max_steps
+    # Apply optional hyperparameter overrides
+    if args.lr is not None:
+        cfg.learning_rate = args.lr
+    if args.epochs is not None:
+        cfg.num_train_epochs = args.epochs
+    if args.lora_rank is not None:
+        cfg.lora_r = args.lora_rank
+        cfg.lora_alpha = args.lora_rank * 2  # maintain alpha/r = 2
+    if args.batch_size is not None:
+        cfg.per_device_train_batch_size = args.batch_size
+    if args.grad_accum is not None:
+        cfg.gradient_accumulation_steps = args.grad_accum
+    if args.max_seq_len is not None:
+        cfg.max_seq_length = args.max_seq_len
 
     logger.info(f"Model: {cfg.model_name_or_path}")
     logger.info(f"Output: {cfg.output_dir}")
