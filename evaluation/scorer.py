@@ -259,7 +259,14 @@ def _parse_from_json(data: dict, result: ParsedAssessment) -> ParsedAssessment:
 
     # Overall
     result.overall_severity = data.get("overall_severity") or "none"
-    result.overall_bias_probability = float(data.get("overall_bias_probability") or 0.0)
+    obp = data.get("overall_bias_probability") or 0.0
+    if isinstance(obp, dict):
+        # Model returned a nested object; try to extract a numeric value
+        obp = obp.get("probability") or obp.get("value") or obp.get("score") or 0.0
+    try:
+        result.overall_bias_probability = float(obp)
+    except (TypeError, ValueError):
+        result.overall_bias_probability = 0.0
 
     # Verification steps
     vs = data.get("recommended_verification_steps", [])
