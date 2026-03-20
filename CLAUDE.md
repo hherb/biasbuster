@@ -61,6 +61,7 @@ uv run python -m enrichers.funding_checker
 # Training (inside NGC Docker on DGX Spark)
 ./run_training.sh qwen3.5-27b              # full training run
 ./run_training.sh olmo-3.1-32b --resume    # resume from checkpoint
+./run_training.sh gpt-oss-20b              # MoE model (attention-only LoRA)
 ./run_training.sh qwen3.5-27b --max-steps 5  # smoke test
 
 # Merge LoRA adapter and export to Ollama
@@ -75,6 +76,8 @@ uv sync --group mlx                                    # install MLX dependencie
 ./run_training_mlx.sh qwen3.5-9b-4bit                  # full training (64GB Mac)
 ./run_training_mlx.sh qwen3.5-27b-4bit --max-iters 5   # smoke test
 ./run_training_mlx.sh qwen3.5-27b-8bit --resume        # resume (128GB Mac)
+./run_training_mlx.sh gpt-oss-20b-4bit                  # MoE model (64GB+ Mac)
+./run_training_mlx.sh gpt-oss-20b-8bit                  # MoE model (128GB Mac)
 
 # MLX merge and export to Ollama
 ./run_merge_mlx.sh qwen3.5-27b-4bit

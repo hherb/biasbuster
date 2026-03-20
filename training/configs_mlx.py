@@ -46,6 +46,19 @@ MLX_MODEL_PRESETS: dict[str, MLXModelPreset] = {
         recommended_num_layers=32,
         recommended_batch_size=1,
     ),
+    # gpt-oss MoE: 21B total / 3.6B active — 64GB+ Mac
+    "gpt-oss-20b-4bit": MLXModelPreset(
+        hf_repo="mlx-community/gpt-oss-20b-MXFP4-Q4",
+        description="gpt-oss-20b 4-bit MoE (32 experts, top-4) — 64GB+ (~10GB model)",
+        recommended_num_layers=16,
+        recommended_batch_size=1,
+    ),
+    "gpt-oss-20b-8bit": MLXModelPreset(
+        hf_repo="mlx-community/gpt-oss-20b-MXFP4-Q8",
+        description="gpt-oss-20b 8-bit MoE (32 experts, top-4) — 128GB Mac (~20GB model)",
+        recommended_num_layers=24,
+        recommended_batch_size=1,
+    ),
 }
 
 
@@ -100,9 +113,17 @@ def get_mlx_config(
         )
     preset = MLX_MODEL_PRESETS[model_key]
     out = output_dir or f"training_output/{model_key}-mlx-lora"
-    return MLXLoRAConfig(
+    config = MLXLoRAConfig(
         model_name_or_path=preset.hf_repo,
         output_dir=out,
         lora_num_layers=preset.recommended_num_layers,
         batch_size=preset.recommended_batch_size,
     )
+
+    # MoE models: conservative LR to avoid expert collapse
+    if "gpt-oss" in model_key.lower():
+        config.learning_rate = 1e-5
+        config.lora_rank = 16
+        config.lora_scale = 32.0
+
+    return config

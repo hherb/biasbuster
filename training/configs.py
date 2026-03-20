@@ -18,6 +18,22 @@ MODEL_PRESETS = {
     "qwen3.5-27b": "Qwen/Qwen3.5-27B",
     "qwen3.5-9b": "Qwen/Qwen3.5-9B",
     "olmo-3.1-32b": "allenai/OLMo-3.1-32B-Instruct",
+    "gpt-oss-20b": "openai/gpt-oss-20b",
+}
+
+# Overrides for gpt-oss MoE models.  Conservative LR to avoid expert collapse;
+# target only attention layers (skip expert FFNs and router) for stable training.
+_MOE_OVERRIDES: dict = {
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+    "learning_rate": 1e-5,
+    "lora_r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "gradient_accumulation_steps": 4,
+    "num_train_epochs": 3,
+    "warmup_ratio": 0.1,
+    "save_total_limit": 3,
+    "weight_decay": 0.01,
 }
 
 # Overrides for 9B-class models.  Rationale documented in SECOND_RUN.md §6.4.
@@ -97,8 +113,11 @@ def get_config(model_key: str, output_dir: str | None = None) -> LoRATrainingCon
         output_dir=out,
     )
 
-    # Apply 9B-specific overrides
-    if "9b" in model_key.lower():
+    # Apply model-size/architecture-specific overrides
+    if "gpt-oss" in model_key.lower():
+        for key, value in _MOE_OVERRIDES.items():
+            setattr(config, key, value)
+    elif "9b" in model_key.lower():
         for key, value in _9B_OVERRIDES.items():
             setattr(config, key, value)
 

@@ -11,6 +11,8 @@
 #   qwen3.5-9b-8bit   — 64GB Mac (comfortable, ~15GB)
 #   qwen3.5-27b-4bit  — 64GB Mac (tight) / 128GB Mac (~25GB)
 #   qwen3.5-27b-8bit  — 128GB Mac only (~38GB)
+#   gpt-oss-20b-4bit  — 64GB+ Mac (~10GB model, MoE 32 experts)
+#   gpt-oss-20b-8bit  — 128GB Mac (~20GB model, MoE 32 experts)
 #
 # Prerequisites:
 #   uv sync --group mlx
@@ -21,7 +23,7 @@
 
 set -euo pipefail
 
-VALID_MODELS="qwen3.5-9b-4bit qwen3.5-9b-8bit qwen3.5-27b-4bit qwen3.5-27b-8bit"
+VALID_MODELS="qwen3.5-9b-4bit qwen3.5-9b-8bit qwen3.5-27b-4bit qwen3.5-27b-8bit gpt-oss-20b-4bit gpt-oss-20b-8bit"
 
 MODEL="${1:?Usage: $0 <model-preset> [extra args...]
 Available presets: $VALID_MODELS}"
