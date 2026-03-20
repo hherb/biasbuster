@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from pathlib import Path
 
 from nicegui import ui
 
@@ -12,6 +13,90 @@ from training.configs_mlx import MLX_MODEL_PRESETS, get_mlx_config
 from gui.state import save_settings
 
 logger = logging.getLogger(__name__)
+
+
+async def _show_file_picker(
+    start_dir: Path,
+    *,
+    pattern: str = "*",
+) -> Path | None:
+    """Show a server-side file picker dialog.
+
+    Lists files and directories in *start_dir* and lets the user navigate
+    the filesystem and select a file.  Returns the chosen ``Path`` or
+    ``None`` if cancelled.
+    """
+    result: Path | None = None
+    current_dir = start_dir.resolve()
+
+    with ui.dialog().props("maximized=false") as dialog, \
+         ui.card().classes("w-96"):
+        ui.label("Select File").classes("text-subtitle1 text-bold")
+        path_label = ui.label(str(current_dir)).classes(
+            "text-caption text-grey w-full"
+        ).style("word-break: break-all;")
+
+        file_list = ui.column().classes("w-full").style(
+            "max-height: 400px; overflow-y: auto;"
+        )
+
+        def populate(directory: Path) -> None:
+            nonlocal current_dir
+            current_dir = directory.resolve()
+            path_label.text = str(current_dir)
+            file_list.clear()
+
+            with file_list:
+                # Parent directory entry
+                if current_dir.parent != current_dir:
+                    ui.button(
+                        ".. (parent directory)",
+                        icon="folder",
+                        on_click=lambda _, d=current_dir.parent: populate(d),
+                    ).props("flat dense align=left").classes("w-full justify-start")
+
+                try:
+                    entries = sorted(
+                        current_dir.iterdir(),
+                        key=lambda p: (not p.is_dir(), p.name.lower()),
+                    )
+                except PermissionError:
+                    ui.label("Permission denied").classes("text-red")
+                    return
+
+                for entry in entries:
+                    if entry.name.startswith("."):
+                        continue
+                    if entry.is_dir():
+                        ui.button(
+                            entry.name,
+                            icon="folder",
+                            on_click=lambda _, d=entry: populate(d),
+                        ).props("flat dense align=left").classes(
+                            "w-full justify-start"
+                        )
+                    elif entry.suffix in (".jsonl", ".json", ".csv", ".tsv", ".txt"):
+                        def select(_, f=entry):
+                            nonlocal result
+                            result = f
+                            dialog.close()
+
+                        ui.button(
+                            entry.name,
+                            icon="description",
+                            on_click=select,
+                        ).props("flat dense align=left").classes(
+                            "w-full justify-start"
+                        )
+
+        with ui.row().classes("w-full justify-end q-mt-sm"):
+            ui.button("Cancel", on_click=dialog.close).props("flat")
+
+        populate(current_dir)
+
+    await dialog
+    return result
+
 
 # Descriptions for TRL model presets (parallel to MLXModelPreset.description).
 _TRL_DESCRIPTIONS: dict[str, str] = {
@@ -207,24 +292,57 @@ def create_settings_tab(state: dict) -> None:
             )
 
     # ── Paths & Endpoints ─────────────────────────────────────────────
+    def _file_input_with_picker(
+        label: str,
+        state_key: str,
+        tooltip: str,
+        file_types: str = "*.jsonl *.json",
+    ) -> ui.input:
+        """Create a text input paired with a file-browse button.
+
+        Uses a NiceGUI dialog with a server-side directory listing so it
+        works in any browser without native filesystem access.
+        """
+        inp = ui.input(
+            label,
+            value=state[state_key],
+            on_change=on_param_change(state_key),
+        ).classes("flex-grow").tooltip(tooltip)
+
+        async def pick_file() -> None:
+            # Resolve starting directory from current value
+            current = state.get(state_key, "")
+            start_dir = Path(current).parent if current else Path(".")
+            if not start_dir.is_absolute():
+                start_dir = Path(state.get("project_dir", ".")) / start_dir
+            if not start_dir.exists():
+                start_dir = Path(state.get("project_dir", "."))
+
+            result = await _show_file_picker(start_dir)
+            if result is not None:
+                inp.set_value(str(result))
+                state[state_key] = str(result)
+                save_settings(state)
+
+        ui.button(icon="folder_open", on_click=pick_file).props(
+            "flat dense size=sm"
+        ).tooltip(f"Browse for {label.lower()}")
+        return inp
+
     with ui.card().classes("w-full q-mt-md"):
         ui.label("Data Paths").classes("text-subtitle1 text-bold")
-        with ui.row().classes("w-full gap-4"):
-            ui.input(
-                "Training Data",
-                value=state["train_file"],
-                on_change=on_param_change("train_file"),
-            ).classes("flex-grow").tooltip("Path to training JSONL")
-            ui.input(
-                "Validation Data",
-                value=state["val_file"],
-                on_change=on_param_change("val_file"),
-            ).classes("flex-grow").tooltip("Path to validation JSONL")
-            ui.input(
-                "Test Set",
-                value=state["test_file"],
-                on_change=on_param_change("test_file"),
-            ).classes("flex-grow").tooltip("Path to test JSONL for evaluation")
+        with ui.row().classes("w-full gap-4 items-end"):
+            _file_input_with_picker(
+                "Training Data", "train_file", "Path to training JSONL",
+            )
+        with ui.row().classes("w-full gap-4 items-end"):
+            _file_input_with_picker(
+                "Validation Data", "val_file", "Path to validation JSONL",
+            )
+        with ui.row().classes("w-full gap-4 items-end"):
+            _file_input_with_picker(
+                "Test Set", "test_file", "Path to test JSONL for evaluation",
+            )
 
     with ui.card().classes("w-full q-mt-md"):
         ui.label("Evaluation Endpoints").classes("text-subtitle1 text-bold")
