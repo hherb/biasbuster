@@ -96,7 +96,7 @@ def build_trainer(
 
     load_kwargs: dict = dict(
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        device_map={"": 0},
         trust_remote_code=True,
         attn_implementation=cfg.attn_implementation,
     )
@@ -105,6 +105,10 @@ def build_trainer(
     # pass is not implemented for MXFP4, so we dequantize to BF16 on load to
     # allow gradient flow through frozen expert layers during LoRA training.
     # Ref: https://developers.openai.com/cookbook/articles/gpt-oss/fine-tune-transfomers
+    #
+    # Mxfp4Config requires device_map="auto"; we constrain it to GPU 0 via
+    # max_memory to prevent accelerate from offloading to meta/CPU (which
+    # breaks backward pass with "expected device meta but got cuda:0").
     if cfg.mxfp4_dequantize:
         if Mxfp4Config is None:
             raise RuntimeError(
@@ -112,7 +116,10 @@ def build_trainer(
                 "Upgrade: pip install 'transformers>=4.57'"
             )
         load_kwargs["quantization_config"] = Mxfp4Config(dequantize=True)
+        load_kwargs["device_map"] = "auto"
+        load_kwargs["max_memory"] = {0: f"{torch.cuda.get_device_properties(0).total_mem // (1024**3)}GiB"}
         logger.info("  MXFP4 dequantize=True (MoE expert weights → BF16)")
+        logger.info("  max_memory={0: %s}", load_kwargs["max_memory"][0])
 
     logger.info(f"  attn_implementation={cfg.attn_implementation}")
 
