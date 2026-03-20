@@ -110,9 +110,10 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
 
 **Training pipeline** (`training/` — two backends):
 6. **Train** — LoRA fine-tuning with two backends:
-   - **DGX Spark** (NGC Docker): `train_lora.py` via TRL's `SFTTrainer` for Qwen3.5-27B / OLMo-3.1-32B.
-   - **Apple Silicon** (native macOS): `train_lora_mlx.py` via `mlx_lm.tuner` for pre-quantized Qwen models (9B/27B in 4-bit/8-bit QLoRA).
+   - **DGX Spark** (NGC Docker): `train_lora.py` via TRL's `SFTTrainer` for Qwen3.5-27B / OLMo-3.1-32B / GPT-OSS-20B.
+   - **Apple Silicon** (native macOS): `train_lora_mlx.py` via `mlx_lm.tuner` for pre-quantized Qwen models (9B/27B in 4-bit/8-bit QLoRA) and GPT-OSS-20B MoE (4-bit/8-bit).
    Both backends write identical `metrics.jsonl` for live monitoring via the NiceGUI dashboard (`utils/training_monitor.py`). After training, merge adapter and export to Ollama (`export_to_ollama.sh`).
+   **GPT-OSS MoE special handling**: MXFP4 expert weights are dequantized to BF16 on load via `Mxfp4Config(dequantize=True)` (backward pass not implemented for MXFP4). LoRA targets attention layers only (skip expert FFNs/router). Uses `attn_implementation="eager"` per OpenAI cookbook. Ollama export uses the Harmony chat template (not ChatML).
 
 ### Module Pattern
 
@@ -127,8 +128,8 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
 - **Schemas** (`schemas/`): `bias_taxonomy.py` defines the full bias taxonomy as dataclasses and enums. `schemas/__init__.py` exports `extract_abstract_sections()` used by both `spin_detector` and `effect_size_auditor`.
 - **Evaluation** (`evaluation/`): Harness for running models, scoring outputs, computing metrics (binary F1, ordinal kappa, calibration, verification quality), and generating head-to-head comparison reports with statistical tests.
 - **Training** (`training/`): LoRA fine-tuning pipeline with two backends:
-  - **PyTorch/TRL** (DGX Spark): `train_lora.py` using TRL's `SFTTrainer`, `configs.py` for hyperparameters, `callbacks.py` for metrics, `merge_adapter.py` for adapter fusion.
-  - **MLX** (Apple Silicon): `train_lora_mlx.py` using `mlx_lm.tuner`, `configs_mlx.py` for MLX-specific presets (Qwen 9B/27B in 4-bit/8-bit), `callbacks_mlx.py` bridging to the same `metrics.jsonl` format, `merge_adapter_mlx.py` for adapter fusion via `mlx_lm.fuse`.
+  - **PyTorch/TRL** (DGX Spark): `train_lora.py` using TRL's `SFTTrainer`, `configs.py` for hyperparameters (with `_MOE_OVERRIDES` for GPT-OSS: MXFP4 dequantize, eager attn, conservative LR), `callbacks.py` for metrics, `merge_adapter.py` for adapter fusion.
+  - **MLX** (Apple Silicon): `train_lora_mlx.py` using `mlx_lm.tuner`, `configs_mlx.py` for MLX-specific presets (Qwen 9B/27B in 4-bit/8-bit, GPT-OSS-20B in 4-bit/8-bit MoE), `callbacks_mlx.py` bridging to the same `metrics.jsonl` format, `merge_adapter_mlx.py` for adapter fusion via `mlx_lm.fuse`.
   - Shared: `data_utils.py` handles alpaca JSONL loading, chat template formatting, and alpaca→chat format conversion for MLX-lm.
 - **Training Monitor** (`utils/training_monitor.py`): NiceGUI web dashboard that reads `metrics.jsonl` and displays live loss curves, learning rate schedule, GPU memory, gradient norms, and hyperparameters. Run with `uv run python -m utils.training_monitor`.
 - **Fine-Tuning Workbench** (`gui/`): NiceGUI 4-tab GUI (`uv run python -m gui`) wrapping the entire fine-tuning workflow. `state.py` handles platform detection and settings persistence (`~/.biasbuster/gui_settings.json`). `process_runner.py` provides an async subprocess wrapper. Tab modules (`settings_tab.py`, `training_tab.py`, `evaluation_tab.py`, `export_tab.py`) each build their UI and launch operations as subprocesses. The training tab reuses `MetricsReader` from `utils/training_monitor.py` for live chart updates. Both training scripts (`train_lora.py`, `train_lora_mlx.py`) accept optional `--lr`, `--epochs`, `--lora-rank`, `--batch-size`, `--grad-accum`, `--max-seq-len` CLI args for GUI-driven hyperparameter overrides.
