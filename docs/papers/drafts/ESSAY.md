@@ -125,13 +125,23 @@ The practical result: our verification agent wrapper parses natural language ste
 
 This is a deliberately pragmatic choice. If we later need the model to chain multiple tool calls iteratively (e.g., "search ORCID, find an industry affiliation, then check Open Payments for that company"), we would need structured tool-use training. But for the current single-pass verification architecture, natural language is the right tradeoff.
 
-## The Hardware: Running on a DGX Spark
+## The Hardware: Desktop-Class Training and Inference
 
-All training and inference runs on an NVIDIA DGX Spark -- a desktop-class machine with 128 GB of unified memory and a GB10 Blackwell GPU. This is not a datacenter; it sits on a desk. The constraint shaped our architecture: SGLang and vLLM don't yet support the ARM/Blackwell combination, so all local inference runs through Ollama.
+Training runs on an NVIDIA DGX Spark -- a desktop-class machine with 128 GB of unified memory and a GB10 Blackwell GPU. Evaluation and inference also run on an Apple M3 Mac with 128 GB of unified memory. Neither is a datacenter; both sit on a desk. The constraint shaped our architecture: SGLang and vLLM don't yet support the ARM/Blackwell combination, so all local inference runs through Ollama.
 
-LoRA fine-tuning of a 9B model takes ~2.5 hours. A 32B model takes ~4.5 hours. Both fit comfortably in memory without quantisation during training (bf16). Inference on the fine-tuned 9B model runs at ~11 tokens/second.
+LoRA fine-tuning of a 9B model takes ~2.5 hours. A 32B model takes ~4.5 hours. Both fit comfortably in memory without quantisation during training (bf16). Inference on the fine-tuned 9B model runs at ~11 tokens/second on the DGX Spark and ~12.4 tokens/second on the M3 Mac.
 
-## Results: What We Learned in Four Fine-Tuning Runs
+## Results: What We Learned in Four Fine-Tuning Runs -- and an Unexpected Baseline
+
+Before discussing the fine-tuning runs, two additional baselines deserve mention. We evaluated OpenAI's gpt-oss:20b -- their first open-weight model, a Mixture-of-Experts architecture with 32 experts and top-4 routing (21B total parameters, ~3.6B active per token) -- and IBM's granite3.3:8b on a 157-example test set.
+
+Granite3.3 was a catastrophic failure. It predicted NONE for nearly every dimension -- recall of 1.1%, F1 of 0.022. The model simply lacks sufficient pretraining exposure to biomedical bias assessment concepts to engage with the task at all. Not every 8B model is created equal.
+
+gpt-oss:20b was a revelation. Without any fine-tuning, it achieved binary F1 of 0.918, recall of 0.941, and -- crucially -- the best severity calibration of any baseline we've tested (weighted κ = 0.158, vs 0.021-0.066 for the Qwen/OLMo baselines). Its verification source citation rates were above 94% for all five databases, with a mean verification score of 0.591 -- exceeding even our fine-tuned models. And it did this at 31.8 tokens/second on the M3 Mac, 2.6× faster than the 9B Qwen model, because its MoE architecture activates only 3.6B of its 21B parameters per token. It's a 20B model with the speed of a 4B model.
+
+The MoE architecture may be particularly well-suited to multi-domain bias detection. With 32 experts and top-4 routing, the model has the capacity to develop specialised subnetworks for different task aspects -- statistical reporting analysis might activate different experts than COI assessment or methodology evaluation. This would explain its balanced per-dimension F1 scores (0.75-0.81 across all five domains) without any domain-specific training.
+
+This result reframed our fine-tuning strategy. We'll return to its implications after discussing the four runs.
 
 ### First Run: OLMo-3.1-32B
 
@@ -209,17 +219,21 @@ This is fundamentally a class imbalance problem. The training data contains enou
 
 ### The Key Takeaways
 
+**Mixture-of-Experts models are exceptionally strong baselines -- and prime fine-tuning candidates.** gpt-oss:20b, without any fine-tuning, outperformed our fine-tuned 9B model on severity calibration (κ 0.158 vs 0.124) and verification quality (0.591 vs 0.495), and achieved binary F1 of 0.918 -- all while running 2.6× faster. Its MoE architecture (32 experts, top-4 routing, 3.6B active of 21B total) may be inherently well-suited to multi-domain tasks. We've already added gpt-oss:20b training configurations for both DGX Spark (attention-only LoRA at 1e-5 LR) and Apple Silicon (MLX QLoRA). If the same training data improvements that lifted Qwen 9B by +0.120 F1 translate, a fine-tuned gpt-oss:20b could push well past 0.95 F1 with `<think>` chains -- at 2.6× the inference speed.
+
+**Not all small models are equal.** Granite3.3:8b's catastrophic failure (F1 0.022, recall 1.1%) versus Qwen3.5-9B's strong performance (F1 0.924 fine-tuned) shows that baseline capability depends on pretraining corpus composition. Sufficient exposure to biomedical methodology literature is a prerequisite.
+
 **Prompt engineering and fine-tuning solve different problems.** An enriched prompt handles coarse detection; fine-tuning adds granular domain-level analysis, severity calibration, and structured reasoning. They're complementary, not competing.
 
-**Verification source knowledge can be taught -- and lost.** The First Run showed that fine-tuning can *destroy* database citation patterns. The Second Run showed that explicitly teaching database selection reasoning in the training data fixes this. The Fourth Run showed that even with good training, citation patterns are fragile when the training signal is unevenly distributed across severity levels.
+**Verification source knowledge can be taught -- and lost.** The First Run showed that fine-tuning can *destroy* database citation patterns. The Second Run showed that explicitly teaching database selection reasoning in the training data fixes this. The Fourth Run showed that even with good training, citation patterns are fragile when the training signal is unevenly distributed across severity levels. gpt-oss:20b's uniformly high citation rates (>94% across all five sources) without any training set a new target for fine-tuned models to match.
 
 **Training data quality dominates hyperparameters.** Four runs have shown that the single biggest lever is the training data format -- not learning rate, not epoch count, not LoRA rank. The jump from 706 old-format examples to 1,235 new-format examples (with all five domains, NONE reasoning, and severity oversampling) produced a +0.120 F1 improvement. The hyperparameter change between the Third and Fourth Runs produced a +0.046 improvement in eval loss. Data quality wins by a wide margin.
 
-**Learning dynamics are model-size-agnostic for LoRA.** The 27B defaults (2e-4 LR, 3 epochs, effective batch 4) work equally well for both 9B and 32B models on this task. The 9B model's differentiation should be in LoRA capacity and regularisation (higher rank, more dropout, weight decay), not in learning rate or epoch count. Don't tune learning rate by model size for LoRA.
+**Learning dynamics are model-size-agnostic for LoRA.** The 27B defaults (2e-4 LR, 3 epochs, effective batch 4) work equally well for both 9B and 32B models on this task. The 9B model's differentiation should be in LoRA capacity and regularisation (higher rank, more dropout, weight decay), not in learning rate or epoch count. Don't tune learning rate by model size for LoRA. For MoE models, an even more conservative approach is warranted: 1e-5 LR, attention-only targeting, and frozen router weights.
 
 **Severity calibration is a data problem, not a modelling problem.** Four training runs with different hyperparameters have left ordinal kappa stuck in the 0.12-0.29 range. The "moderate collapse" is driven by class imbalance in the training data, not by model capacity or learning dynamics. Fixing this requires either hundreds more boundary-case annotations, an ordinal-aware loss function, or post-hoc calibration.
 
-**Small models are viable for production use.** A 9B model fine-tuned on 1,235 examples achieves binary F1 of 0.924 with 95% recall, per-dimension F1 of 0.70-0.84, and produces actionable verification recommendations with step-by-step reasoning. It runs on a single desktop GPU. For comparison, a human Cochrane reviewer takes hours per paper.
+**Small models are viable for production use.** A 9B model fine-tuned on 1,235 examples achieves binary F1 of 0.924 with 95% recall, per-dimension F1 of 0.70-0.84, and produces actionable verification recommendations with step-by-step reasoning. It runs on a single desktop GPU. And an MoE model may push these numbers even higher at lower inference cost. For comparison, a human Cochrane reviewer takes hours per paper.
 
 ## From Assessment to Action: The Verification Agent
 
@@ -238,11 +252,11 @@ This is where the verification-focused training pays off. Because the model was 
 
 ## What's Next
 
-**Solving the "moderate collapse."** The highest-impact next step is targeted annotation of 200+ boundary cases -- examples specifically chosen to illustrate the LOW-MODERATE distinction across all five dimensions. The model has enough data to learn "biased vs not biased" but not enough to learn the finer gradations. Alternatively, replacing standard cross-entropy with an ordinal regression loss (e.g., CORN or cumulative link) that penalises adjacent-class errors less than distant errors could teach the model that the severity scale has an ordering.
+**Fine-tuning gpt-oss:20b.** The highest-priority next step. Given its strong baseline (F1 0.918, κ 0.158, verification 0.591), fine-tuning with our 1,235 training examples should produce the strongest model yet. The MoE architecture requires care: attention-only LoRA (q/k/v/o projections only, skipping expert FFN weights and the router), conservative learning rate (1e-5, 10× lower than dense models), and monitoring for expert collapse. We'll train on the DGX Spark and evaluate on the M3 Mac. If this works, the result would be a model that combines fine-tuned accuracy and `<think>` reasoning with MoE inference efficiency -- the best of both worlds.
+
+**Solving the "moderate collapse."** Targeted annotation of 200+ boundary cases -- examples specifically chosen to illustrate the LOW-MODERATE distinction across all five dimensions. The model has enough data to learn "biased vs not biased" but not enough to learn the finer gradations. Alternatively, replacing standard cross-entropy with an ordinal regression loss (e.g., CORN or cumulative link) that penalises adjacent-class errors less than distant errors could teach the model that the severity scale has an ordering.
 
 **Fixing CMS Open Payments citation.** The export pipeline should cite CMS Open Payments as a verification step whenever COI severity is LOW or higher, not just HIGH. This would increase the training signal from 29.8% to ~70%+ of examples and address the collapsed citation rate.
-
-**One more epoch.** The Fourth Run's eval loss was still declining at epoch 3. A follow-up with 4 epochs at the same conservative config may yield marginal improvements -- though the diminishing-returns analysis suggests the bigger gains will come from addressing the training data imbalance.
 
 **Full-text analysis.** Abstracts contain only a fraction of the information needed for thorough bias assessment. Full-text analysis -- especially of methods sections, funding disclosures, and supplementary statistical tables -- is the natural next step.
 
@@ -252,12 +266,12 @@ This is where the verification-focused training pays off. Because the model was 
 
 BiasBuster is not a replacement for peer review or systematic review methodology. It's a screening tool -- a first pass that can flag the abstracts most deserving of careful human scrutiny, and point the reviewer exactly where to look.
 
-The medical literature is too large for manual screening and too important for uncritical trust. A 9B-parameter model running on a single desktop GPU, trained on 1,235 examples over four iterative runs, can now detect five dimensions of bias with F1 above 0.70 on every dimension and 0.924 overall, catch 95% of biased studies, produce step-by-step reasoning explaining its assessment, and recommend specific databases where each claim can be verified. It nearly matches a model four times its size on binary detection, and beats it on recall.
+The medical literature is too large for manual screening and too important for uncritical trust. A 9B-parameter model running on a single desktop GPU, trained on 1,235 examples over four iterative runs, can now detect five dimensions of bias with F1 above 0.70 on every dimension and 0.924 overall, catch 95% of biased studies, produce step-by-step reasoning explaining its assessment, and recommend specific databases where each claim can be verified. An unfine-tuned 20B MoE model achieves even stronger baseline numbers (F1 0.918, κ 0.158) at 2.6× the inference speed -- and fine-tuning it is next.
 
-It's not perfect -- severity grading remains coarse and one verification source still needs better training signal. But it's fast, it's explainable, and four training runs have shown a clear trajectory: each round of data improvement moves the needle more than any amount of hyperparameter tuning.
+It's not perfect -- severity grading remains coarse and one verification source still needs better training signal. But it's fast, it's explainable, and the trajectory is clear: each round of data improvement moves the needle more than any amount of hyperparameter tuning, and the MoE architecture may provide the model capacity to push past current limits.
 
 ---
 
-*BiasBuster is open source. The pipeline, training data, evaluation harness, and fine-tuned model weights are available at [repository link]. Built on an NVIDIA DGX Spark with Qwen3.5-9B (and OLMo-3.1-32B), LoRA fine-tuning via TRL/PEFT, and Ollama for inference.*
+*BiasBuster is open source. The pipeline, training data, evaluation harness, and fine-tuned model weights are available at [repository link]. Built on an NVIDIA DGX Spark and Apple M3 Mac, with Qwen3.5-9B, OLMo-3.1-32B, and gpt-oss:20b, LoRA fine-tuning via TRL/PEFT and MLX, and Ollama for inference.*
 
 *This work is part of BMLibrarian, a project aiming to fully automate systematic literature review for biomedical research.*
