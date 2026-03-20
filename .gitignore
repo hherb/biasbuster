@@ -28,3 +28,4 @@ llama.cpp/*
 dataset/biasbuster.db
 dataset/biasbuster.db-shm
 dataset/biasbuster.db-wal
+dataset/biasbuster.db
