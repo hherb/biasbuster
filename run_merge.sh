@@ -33,16 +33,26 @@ HF_CACHE="/home/hherb/.cache/huggingface"
 echo "==> Merging adapter for: $MODEL"
 echo ""
 
-sudo docker run --gpus all --rm -it \
-    --shm-size=16g \
-    -v "$PROJECT_DIR":/workspace/biasbuster \
-    -v "$HF_CACHE":/root/.cache/huggingface \
-    -w /workspace/biasbuster \
-    "$IMAGE" \
-    bash -c "
-        pip install --quiet peft 'transformers>=4.57' &&
-        python -m training.merge_adapter --model $MODEL
-    "
+if echo "$MODEL" | grep -qi "gpt-oss"; then
+    # GPT-OSS: surgical merge preserving MXFP4 expert weights.
+    # Runs on host (no Docker needed) — operates directly on safetensors
+    # files, only modifying attention layers and copying everything else
+    # byte-for-byte.  Output stays ~14 GB with native MXFP4.
+    echo "==> Using surgical merge (MXFP4 preservation)"
+    uv run python -m training.merge_adapter_surgical --model "$MODEL"
+else
+    # Dense models (Qwen, OLMo): standard merge inside NGC container
+    sudo docker run --gpus all --rm -it \
+        --shm-size=16g \
+        -v "$PROJECT_DIR":/workspace/biasbuster \
+        -v "$HF_CACHE":/root/.cache/huggingface \
+        -w /workspace/biasbuster \
+        "$IMAGE" \
+        bash -c "
+            pip install --quiet peft 'transformers>=4.57' &&
+            python -m training.merge_adapter --model $MODEL
+        "
+fi
 
 if [[ -n "$QUANTIZE" ]]; then
     MERGED_DIR="training_output/${MODEL}-merged"
