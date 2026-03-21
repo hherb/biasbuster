@@ -49,10 +49,20 @@ if [[ ! -f "$ADAPTER_DIR/adapter_model.safetensors" ]]; then
     exit 1
 fi
 
+# Ollama expects the adapter file to be named model.safetensors (not
+# adapter_model.safetensors as PEFT produces).  Create a staging directory
+# with the correct naming to avoid modifying the original adapter.
+# Ref: https://github.com/ollama/ollama/issues/13314
+STAGING="$(mktemp -d /tmp/${MODEL_NAME}-adapter.XXXXXX)"
+ln "$ADAPTER_DIR/adapter_model.safetensors" "$STAGING/model.safetensors" 2>/dev/null \
+    || cp "$ADAPTER_DIR/adapter_model.safetensors" "$STAGING/model.safetensors"
+cp "$ADAPTER_DIR/adapter_config.json" "$STAGING/"
+
 # Verify base model is available in Ollama
 if ! ollama show "$BASE_MODEL" >/dev/null 2>&1; then
     echo "ERROR: Base model '$BASE_MODEL' not found in Ollama" >&2
     echo "Pull it first: ollama pull $BASE_MODEL" >&2
+    rm -rf "$STAGING"
     exit 1
 fi
 
@@ -65,7 +75,7 @@ echo ""
 MODELFILE="$(mktemp /tmp/Modelfile.XXXXXX)"
 cat > "$MODELFILE" <<MODELFILE_EOF
 FROM ${BASE_MODEL}
-ADAPTER ${ADAPTER_DIR}
+ADAPTER ${STAGING}
 
 PARAMETER stop "<|end|>"
 PARAMETER stop "<|endoftext|>"
@@ -74,6 +84,7 @@ MODELFILE_EOF
 echo "==> Creating Ollama model with adapter overlay..."
 ollama create "$MODEL_NAME" -f "$MODELFILE"
 rm -f "$MODELFILE"
+rm -rf "$STAGING"
 
 echo ""
 echo "Done! Model available as: $MODEL_NAME"
