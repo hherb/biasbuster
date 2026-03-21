@@ -95,7 +95,7 @@ def _build_training_cmd(state: dict) -> list[str]:
         "--epochs", str(int(state.get("num_epochs", 3))),
         "--lora-rank", str(int(state.get("lora_rank", 16))),
         "--batch-size", str(int(state.get("batch_size", 1))),
-        "--max-seq-len", str(int(state.get("max_seq_length", 4096))),
+        "--max-seq-len", str(int(state.get("max_seq_length", 8192))),
     ]
 
     if backend == "mlx":
@@ -284,13 +284,16 @@ def create_training_tab(state: dict) -> None:
             grad_chart.options["series"][0]["data"] = grad_data
             grad_chart.update()
 
-        # Config table (once)
-        if reader.header and not config_table.rows:
+        # Config table — prefer metrics header (actual values used by trainer),
+        # fall back to GUI state so the table isn't stale between runs.
+        if reader.header:
             config = reader.header.get("config", {})
-            config_table.rows = [
+            new_rows = [
                 {"param": k, "value": str(v)} for k, v in config.items()
             ]
-            config_table.update()
+            if new_rows != config_table.rows:
+                config_table.rows = new_rows
+                config_table.update()
 
     # ── Button handlers ───────────────────────────────────────────────
     async def on_start() -> None:
@@ -307,6 +310,23 @@ def create_training_tab(state: dict) -> None:
         metrics_file.parent.mkdir(parents=True, exist_ok=True)
 
         reader = MetricsReader(metrics_file)
+
+        # Show current GUI settings immediately (trainer header replaces later)
+        hp_display = {
+            "model": model_key,
+            "backend": state.get("backend", ""),
+            "learning_rate": state.get("learning_rate"),
+            "num_epochs": state.get("num_epochs"),
+            "lora_rank": state.get("lora_rank"),
+            "batch_size": state.get("batch_size"),
+            "gradient_accumulation": state.get("gradient_accumulation"),
+            "max_seq_length": state.get("max_seq_length"),
+        }
+        config_table.rows = [
+            {"param": k, "value": str(v)} for k, v in hp_display.items()
+        ]
+        config_table.update()
+
         status_badge.text = "Starting..."
         status_badge.props("color=blue")
         start_btn.visible = False

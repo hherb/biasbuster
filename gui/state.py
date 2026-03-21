@@ -38,7 +38,7 @@ def default_state() -> dict:
         "lora_rank": 16,
         "batch_size": 1,
         "gradient_accumulation": 4,
-        "max_seq_length": 4096,
+        "max_seq_length": 8192,
         "train_file": "dataset/export/alpaca/train.jsonl",
         "val_file": "dataset/export/alpaca/val.jsonl",
         "test_file": "dataset/export/alpaca/test.jsonl",
