@@ -94,6 +94,13 @@ def main():
     logger.info("Merging adapter weights into base model...")
     model = model.merge_and_unload()
 
+    # Clear any MXFP4 weight-conversion metadata so save_pretrained() does
+    # not attempt to revert dequantized BF16 weights back to MXFP4 (the
+    # reverse transform is not implemented and raises NotImplementedError).
+    if hasattr(model.config, "quantization_config"):
+        logger.info("  Clearing quantization_config to save as plain BF16")
+        del model.config.quantization_config
+
     # Save merged model in 2 GB shards to avoid memory spikes from
     # serialising the entire state dict at once.
     logger.info(f"Saving merged model to {output_dir}")
