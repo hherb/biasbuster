@@ -71,15 +71,32 @@ GRAD_CHART_CONFIG = {
 }
 
 
+NGC_IMAGE = "nvcr.io/nvidia/pytorch:25.11-py3"
+HF_CACHE = str(Path.home() / ".cache" / "huggingface")
+
+
 def _build_training_cmd(state: dict) -> list[str]:
     """Build the subprocess command for the selected backend and model.
 
     Passes user-modified hyperparameters as CLI overrides so they
     actually take effect (instead of being ignored by ``get_config()``).
+
+    For the TRL backend, builds a ``docker run`` command matching
+    ``run_training.sh`` (NGC PyTorch container with GPU access) so that
+    torch and CUDA are available.  The MLX backend runs natively via uv.
     """
     model_key = state["model_key"]
     backend = state["backend"]
     project_dir = state.get("project_dir", ".")
+
+    # ── Hyperparameter args (shared across backends) ─────────────────
+    hp_args = [
+        "--lr", str(state.get("learning_rate", 2e-4)),
+        "--epochs", str(int(state.get("num_epochs", 3))),
+        "--lora-rank", str(int(state.get("lora_rank", 16))),
+        "--batch-size", str(int(state.get("batch_size", 1))),
+        "--max-seq-len", str(int(state.get("max_seq_length", 4096))),
+    ]
 
     if backend == "mlx":
         cmd = [
@@ -87,24 +104,36 @@ def _build_training_cmd(state: dict) -> list[str]:
             "--model", model_key,
             "--data-dir", str(Path(project_dir) / "dataset" / "export" / "alpaca"),
         ]
-    else:  # trl
+        cmd += hp_args
+    else:  # trl — run inside NGC Docker container
+        train_file = state.get("train_file", "dataset/export/alpaca/train.jsonl")
+        val_file = state.get("val_file", "dataset/export/alpaca/val.jsonl")
+        output_dir = f"training_output/{model_key}-lora"
+
+        hp_args += ["--grad-accum", str(int(state.get("gradient_accumulation", 4)))]
+
+        inner_cmd = (
+            "pip install --quiet trl peft datasets 'transformers>=4.57' && "
+            "python -m training.train_lora "
+            f"--model {model_key} "
+            f"--train-file {train_file} "
+            f"--val-file {val_file} "
+            f"--output-dir {output_dir} "
+            + " ".join(hp_args)
+        )
+
+        # Resolve project_dir to absolute path for Docker volume mount
+        abs_project = str(Path(project_dir).resolve()) if project_dir else str(Path.cwd())
+
         cmd = [
-            "uv", "run", "python", "-m", "training.train_lora",
-            "--model", model_key,
-            "--train-file", state.get("train_file", "dataset/export/alpaca/train.jsonl"),
-            "--val-file", state.get("val_file", "dataset/export/alpaca/val.jsonl"),
+            "docker", "run", "--gpus", "all", "--rm",
+            "--shm-size=16g",
+            "-v", f"{abs_project}:/workspace/biasbuster",
+            "-v", f"{HF_CACHE}:/root/.cache/huggingface",
+            "-w", "/workspace/biasbuster",
+            NGC_IMAGE,
+            "bash", "-c", inner_cmd,
         ]
-
-    # Append hyperparameter overrides
-    cmd += ["--lr", str(state.get("learning_rate", 2e-4))]
-    cmd += ["--epochs", str(int(state.get("num_epochs", 3)))]
-    cmd += ["--lora-rank", str(int(state.get("lora_rank", 16)))]
-    cmd += ["--batch-size", str(int(state.get("batch_size", 1)))]
-    cmd += ["--max-seq-len", str(int(state.get("max_seq_length", 4096)))]
-
-    # Gradient accumulation only applies to TRL backend
-    if backend != "mlx":
-        cmd += ["--grad-accum", str(int(state.get("gradient_accumulation", 4)))]
 
     return cmd
 
