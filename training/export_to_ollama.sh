@@ -121,15 +121,23 @@ echo "==> Creating Ollama model: $MODEL_NAME"
 MODELFILE="$(mktemp /tmp/Modelfile.XXXXXX)"
 
 if echo "$MODEL_NAME" | grep -qi "gpt-oss"; then
-    # GPT-OSS uses the Harmony response format.  The merged model's
-    # tokenizer_config.json includes the correct chat_template.jinja;
-    # Ollama picks it up automatically.  We only set stop tokens.
-    cat > "$MODELFILE" <<MODELFILE_EOF
-FROM ${MODEL_SOURCE}
+    # GPT-OSS uses the Harmony response format — a 378-line template that
+    # Ollama does NOT pick up from tokenizer_config.json.  Extract the
+    # TEMPLATE and PARAMETER lines from the base gpt-oss:20b model (which
+    # ships with the correct template) and combine with our merged weights.
+    BASE_OLLAMA="gpt-oss:20b"
+    if ! ollama show "$BASE_OLLAMA" >/dev/null 2>&1; then
+        echo "ERROR: Base model '$BASE_OLLAMA' not found in Ollama" >&2
+        echo "Pull it first: ollama pull $BASE_OLLAMA" >&2
+        exit 1
+    fi
 
-PARAMETER stop "<|end|>"
-PARAMETER stop "<|endoftext|>"
-MODELFILE_EOF
+    echo "==> Extracting Harmony template from $BASE_OLLAMA"
+    # Write FROM line with merged weights, then copy TEMPLATE + PARAMETERs
+    echo "FROM ${MODEL_SOURCE}" > "$MODELFILE"
+    echo "" >> "$MODELFILE"
+    # Extract everything after the FROM line from the base model's Modelfile
+    ollama show "$BASE_OLLAMA" --modelfile | sed '1,/^FROM /d' >> "$MODELFILE"
 else
     # ChatML template for Qwen / OLMo.  Prevents Ollama from injecting the
     # base model's default system prompt (e.g. OLMo's function-calling preamble).
