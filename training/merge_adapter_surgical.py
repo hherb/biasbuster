@@ -151,7 +151,8 @@ def load_lora_adapter(adapter_path: Path) -> tuple[dict[str, np.ndarray], dict]:
     with open(config_path) as f:
         config = json.load(f)
 
-    # Parse adapter safetensors and read all tensors as float32
+    # Parse adapter safetensors and read all tensors as float32.
+    # PEFT saves LoRA weights as F32 (not BF16).
     meta, data_start = read_safetensors_header(weights_path)
     weights: dict[str, np.ndarray] = {}
     for name, info in meta.items():
@@ -159,7 +160,15 @@ def load_lora_adapter(adapter_path: Path) -> tuple[dict[str, np.ndarray], dict]:
             continue
         offsets = info["data_offsets"]
         raw = read_tensor_bytes(weights_path, data_start, offsets[0], offsets[1])
-        weights[name] = bf16_bytes_to_f32(raw, info["shape"])
+        dtype = info["dtype"]
+        if dtype == "F32":
+            weights[name] = np.frombuffer(raw, dtype=np.float32).reshape(info["shape"])
+        elif dtype == "BF16":
+            weights[name] = bf16_bytes_to_f32(raw, info["shape"])
+        elif dtype == "F16":
+            weights[name] = np.frombuffer(raw, dtype=np.float16).reshape(info["shape"]).astype(np.float32)
+        else:
+            raise ValueError(f"Unsupported adapter dtype {dtype} for {name}")
 
     return weights, config
 
