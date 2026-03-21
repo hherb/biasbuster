@@ -74,31 +74,46 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load base model on CPU to minimise memory pressure during save.
-    # GPU is not needed — LoRA merge is just arithmetic on weight tensors.
+    # Detect MXFP4 models (e.g. GPT-OSS).  On GPU with Triton the weights
+    # stay in native MXFP4 — no dequantization, so save_pretrained() has
+    # nothing to revert and can write MXFP4 directly.  On CPU (no Triton)
+    # the weights are auto-dequantized to BF16 and we must clear
+    # quantization_config to avoid the unimplemented reverse transform.
+    is_mxfp4 = "gpt-oss" in (args.model or "").lower()
+    use_gpu = is_mxfp4 and torch.cuda.is_available()
+
+    if use_gpu:
+        logger.info("Loading base model on GPU (preserving native MXFP4)")
+        device_map = "auto"
+    else:
+        logger.info("Loading base model on CPU")
+        device_map = "cpu"
+
     logger.info(f"Loading base model: {args.base_model}")
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
         dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
-        device_map="cpu",
+        device_map=device_map,
         trust_remote_code=True,
     )
 
     # Load and merge adapter
     logger.info(f"Loading adapter: {args.adapter_path}")
     model = PeftModel.from_pretrained(
-        model, args.adapter_path, device_map="cpu"
+        model, args.adapter_path, device_map=device_map
     )
 
     logger.info("Merging adapter weights into base model...")
     model = model.merge_and_unload()
 
-    # Clear any MXFP4 weight-conversion metadata so save_pretrained() does
-    # not attempt to revert dequantized BF16 weights back to MXFP4 (the
-    # reverse transform is not implemented and raises NotImplementedError).
-    if hasattr(model.config, "quantization_config"):
-        logger.info("  Clearing quantization_config to save as plain BF16")
+    # If loaded on CPU, MXFP4 was auto-dequantized to BF16.  Clear the
+    # quantization_config so save_pretrained() doesn't try the unimplemented
+    # BF16→MXFP4 reverse transform.  When loaded on GPU with Triton, the
+    # weights are still native MXFP4 — keep quantization_config intact so
+    # the saved model preserves the MXFP4 format.
+    if not use_gpu and hasattr(model.config, "quantization_config"):
+        logger.info("  Clearing quantization_config (CPU dequantized to BF16)")
         del model.config.quantization_config
 
     # Save merged model in 2 GB shards to avoid memory spikes from
