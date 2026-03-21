@@ -14,10 +14,13 @@ the safetensors files:
 Result: ~14 GB model identical to gpt-oss:20b except for merged attention
 weights.  Can be imported directly into Ollama which serves MXFP4 natively.
 
-Usage:
-    python -m training.merge_adapter_surgical --model gpt-oss-20b
+Dependencies: safetensors, numpy, huggingface_hub (all in the project venv).
+Does NOT require torch.
 
-    python -m training.merge_adapter_surgical \\
+Usage:
+    uv run python -m training.merge_adapter_surgical --model gpt-oss-20b
+
+    uv run python -m training.merge_adapter_surgical \\
         --base-model openai/gpt-oss-20b \\
         --adapter-path training_output/gpt-oss-20b-lora/final_adapter \\
         --output-dir training_output/gpt-oss-20b-merged
@@ -30,8 +33,8 @@ import shutil
 import sys
 from pathlib import Path
 
-import torch
-from safetensors.torch import load_file, save_file
+import numpy as np
+from safetensors.numpy import load_file, save_file
 
 from training.configs import MODEL_PRESETS
 
@@ -41,9 +44,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-# LoRA targets — must match what was used during training
-LORA_TARGETS = {"q_proj", "k_proj", "v_proj", "o_proj"}
 
 
 def resolve_base_model_path(model_name_or_path: str) -> Path:
@@ -65,7 +65,36 @@ def resolve_base_model_path(model_name_or_path: str) -> Path:
     return Path(cache_dir)
 
 
-def load_lora_adapter(adapter_path: Path) -> tuple[dict[str, torch.Tensor], dict]:
+def _bf16_to_f32(arr: np.ndarray) -> np.ndarray:
+    """Convert a bfloat16 numpy array to float32 for arithmetic.
+
+    numpy doesn't natively support bfloat16, so safetensors returns BF16
+    tensors as uint16 views.  We convert via the BF16 bit layout:
+    BF16 is the upper 16 bits of a float32, so shift left by 16.
+    """
+    if arr.dtype == np.uint16:
+        # BF16 stored as uint16 — convert to float32
+        f32_bits = arr.astype(np.uint32) << 16
+        return f32_bits.view(np.float32)
+    if arr.dtype in (np.float32, np.float64):
+        return arr.astype(np.float32)
+    if arr.dtype == np.float16:
+        return arr.astype(np.float32)
+    raise ValueError(f"Unexpected dtype {arr.dtype} for BF16 conversion")
+
+
+def _f32_to_bf16(arr: np.ndarray) -> np.ndarray:
+    """Convert a float32 numpy array back to bfloat16 (stored as uint16).
+
+    Truncates the lower 16 bits of each float32 value (round-to-nearest-even
+    would be more precise but truncation matches the common fast path).
+    """
+    f32 = arr.astype(np.float32)
+    # View as uint32 and take upper 16 bits
+    return (f32.view(np.uint32) >> 16).astype(np.uint16)
+
+
+def load_lora_adapter(adapter_path: Path) -> tuple[dict[str, np.ndarray], dict]:
     """Load LoRA adapter weights and config.
 
     Args:
@@ -91,9 +120,9 @@ def load_lora_adapter(adapter_path: Path) -> tuple[dict[str, torch.Tensor], dict
 
 
 def compute_lora_deltas(
-    adapter_weights: dict[str, torch.Tensor],
+    adapter_weights: dict[str, np.ndarray],
     adapter_config: dict,
-) -> dict[str, torch.Tensor]:
+) -> dict[str, np.ndarray]:
     """Compute the weight deltas for each LoRA-adapted layer.
 
     LoRA stores two low-rank matrices per target: lora_A (r x in) and
@@ -111,17 +140,16 @@ def compute_lora_deltas(
         adapter_config: Adapter config dict (contains r, lora_alpha).
 
     Returns:
-        Dict mapping base model tensor names to their LoRA deltas.
+        Dict mapping base model tensor names to their LoRA deltas (as BF16 uint16).
     """
     r = adapter_config["r"]
     alpha = adapter_config["lora_alpha"]
     scaling = alpha / r
 
     # Group lora_A and lora_B by their base layer name
-    lora_pairs: dict[str, dict[str, torch.Tensor]] = {}
+    lora_pairs: dict[str, dict[str, np.ndarray]] = {}
     for key, tensor in adapter_weights.items():
         # Strip PEFT prefix: base_model.model.{base_name}.lora_{A|B}.weight
-        # → base_name = model.layers.N.self_attn.q_proj
         if ".lora_A." in key:
             base_name = key.replace("base_model.model.", "").replace(".lora_A.weight", "")
             lora_pairs.setdefault(base_name, {})["A"] = tensor
@@ -134,11 +162,15 @@ def compute_lora_deltas(
         if "A" not in pair or "B" not in pair:
             logger.warning("Incomplete LoRA pair for %s, skipping", base_name)
             continue
-        # delta = (B @ A) * scaling
-        delta = (pair["B"].float() @ pair["A"].float()) * scaling
+
+        # Compute delta in float32 for precision, then convert back to BF16
+        a_f32 = _bf16_to_f32(pair["A"])
+        b_f32 = _bf16_to_f32(pair["B"])
+        delta_f32 = (b_f32 @ a_f32) * scaling
+
         weight_key = f"{base_name}.weight"
-        deltas[weight_key] = delta.to(torch.bfloat16)
-        logger.debug("  Computed delta for %s: shape %s", weight_key, delta.shape)
+        deltas[weight_key] = _f32_to_bf16(delta_f32)
+        logger.debug("  Computed delta for %s: shape %s", weight_key, delta_f32.shape)
 
     return deltas
 
@@ -167,13 +199,14 @@ def surgical_merge(
     # --- Load shard index ----------------------------------------------------
     index_path = base_model_path / "model.safetensors.index.json"
     if not index_path.exists():
-        raise FileNotFoundError(f"model.safetensors.index.json not found in {base_model_path}")
+        raise FileNotFoundError(
+            f"model.safetensors.index.json not found in {base_model_path}"
+        )
 
     with open(index_path) as f:
         index = json.load(f)
     weight_map = index["weight_map"]
 
-    # Determine unique shard files
     shard_files = sorted(set(weight_map.values()))
     logger.info("  Base model has %d tensors across %d shards",
                 len(weight_map), len(shard_files))
@@ -181,6 +214,7 @@ def surgical_merge(
     # --- Process each shard --------------------------------------------------
     merged_count = 0
     copied_count = 0
+    applied_deltas: set[str] = set()
 
     for shard_file in shard_files:
         src_path = base_model_path / shard_file
@@ -196,49 +230,54 @@ def surgical_merge(
                 base_tensor = shard_tensors[tensor_name]
                 delta = deltas[tensor_name]
 
-                # Verify shapes match
                 if base_tensor.shape != delta.shape:
                     raise ValueError(
                         f"Shape mismatch for {tensor_name}: "
                         f"base={base_tensor.shape}, delta={delta.shape}"
                     )
 
-                # Merge: add LoRA delta to base weight
-                # base is BF16, delta is BF16 — addition stays BF16
-                shard_tensors[tensor_name] = base_tensor + delta
+                # Both are BF16 stored as uint16.  Convert to f32, add, back to BF16.
+                base_f32 = _bf16_to_f32(base_tensor)
+                delta_f32 = _bf16_to_f32(delta)
+                merged_f32 = base_f32 + delta_f32
+                shard_tensors[tensor_name] = _f32_to_bf16(merged_f32)
+
                 merged_count += 1
+                applied_deltas.add(tensor_name)
                 logger.info("    Merged: %s", tensor_name)
             else:
                 copied_count += 1
 
         # Save the shard — non-attention tensors (MXFP4 experts, router,
-        # norms, etc.) pass through byte-for-byte unchanged
+        # norms, etc.) pass through unchanged
         save_file(shard_tensors, str(dst_path))
         logger.info("  Saved: %s", dst_path.name)
 
-    logger.info("  %d tensors merged, %d tensors copied unchanged", merged_count, copied_count)
+    logger.info("  %d tensors merged, %d tensors copied unchanged",
+                merged_count, copied_count)
 
     # Verify all deltas were applied
-    applied = set(d for d in deltas if any(d in load_file(str(base_model_path / sf))
-                                           for sf in shard_files))
-    unapplied = set(deltas.keys()) - {d for d in deltas}
+    unapplied = set(deltas.keys()) - applied_deltas
     if unapplied:
-        logger.warning("  WARNING: %d LoRA deltas not found in base model!", len(unapplied))
+        logger.warning("  WARNING: %d LoRA deltas not found in base model!",
+                        len(unapplied))
         for name in sorted(unapplied):
             logger.warning("    Missing: %s", name)
 
     # --- Copy non-weight files -----------------------------------------------
-    for fname in ["config.json", "generation_config.json", "tokenizer_config.json",
-                  "tokenizer.json", "special_tokens_map.json", "chat_template.jinja",
-                  "model.safetensors.index.json"]:
+    for fname in [
+        "config.json", "generation_config.json", "tokenizer_config.json",
+        "tokenizer.json", "special_tokens_map.json", "chat_template.jinja",
+        "model.safetensors.index.json",
+    ]:
         src = base_model_path / fname
         if src.exists():
             shutil.copy2(str(src), str(output_dir / fname))
             logger.info("  Copied: %s", fname)
 
+    total_size = sum(f.stat().st_size for f in output_dir.glob("*.safetensors"))
     logger.info("Done! Merged model saved to: %s", output_dir)
-    logger.info("  Model size should be ~%.1f GB (same as base, MXFP4 preserved)",
-                sum(f.stat().st_size for f in output_dir.glob("*.safetensors")) / 1024**3)
+    logger.info("  Total size: %.1f GB (MXFP4 preserved)", total_size / 1024**3)
 
 
 def main() -> int:
@@ -273,11 +312,14 @@ def main() -> int:
                 f"Available: {', '.join(MODEL_PRESETS)}"
             )
         args.base_model = args.base_model or MODEL_PRESETS[args.model]
-        args.adapter_path = args.adapter_path or f"training_output/{args.model}-lora/final_adapter"
+        args.adapter_path = (
+            args.adapter_path or f"training_output/{args.model}-lora/final_adapter"
+        )
         args.output_dir = args.output_dir or f"training_output/{args.model}-merged"
     elif not all([args.base_model, args.adapter_path, args.output_dir]):
         parser.error(
-            "Provide either --model or all of --base-model, --adapter-path, --output-dir"
+            "Provide either --model or all of "
+            "--base-model, --adapter-path, --output-dir"
         )
 
     base_path = resolve_base_model_path(args.base_model)
