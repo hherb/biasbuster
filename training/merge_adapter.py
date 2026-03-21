@@ -107,23 +107,79 @@ def main():
     logger.info("Merging adapter weights into base model...")
     model = model.merge_and_unload()
 
-    # If loaded on CPU, MXFP4 was auto-dequantized to BF16.  Clear the
-    # quantization_config so save_pretrained() doesn't try the unimplemented
-    # BF16→MXFP4 reverse transform.  When loaded on GPU with Triton, the
-    # weights are still native MXFP4 — keep quantization_config intact so
-    # the saved model preserves the MXFP4 format.
-    if not use_gpu and hasattr(model.config, "quantization_config"):
-        logger.info("  Clearing quantization_config (CPU dequantized to BF16)")
-        del model.config.quantization_config
-
-    # Save merged model in 2 GB shards to avoid memory spikes from
-    # serialising the entire state dict at once.
+    # save_pretrained() calls revert_weight_conversion() which fails for
+    # MXFP4 models (reverse transform not implemented).  This happens
+    # regardless of GPU/CPU and whether we clear quantization_config.
+    # Bypass it entirely: save config, then save state_dict directly
+    # with safetensors, preserving whatever format the tensors are in
+    # (MXFP4 on GPU, BF16 on CPU).
     logger.info(f"Saving merged model to {output_dir}")
-    model.save_pretrained(
-        str(output_dir),
-        safe_serialization=True,
-        max_shard_size="2GB",
-    )
+
+    # Save config (strip quantization_config if weights were dequantized)
+    if not use_gpu and hasattr(model.config, "quantization_config"):
+        logger.info("  Removing quantization_config (CPU path → BF16)")
+        del model.config.quantization_config
+    model.config.save_pretrained(str(output_dir))
+
+    # Save weights directly via safetensors, bypassing revert_weight_conversion
+    state_dict = model.state_dict()
+    from safetensors.torch import save_file
+
+    # Shard into ~2 GB files to avoid serialising the entire state dict at once
+    shard_size = 2 * 1024**3  # 2 GB in bytes
+    current_shard: dict = {}
+    current_size = 0
+    shard_idx = 0
+    index_map: dict[str, str] = {}  # tensor_name → filename
+
+    for key, tensor in state_dict.items():
+        # Move to CPU for saving (no-op if already on CPU)
+        tensor_cpu = tensor.cpu()
+        tensor_bytes = tensor_cpu.nelement() * tensor_cpu.element_size()
+
+        # Start new shard if current one would exceed limit
+        if current_shard and current_size + tensor_bytes > shard_size:
+            shard_name = f"model-{shard_idx:05d}-of-PLACEHOLDER.safetensors"
+            save_file(current_shard, str(output_dir / shard_name))
+            logger.info(f"  Saved shard {shard_name} ({current_size / 1024**3:.1f} GB)")
+            shard_idx += 1
+            current_shard = {}
+            current_size = 0
+
+        current_shard[key] = tensor_cpu
+        index_map[key] = f"model-{shard_idx:05d}-of-PLACEHOLDER.safetensors"
+        current_size += tensor_bytes
+
+    # Save final shard
+    if current_shard:
+        shard_name = f"model-{shard_idx:05d}-of-PLACEHOLDER.safetensors"
+        save_file(current_shard, str(output_dir / shard_name))
+        logger.info(f"  Saved shard {shard_name} ({current_size / 1024**3:.1f} GB)")
+        shard_idx += 1
+
+    # Fix shard filenames: replace PLACEHOLDER with total count
+    total_shards = shard_idx
+    import os
+    for i in range(total_shards):
+        old = output_dir / f"model-{i:05d}-of-PLACEHOLDER.safetensors"
+        new = output_dir / f"model-{i:05d}-of-{total_shards:05d}.safetensors"
+        os.rename(str(old), str(new))
+
+    # Fix index_map references too
+    index_map = {
+        k: v.replace("PLACEHOLDER", f"{total_shards:05d}")
+        for k, v in index_map.items()
+    }
+
+    # Write safetensors index
+    import json
+    index = {
+        "metadata": {"total_size": sum(t.nelement() * t.element_size() for t in state_dict.values())},
+        "weight_map": index_map,
+    }
+    with open(output_dir / "model.safetensors.index.json", "w") as f:
+        json.dump(index, f, indent=2)
+    logger.info(f"  Saved {total_shards} shards + index")
 
     # Save tokenizer from the base model — the adapter copy may have a
     # broken tokenizer_class (e.g. "TokenizersBackend" for OLMo).
