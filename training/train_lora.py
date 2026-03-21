@@ -117,7 +117,7 @@ def build_trainer(
             )
         load_kwargs["quantization_config"] = Mxfp4Config(dequantize=True)
         load_kwargs["device_map"] = "auto"
-        load_kwargs["max_memory"] = {0: f"{torch.cuda.get_device_properties(0).total_mem // (1024**3)}GiB"}
+        load_kwargs["max_memory"] = {0: f"{torch.cuda.get_device_properties(0).total_memory // (1024**3)}GiB"}
         logger.info("  MXFP4 dequantize=True (MoE expert weights → BF16)")
         logger.info("  max_memory={0: %s}", load_kwargs["max_memory"][0])
 
