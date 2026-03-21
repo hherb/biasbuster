@@ -27,15 +27,15 @@ MODEL_PRESETS = {
 # implemented for MXFP4); attn_implementation="eager" per OpenAI cookbook.
 _MOE_OVERRIDES: dict = {
     "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
-    "learning_rate": 1e-5,
+    "learning_rate": 5e-6,               # halved from 1e-5 — Run 6 saturated in ~200 steps
     "lora_r": 16,
     "lora_alpha": 32,
-    "lora_dropout": 0.05,
+    "lora_dropout": 0.1,                 # doubled from 0.05 — combat rapid memorisation
     "gradient_accumulation_steps": 4,
-    "num_train_epochs": 3,
+    "num_train_epochs": 1,               # reduced from 3 — model converges within half an epoch
     "warmup_ratio": 0.1,
     "save_total_limit": 3,
-    "weight_decay": 0.01,
+    "weight_decay": 0.02,                # doubled from 0.01 — additional regularisation
     "mxfp4_dequantize": True,
     "attn_implementation": "eager",
 }
