@@ -218,22 +218,40 @@ This will presumably be fixed in a future Ollama release. Until then, the merge 
 Putting it all together:
 
 ```bash
-# 1. Train (inside NGC Docker on DGX Spark)
-./run_training.sh gpt-oss-20b
+# 1. Train with TRL/PEFT (in NGC Docker or any CUDA environment)
+pip install trl peft datasets 'transformers>=4.57'
 
-# 2. Surgical merge (on host, no Docker needed)
-./run_merge.sh gpt-oss-20b
+python your_train_script.py \
+    --model openai/gpt-oss-20b \
+    --target-modules q_proj k_proj v_proj o_proj \
+    --lr 5e-6 --epochs 1 --lora-rank 16
 
-# 3. Export to Ollama (extracts Harmony template from base model)
-bash training/export_to_ollama.sh \
-    training_output/gpt-oss-20b-merged \
-    gpt-oss-20b-biasbuster
+# 2. Surgical merge (no GPU needed, just numpy)
+python surgical_merge.py \
+    --base-model openai/gpt-oss-20b \
+    --adapter-path output/final_adapter \
+    --output-dir output/merged
 
-# 4. Verify
-ollama run gpt-oss-20b-biasbuster
+# 3. Import into Ollama with correct Harmony template
+ollama pull gpt-oss:20b  # need the base model for its template
+
+echo "FROM output/merged/" > /tmp/Modelfile
+ollama show gpt-oss:20b --modelfile | sed '1,/^FROM /d' >> /tmp/Modelfile
+ollama create my-gpt-oss-finetuned -f /tmp/Modelfile
+
+# 4. Verify the template was applied correctly
+ollama show my-gpt-oss-finetuned --modelfile | head -5
+# Should NOT show "TEMPLATE {{ .Prompt }}"
+
+# 5. Test
+ollama run my-gpt-oss-finetuned
 ```
 
 Total output size: ~12.8 GB with native MXFP4, same inference speed as the base model (~31 tokens/sec on Apple M3, faster on GPU).
+
+The surgical merge script referenced above is conceptually simple — the full
+implementation (about 250 lines of Python with no torch dependency) is
+available in the [BiasBuster repository](https://github.com/hherb/biasbuster/blob/main/training/merge_adapter_surgical.py).
 
 ## What We'd Do Differently
 
