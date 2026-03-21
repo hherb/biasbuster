@@ -62,9 +62,27 @@ class MetricsReader:
                 continue
             entry_type = entry.get("type")
             if entry_type == "header":
-                # New training run detected — clear stale data from previous run
-                self.metrics.clear()
+                # Only clear metrics if this is a genuinely new run
+                # (different model or config), not a resume of the current one.
+                prev_model = (
+                    self.header.get("config", {}).get("model_name_or_path")
+                    if self.header else None
+                )
+                new_model = entry.get("config", {}).get("model_name_or_path")
+                is_resume = (
+                    prev_model is not None
+                    and prev_model == new_model
+                    and len(self.metrics) > 0
+                )
+                if not is_resume:
+                    self.metrics.clear()
                 self.completed = False
+                # On resume, update total_steps to reflect the extended run
+                if is_resume and self.header is not None:
+                    entry["total_steps"] = (
+                        self.header.get("total_steps", 0)
+                        + entry.get("total_steps", 0)
+                    )
                 self.header = entry
                 self._start_time = time.time()
                 new_data = True
@@ -299,13 +317,15 @@ def create_app(reader: MetricsReader, refresh_interval: float) -> None:
             grad_chart.options["series"][0]["data"] = grad_data
             grad_chart.update()
 
-        # --- Config table ---
-        if reader.header and not config_table.rows:
+        # --- Config table (update whenever header changes) ---
+        if reader.header:
             config = reader.header.get("config", {})
-            config_table.rows = [
+            new_rows = [
                 {"param": k, "value": str(v)} for k, v in config.items()
             ]
-            config_table.update()
+            if new_rows != config_table.rows:
+                config_table.rows = new_rows
+                config_table.update()
 
     ui.timer(refresh_interval, update)
 
