@@ -154,10 +154,47 @@ With 1 epoch and ~337 effective steps:
 
 4. **Evaluation is the next critical step.** The revised hyperparameters need validation via the evaluation harness on the 157-example test set. The key question: does the fine-tuned gpt-oss:20b add `<think>` reasoning chains while maintaining or improving upon the 0.918 baseline F1?
 
-## 7. Next Steps
+## 7. Export Strategy: Adapter Overlay (Preserving MXFP4)
+
+### 7.1 Problem with Full Merge
+
+The initial export approach — merge adapter into base, save as BF16, re-quantize to GGUF — has two problems for GPT-OSS:
+
+1. **`save_pretrained()` fails** because the MXFP4→BF16 reverse transform is not implemented (`NotImplementedError` in `revert_weight_conversion`). Workaround: clear `quantization_config` before saving — but this produces a 42 GB BF16 model.
+
+2. **Ollama supports MXFP4 natively** for GPT-OSS (~14 GB), so dequantizing to BF16 and re-quantizing to Q4/Q8 is wasteful and lossy.
+
+### 7.2 Solution: ADAPTER Directive
+
+Ollama's `ADAPTER` Modelfile directive applies a LoRA adapter on top of the base model at load time — no merge needed:
+
+```dockerfile
+FROM gpt-oss:20b
+ADAPTER /path/to/final_adapter/
+```
+
+This preserves the base model's native MXFP4 format while applying our attention-only LoRA adapter. The adapter directory (`final_adapter/`) contains `adapter_config.json` + `adapter_model.safetensors` — produced directly by the training script.
+
+A new export script (`training/export_adapter_to_ollama.sh`) implements this:
+
+```bash
+bash training/export_adapter_to_ollama.sh gpt-oss:20b \
+    training_output/gpt-oss-20b-lora/final_adapter \
+    gpt-oss-20b-biasbuster
+```
+
+### 7.3 When to Use Which Export Path
+
+| Path | Script | Use Case |
+|------|--------|----------|
+| Adapter overlay | `export_adapter_to_ollama.sh` | GPT-OSS (MXFP4 preserved, ~14 GB + tiny adapter) |
+| Full merge + safetensors | `export_to_ollama.sh` | Dense models (Qwen, OLMo) |
+| Full merge + GGUF | `export_to_ollama.sh --gguf Q4_K_M` | Dense models when disk/memory constrained |
+
+## 8. Next Steps
 
 1. **Re-run training** with the revised hyperparameters (1 epoch, LR 5e-6, dropout 0.1, weight_decay 0.02)
-2. **Merge adapter** and export to Ollama
+2. **Export adapter** to Ollama via `export_adapter_to_ollama.sh` (preserving MXFP4)
 3. **Evaluate** on the 157-example test set (same as Fifth Run) for direct comparison with the unfine-tuned baseline
 4. **Compare thinking chains** -- verify that the fine-tuned model produces `<think>` reasoning while the baseline does not
 5. If evaluation looks good, consider whether expanding the training dataset would yield further gains beyond the attention-only LoRA ceiling

@@ -64,9 +64,13 @@ uv run python -m enrichers.funding_checker
 ./run_training.sh gpt-oss-20b              # MoE model (attention-only LoRA)
 ./run_training.sh qwen3.5-27b --max-steps 5  # smoke test
 
-# Merge LoRA adapter and export to Ollama
+# Merge LoRA adapter and export to Ollama (dense models: Qwen, OLMo)
 ./run_merge.sh qwen3.5-27b
 bash training/export_to_ollama.sh training_output/qwen3.5-27b-merged qwen3.5-27b-biasbuster
+
+# Export adapter to Ollama WITHOUT merging (MoE: preserves MXFP4)
+bash training/export_adapter_to_ollama.sh gpt-oss:20b \
+    training_output/gpt-oss-20b-lora/final_adapter gpt-oss-20b-biasbuster
 
 # Training monitor (run on host while training runs in Docker)
 uv run python -m utils.training_monitor --metrics-dir training_output/qwen3.5-27b-lora
