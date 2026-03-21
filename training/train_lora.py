@@ -95,7 +95,7 @@ def build_trainer(
     logger.info(f"Loading model: {cfg.model_name_or_path} (bf16)")
 
     load_kwargs: dict = dict(
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map={"": 0},
         trust_remote_code=True,
         attn_implementation=cfg.attn_implementation,

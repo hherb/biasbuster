@@ -79,7 +79,7 @@ def main():
     logger.info(f"Loading base model: {args.base_model}")
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
         device_map="cpu",
         trust_remote_code=True,
