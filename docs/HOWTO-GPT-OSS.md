@@ -165,9 +165,17 @@ bash training/export_to_ollama.sh \
 ```
 
 The export script detects `gpt-oss` in the model name and:
-- Does NOT apply a ChatML template (GPT-OSS uses Harmony format)
-- Lets Ollama use the chat template from `tokenizer_config.json`
-- Sets stop tokens: `<|end|>`, `<|endoftext|>`
+- **Extracts the full Harmony template** from the base `gpt-oss:20b` Ollama
+  model (378 lines including tool calling, reasoning levels, and response
+  format) and injects it into the Modelfile for the merged model
+- Sets stop tokens and all parameters from the base model
+- Requires `gpt-oss:20b` to be already pulled in Ollama
+
+**Important:** Ollama does NOT pick up the chat template from the model's
+`tokenizer_config.json` or `chat_template.jinja` when importing safetensors.
+Without the correct Harmony template, the model produces incoherent output
+(raw token soup). The export script handles this automatically by extracting
+the template from the base Ollama model.
 
 Ollama serves MXFP4 natively — the ~12.8 GB model runs without additional
 quantization.
@@ -177,6 +185,9 @@ quantization.
 ```bash
 ollama list | grep gpt-oss-20b-biasbuster
 ollama run gpt-oss-20b-biasbuster
+
+# Verify the Harmony template was applied (should NOT show "{{ .Prompt }}")
+ollama show gpt-oss-20b-biasbuster --modelfile | head -5
 ```
 
 ### 3.3 Alternative: GGUF Quantization (if MXFP4 not supported)
@@ -236,6 +247,28 @@ safetensors nor GGUF format). Use the merge + import path instead.
 
 Same as above — Ollama can serve GPT-OSS base models in MXFP4 but
 adapter overlay isn't implemented for this architecture. Merge first.
+
+### Ollama: model produces incoherent output / token soup
+
+The Harmony chat template was not applied. Ollama does NOT auto-detect
+the template from `tokenizer_config.json` or `chat_template.jinja` in
+imported safetensors. Check with:
+
+```bash
+ollama show gpt-oss-20b-biasbuster --modelfile | grep "^TEMPLATE"
+```
+
+If it shows `TEMPLATE {{ .Prompt }}`, the template is a bare passthrough.
+Re-export with the fixed script which extracts the 378-line Harmony template
+from the base `gpt-oss:20b` model:
+
+```bash
+bash training/export_to_ollama.sh \
+    training_output/gpt-oss-20b-merged \
+    gpt-oss-20b-biasbuster
+```
+
+Requires `gpt-oss:20b` to be pulled in Ollama first (`ollama pull gpt-oss:20b`).
 
 ### `uv: command not found` when running with sudo
 
