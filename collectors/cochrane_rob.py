@@ -648,11 +648,19 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 text_out = text_out[:-3]
             text_out = text_out.strip()
 
-            # If text contains mixed reasoning + JSON, extract the JSON array
+            # If text contains mixed reasoning + JSON, extract the JSON array.
+            # Search from the end — the JSON array is typically the last
+            # bracket-enclosed block after any reasoning text.
             if not text_out.startswith("["):
-                array_match = re.search(r'\[[\s\S]*\]', text_out)
-                if array_match:
-                    text_out = array_match.group(0)
+                # Find all [...] spans and try parsing from the last one
+                for array_match in reversed(list(re.finditer(r'\[[\s\S]*?\]', text_out))):
+                    candidate = array_match.group(0)
+                    try:
+                        json.loads(candidate)
+                        text_out = candidate
+                        break
+                    except json.JSONDecodeError:
+                        continue
 
             studies = json.loads(text_out)
             if not isinstance(studies, list):
