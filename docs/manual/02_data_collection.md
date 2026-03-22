@@ -44,9 +44,23 @@ AND "{pubmed_rct_start_date}"[Date - Publication] : "today"[Date - Publication]
 
 Cochrane systematic reviews contain expert risk-of-bias assessments using the RoB 2.0 framework. The collector:
 
-1. Searches Europe PMC for recent Cochrane reviews mentioning "risk of bias"
-2. Parses full-text XML to extract per-study RoB judgments across 5 domains
-3. Resolves study identifiers (e.g., "Smith 2020") to PubMed PMIDs
+1. Searches Europe PMC for open-access systematic reviews mentioning "risk of bias"
+2. Extracts per-study RoB judgments via regex patterns; falls back to LLM-based extraction (DeepSeek reasoner, chunk & map-reduce) when regex finds nothing
+3. Resolves study identifiers to PubMed PMIDs using a multi-layer strategy
+
+#### PMID Resolution
+
+Study IDs in systematic reviews vary widely -- `"Smith 2020"`, `"Smith et al. 2020"`, `"Smith et al. [28]"`. The collector normalises these and applies five resolution strategies in priority order:
+
+| Layer | Strategy | Description |
+|-------|----------|-------------|
+| 1a | Bracket-reference lookup | Match `[28]` to `<ref>` XML element by label, read inline `<pub-id>` |
+| 1b | Author+year from refs | Match normalised surname+year against the review's reference list |
+| 1c | Surname-only from refs | If exactly one ref matches the surname (when no year is available) |
+| 2 | DOI → PMID | PubMed `esearch` with `DOI[DOI]` for studies with a DOI but no PMID |
+| 3 | Author+year PubMed search | Broad PubMed search by author name and publication year |
+
+Resolution is done per-review (not batched at the end) so results can be saved incrementally via the `on_result` callback.
 
 **Config:**
 - `cochrane_max_reviews` (default: 200) -- Cochrane reviews to search

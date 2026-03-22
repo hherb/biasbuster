@@ -101,13 +101,45 @@ The Cochrane collector (`collectors/cochrane_rob.py`) now searches:
 - Wider year range (2015-2026, was 2018-2026)
 - More reviews per domain (200 total, was 50)
 
-### 3b. Three-layer PMID resolution
+### 3b. Multi-layer PMID resolution
 
-1. **Reference XML**: Extract PMIDs/DOIs directly from `<pub-id>` elements
-2. **DOI lookup**: Resolve DOIs → PMIDs via PubMed `esearch`
-3. **Author+year search**: Relaxed PubMed search (no RCT publication type filter)
+Study ID resolution uses up to five strategies, applied per-review (not
+batched at the end) so that `on_result` can save incrementally:
+
+| Layer | Strategy | How it works |
+|-------|----------|-------------|
+| 1a | **Bracket-reference lookup** | LLM returns `ref_number` (e.g. 28); matched to `<ref>` XML element by `<label>` or `id="CR28"` to read `<pub-id pub-id-type="pmid">` directly |
+| 1b | **Author+year from refs** | Normalised first-author surname + year matched against `<ref>` list (`<name><surname>` + `<year>`) |
+| 1c | **Surname-only from refs** | If exactly one `<ref>` matches the surname (no year in study ID), use that ref |
+| 2 | **DOI → PMID** | For studies with a DOI but no PMID from layer 1, `esearch` with `DOI[DOI]` |
+| 3 | **Author+year PubMed search** | Relaxed PubMed search (no RCT publication type filter) as final fallback |
+
+Study IDs are normalised via `_normalize_study_id()` which handles
+`"Author et al., 2020 [28]"`, `"Author et al. [28]"`, `"Author 2020a"`,
+etc. by stripping "et al." and extracting the bracket reference number.
 
 Resolution rate improved from 22% to 52%.
+
+### 3b-fix. "et al." and bracket-reference handling (2026-03-22)
+
+**Problem**: Many systematic reviews cite studies as `"Manwaring et al. [28]"`
+rather than `"Manwaring 2024"`.  All three original resolution layers used a
+regex (`(\w+)\s+(year)`) that failed on "et al." — the year was never
+extracted, and the bracket reference number was ignored entirely.  PMIDs
+sitting in the XML `<ref>` elements went unmatched.
+
+**Changes**:
+
+- **LLM prompt** now requests `ref_number` (the bracket citation number)
+- **`_normalize_study_id()`** helper parses all variants into
+  `(surname, year, ref_number)`, tolerating "et al." and bracket refs
+- **`_is_valid_study_id()`** accepts study IDs with only a ref number
+  (no year needed if bracket ref is present)
+- **`extract_included_study_refs()`** extracts `ref_label` from XML
+  `<label>` elements or `<ref id="CR28">` attributes
+- **`_resolve_pmids_from_refs()`** rewritten with three sub-strategies:
+  bracket-ref lookup (highest priority), author+year, surname-only
+- **`resolve_study_pmids()`** uses normalised study IDs for PubMed search
 
 ### 3c. LLM-based RoB extraction (fallback)
 
@@ -211,7 +243,7 @@ reference specific evidence from the annotation.
 | `export.py` | Import prompt from `prompts.py`; remove oversampling; stratified split; retraction floors; evidence-grounded thinking chains |
 | `schemas/bias_taxonomy.py` | Updated lazy import |
 | `pipeline.py` | Added `seed` and `collect-rob` stages |
-| `collectors/cochrane_rob.py` | Broader search, 3-layer PMID resolution, LLM extraction fallback, study ID junk filter |
+| `collectors/cochrane_rob.py` | Broader search, 5-layer PMID resolution (bracket-ref + author+year + surname-only + DOI + PubMed search), LLM extraction with `ref_number`, study ID normalisation ("et al." / bracket handling), junk filter |
 | `config.example.py` | Updated defaults (deepseek-reasoner, cochrane_max_reviews=200, cochrane_min_year=2015) |
 | `CLAUDE.md` | Updated architecture docs, commands, module descriptions |
 
@@ -260,6 +292,7 @@ uv run python pipeline.py --stage all
 | Export split | Random shuffle | Stratified by severity class |
 | Thinking chains | Formulaic templates | Evidence-grounded with concern counts |
 | Cochrane RoB extraction | Regex only | Regex first, LLM fallback (chunk & map-reduce) |
+| Cochrane PMID resolution | Author+year regex only | 5-layer: bracket-ref, author+year, surname-only, DOI, PubMed search |
 
 ### Expected outcomes
 

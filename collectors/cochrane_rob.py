@@ -94,13 +94,16 @@ systematic review or meta-analysis that used the Cochrane Risk of Bias 2
 judgment.
 
 For each study, return:
-- "study_id": the author-year identifier as written in the review (e.g. "Smith 2020")
+- "study_id": the first author surname and year (e.g. "Smith 2020").
+  Strip "et al." and other co-author text — just the first surname and year.
 - "overall_rob": one of "high", "low", or "some_concerns"
+- "ref_number": the bracketed reference number if present (e.g. 28 for "[28]"),
+  or null if not cited by number.
 
 Return ONLY a JSON array.  Example:
 [
-  {"study_id": "Smith 2020", "overall_rob": "high"},
-  {"study_id": "Jones 2019", "overall_rob": "low"}
+  {"study_id": "Smith 2020", "overall_rob": "high", "ref_number": 12},
+  {"study_id": "Jones 2019", "overall_rob": "low", "ref_number": null}
 ]
 
 If the review does not contain individual study-level RoB judgments,
@@ -243,6 +246,16 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             for ref in root.findall(".//ref"):
                 ref_data = {}
 
+                # Extract the numeric label (e.g. <label>28</label> or id="CR28")
+                label_el = ref.find("label")
+                if label_el is not None and label_el.text:
+                    ref_data["ref_label"] = re.sub(r'\D', '', label_el.text)
+                else:
+                    # Try to extract number from id attr (e.g. "CR28", "ref-28")
+                    ref_id = ref.get("id", "")
+                    num_match = re.search(r'(\d+)', ref_id)
+                    ref_data["ref_label"] = num_match.group(1) if num_match else ""
+
                 # Extract citation details
                 for element_id in ref.findall(".//element-citation") + ref.findall(".//mixed-citation"):
                     # Author names
@@ -317,20 +330,49 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         "removed", "assessed", "conducted", "reported", "performed",
     })
 
+    # Regex to normalise "Author et al. 2020 [28]" → (author, year, ref_number)
+    _STUDY_ID_RE = re.compile(
+        r'(\w+)'                              # first-author surname
+        r'(?:\s+et\s+al\.?,?)?'               # optional "et al." / "et al,"
+        r'(?:\s*,?\s*((?:19|20)\d{2})\w?)?'   # optional year (e.g. 2020, 2020a)
+        r'(?:\s*\[(\d+)\])?'                  # optional bracket ref [28]
+    )
+
+    @classmethod
+    def _normalize_study_id(cls, study_id: str) -> tuple[str, str, str]:
+        """Parse a study ID into (surname, year, ref_number).
+
+        Handles formats like:
+          "Smith 2020", "Smith et al. 2020", "Smith et al. [28]",
+          "Smith et al., 2020 [28]", "Smith 2020a"
+
+        Returns empty strings for components that aren't present.
+        """
+        m = cls._STUDY_ID_RE.match(study_id.strip())
+        if not m:
+            return ("", "", "")
+        return (m.group(1) or "", m.group(2) or "", m.group(3) or "")
+
     @classmethod
     def _is_valid_study_id(cls, study_id: str) -> bool:
         """Check whether a regex-captured study_id looks like a real Author Year."""
-        parts = study_id.strip().split()
-        if len(parts) < 2:
+        author, year, ref_num = cls._normalize_study_id(study_id)
+        if not author:
             return False
-        author = parts[0].lower().rstrip(",;:")
+        # Need at least a year or a ref number to be useful
+        if not year and not ref_num:
+            # Fall back to old heuristic: check if there are at least 2 parts
+            parts = study_id.strip().split()
+            if len(parts) < 2:
+                return False
+        author_lower = author.lower().rstrip(",;:")
         # Must start with uppercase (proper noun) and not be a common word
-        if not parts[0][0].isupper():
+        if not author[0].isupper():
             return False
-        if author in cls._JUNK_AUTHORS:
+        if author_lower in cls._JUNK_AUTHORS:
             return False
         # Author name should be at least 2 chars
-        if len(author) < 2:
+        if len(author_lower) < 2:
             return False
         return True
 
@@ -478,6 +520,13 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             rob = s.get("overall_rob", "").strip().lower()
             if not sid or not rob:
                 continue
+
+            # If LLM returned a ref_number, ensure it's in the study_id
+            # so _normalize_study_id can extract it for bracket-ref lookup
+            ref_num = s.get("ref_number")
+            if ref_num is not None and f"[{ref_num}]" not in sid:
+                sid = f"{sid} [{ref_num}]"
+
             if not self._is_valid_study_id(sid):
                 continue
             sid_key = sid.lower()
@@ -579,13 +628,10 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             if assessment.pmid:
                 continue
 
-            # Parse "Author Year" format
-            match = re.match(r'(\w+)\s+((?:19|20)\d{2})', assessment.study_id)
-            if not match:
+            # Parse study ID (handles "Author Year", "Author et al. Year", etc.)
+            author, year, _ = self._normalize_study_id(assessment.study_id)
+            if not author or not year:
                 continue
-
-            author = match.group(1)
-            year = match.group(2)
 
             try:
                 # Search without Publication Type filter — Cochrane reviews
@@ -631,40 +677,73 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
     ) -> None:
         """Match RoB assessments to reference PMIDs/DOIs extracted from XML.
 
-        Cochrane full-text XML often has ``<pub-id pub-id-type="pmid">``
-        and DOIs directly in the reference list.  Matching by first-author
-        surname + year is much more reliable than PubMed search.
+        Uses three matching strategies (in priority order):
+        1. Bracket reference number (e.g. ``[28]`` → ``<ref>`` with label 28)
+        2. First-author surname + year
+        3. Surname-only (if exactly one ref matches)
         """
-        # Build lookup: (surname_lower, year) → ref data
-        ref_lookup: dict[tuple[str, str], dict] = {}
+        # Build lookups
+        ref_by_label: dict[str, dict] = {}          # "28" → ref
+        ref_by_author_year: dict[tuple[str, str], dict] = {}  # ("smith", "2020") → ref
+        refs_by_author: dict[str, list[dict]] = {}   # "smith" → [ref, ...]
+
         for ref in refs:
+            # Label lookup
+            label = ref.get("ref_label", "")
+            if label:
+                ref_by_label[label] = ref
+
             year = str(ref.get("year", "")).strip()
             authors = ref.get("authors", [])
-            if authors and year:
-                # First author surname
+            if authors:
                 surname = authors[0].split()[0].lower() if authors[0] else ""
                 if surname:
-                    ref_lookup[(surname, year)] = ref
+                    if year:
+                        ref_by_author_year[(surname, year)] = ref
+                    refs_by_author.setdefault(surname, []).append(ref)
+
+        def _apply_ref(assessment: RoBAssessment, ref: dict) -> bool:
+            """Apply ref data to assessment. Returns True if PMID was set."""
+            got_pmid = False
+            if ref.get("pmid") and not assessment.pmid:
+                assessment.pmid = ref["pmid"]
+                got_pmid = True
+            if ref.get("doi") and not assessment.doi:
+                assessment.doi = ref["doi"]
+            if ref.get("title") and not assessment.study_title:
+                assessment.study_title = ref["title"]
+            return got_pmid
 
         matched = 0
         for a in assessments:
             if a.pmid:
                 continue
-            m = re.match(r'(\w+)\s+((?:19|20)\d{2})', a.study_id)
-            if not m:
-                continue
-            author_lower = m.group(1).lower()
-            year = m.group(2)
 
-            ref = ref_lookup.get((author_lower, year))
-            if ref:
-                if ref.get("pmid"):
-                    a.pmid = ref["pmid"]
+            author, year, ref_num = self._normalize_study_id(a.study_id)
+
+            # Strategy 1: bracket reference number
+            if ref_num and ref_num in ref_by_label:
+                if _apply_ref(a, ref_by_label[ref_num]):
                     matched += 1
-                elif ref.get("doi"):
-                    a.doi = ref["doi"]
-                if ref.get("title"):
-                    a.study_title = ref["title"]
+                continue
+
+            author_lower = author.lower() if author else ""
+            if not author_lower:
+                continue
+
+            # Strategy 2: surname + year
+            if year:
+                ref = ref_by_author_year.get((author_lower, year))
+                if ref:
+                    if _apply_ref(a, ref):
+                        matched += 1
+                    continue
+
+            # Strategy 3: surname-only (only if unambiguous)
+            candidates = refs_by_author.get(author_lower, [])
+            if len(candidates) == 1:
+                if _apply_ref(a, candidates[0]):
+                    matched += 1
 
         if matched:
             logger.info(f"Matched {matched} PMIDs from Cochrane reference list")
