@@ -2,32 +2,70 @@
 
 **What you'll do:** Merge the LoRA adapter into the base model, optionally quantize it, and deploy to Ollama for inference.
 
+## Quick Path: lora2ollama.sh
+
+For an end-to-end merge + export in one command:
+
+```bash
+# Cross-platform: auto-detects Linux (Docker) vs macOS (MLX)
+./lora2ollama.sh qwen3.5-27b
+./lora2ollama.sh qwen3.5-27b --quantize Q4_K_M
+./lora2ollama.sh qwen3.5-9b-4bit --quantize Q4_K_M  # MLX preset
+
+# Custom Ollama model name
+./lora2ollama.sh qwen3.5-27b --ollama-model-name my-bias-detector
+```
+
+The script automatically detects your platform:
+- **Linux**: Uses `run_merge.sh` (Docker-based dense merge or surgical MoE merge)
+- **macOS**: Uses `run_merge_mlx.sh` (MLX fuse with de-quantize)
+
+Then exports to Ollama via `training/export_to_ollama.sh`.
+
 ## Step 1: Merge the Adapter
 
 LoRA training produces a small adapter (~50-100 MB) that must be merged back into the base model for efficient inference.
 
-### Merge Only
+### Dense Models (Qwen, OLMo)
 
 ```bash
 ./run_merge.sh qwen3.5-27b
 ./run_merge.sh olmo-3.1-32b
+./run_merge.sh qwen3.5-9b
 ```
 
-### Merge + Quantize + Deploy (All-in-One)
-
-```bash
-./run_merge.sh olmo-3.1-32b --quantize q8_0
-```
-
-With `--quantize`, the script will merge the adapter, convert to GGUF format, and import into Ollama in one step.
-
-### What Happens During Merge
-
+The merge runs inside the NGC Docker container:
 1. The base model is loaded on CPU (no GPU needed -- merge is arithmetic on weight tensors)
 2. The LoRA adapter from `training_output/{model}-lora/final_adapter/` is loaded
 3. Adapter weights are merged into the base model via `model.merge_and_unload()`
 4. The merged model is saved in 2 GB shards to manage memory
 5. The tokenizer is saved from the base model (avoids broken tokenizer configs from the adapter)
+
+### GPT-OSS MoE (Surgical Merge)
+
+GPT-OSS uses a special surgical merge that preserves the native MXFP4 expert weights:
+
+```bash
+./run_merge.sh gpt-oss-20b
+```
+
+Unlike the standard merge, the surgical merge:
+- Runs on the host (no Docker needed) -- operates directly on safetensors files
+- Copies each shard file byte-for-byte to the output directory
+- Reads the safetensors header to locate attention tensors (q/k/v/o_proj)
+- Applies the LoRA delta in float32, converts back to BF16, writes in place
+- All other tensors (MXFP4 experts, router, norms, embeddings) are untouched -- bit-for-bit identical to the original
+
+The result is a ~14 GB model that can be imported directly into Ollama, which serves MXFP4 natively.
+
+### Merge + Quantize + Deploy (All-in-One)
+
+```bash
+./run_merge.sh olmo-3.1-32b --quantize q8_0
+./run_merge.sh qwen3.5-27b --quantize Q4_K_M
+```
+
+With `--quantize`, the script will merge the adapter, convert to GGUF format, and import into Ollama in one step.
 
 **Output:**
 ```
@@ -80,6 +118,12 @@ Single-pass types (`q8_0`, `f16`, `bf16`) are converted directly by `convert_hf_
 
 If you used `--gguf` in the export step, the model is already imported into Ollama. Without `--gguf`, the export script imports safetensors directly (full precision).
 
+### Chat Templates
+
+The export script automatically includes the appropriate chat template in the Modelfile:
+- **Qwen, OLMo**: ChatML template
+- **GPT-OSS**: Harmony chat template (per OpenAI specification)
+
 ### Import Without Quantization (Full Precision)
 
 ```bash
@@ -125,7 +169,7 @@ This is already handled in `merge_adapter.py` for new merges, but may affect pre
 
 ### Model Outputs Garbage After Ollama Import
 
-If the deployed model produces function-calling markup or other unexpected output, the Modelfile is missing a chat template. The export script now includes a ChatML template automatically. If using an older export, re-run the export command.
+If the deployed model produces function-calling markup or other unexpected output, the Modelfile is missing a chat template. The export script now includes a chat template automatically. If using an older export, re-run the export command.
 
 ## Next Step
 

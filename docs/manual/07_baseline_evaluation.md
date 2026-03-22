@@ -87,9 +87,9 @@ eval_results/zero_shot/
 ├── olmo-3.1:32b-instruct-q8_0_outputs.jsonl
 ├── qwen3.5:27b-q8_0_evaluation.json             # Per-model metrics
 ├── olmo-3.1:32b-instruct-q8_0_evaluation.json
-├── comparison_zero-shot_2026-03-17.json          # Full comparison data
-├── comparison_zero-shot_2026-03-17.md            # Human-readable report
-└── comparison_zero-shot_2026-03-17.csv           # Spreadsheet export
+├── comparison_zero-shot_<date>.json              # Full comparison data
+├── comparison_zero-shot_<date>.md                # Human-readable report
+└── comparison_zero-shot_<date>.csv               # Spreadsheet export
 ```
 
 ## Understanding the Metrics

@@ -1,6 +1,6 @@
 # 2. Harvesting Training Data
 
-**What you'll do:** Collect clinical trial abstracts from three complementary sources to build a diverse training dataset.
+**What you'll do:** Collect clinical trial abstracts from three complementary sources to build a diverse training dataset, then clean and enrich the collected data.
 
 ## Run Collection
 
@@ -49,9 +49,32 @@ Cochrane systematic reviews contain expert risk-of-bias assessments using the Ro
 3. Resolves study identifiers (e.g., "Smith 2020") to PubMed PMIDs
 
 **Config:**
-- `cochrane_max_reviews` (default: 50) -- Cochrane reviews to search
+- `cochrane_max_reviews` (default: 200) -- Cochrane reviews to search
 - `cochrane_rob_max` (default: 1000) -- maximum studies to extract
-- `cochrane_min_year` (default: 2018) -- earliest review year
+- `cochrane_min_year` (default: 2015) -- earliest review year
+
+## Post-Collection Cleanup (Seed)
+
+After collection, run the seed step to clean and enrich the raw data:
+
+```bash
+uv run python pipeline.py --stage seed
+```
+
+Or run it standalone with individual steps:
+
+```bash
+uv run python seed_database.py                    # all steps
+uv run python seed_database.py --step enrich-rw   # just retraction reasons
+uv run python seed_database.py --step fetch-abs   # just missing abstracts
+uv run python seed_database.py --step clean       # just retraction notice filter
+```
+
+The seed step performs three idempotent operations:
+
+1. **enrich-rw** -- Downloads the Retraction Watch CSV from Crossref Labs and enriches `retraction_reasons` with structured reason codes from the controlled RW vocabulary (~111 categories)
+2. **fetch-abs** -- Fetches missing abstracts from PubMed for Cochrane RoB papers (and any paper with an empty abstract but a valid PMID)
+3. **clean** -- Flags bare retraction notices ("This article has been retracted...") that contain no assessable research content. Original papers that were later retracted are kept.
 
 ## What Gets Stored
 
@@ -64,9 +87,13 @@ All papers are inserted into the `papers` table in SQLite with fields:
 | `journal`, `year` | Publication metadata |
 | `authors` | JSON array with names and affiliations |
 | `grants`, `mesh_terms` | Funding and MeSH term data |
+| `subjects` | Subject categories |
 | `source` | Which collector produced this record |
 | `retraction_reasons` | Why the paper was retracted (if applicable) |
 | `overall_rob` | Cochrane risk-of-bias judgment (if applicable) |
+| `cochrane_review_pmid` | Source Cochrane review (if applicable) |
+| `domain` | Medical domain (MeSH-based) |
+| `excluded` | Soft-delete flag for filtered records |
 
 ## Verify Collection
 

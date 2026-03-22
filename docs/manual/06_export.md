@@ -10,7 +10,7 @@ uv run python pipeline.py --stage export
 
 ## Output Structure
 
-Export creates training files in three formats with 80/10/10 train/val/test splits:
+Export creates training files in two formats with 80/10/10 train/val/test splits:
 
 ```
 dataset/export/
@@ -25,6 +25,8 @@ dataset/export/
     ├── test.jsonl
     └── metadata.json
 ```
+
+A third format, `openai_chat`, is available programmatically via `export.export_dataset(fmt="openai_chat")` but is not produced by the default pipeline export.
 
 **Config:**
 - `train_split` (default: 0.8) -- fraction for training
@@ -96,6 +98,10 @@ After reasoning, the output includes per-domain severity ratings, evidence quote
 3. Verify author affiliations via ORCID
 ```
 
+## Retraction Severity Floors
+
+During export, retracted papers automatically receive minimum severity floors based on their retraction reason category (e.g., data fabrication receives CRITICAL, plagiarism receives HIGH). This is applied by the retraction classifier before format conversion, ensuring the training data accurately reflects the severity of known-biased papers.
+
 ## Verify Exported Data
 
 ```bash
@@ -104,14 +110,6 @@ wc -l dataset/export/alpaca/*.jsonl
 
 # Preview a training example
 head -1 dataset/export/alpaca/train.jsonl | python3 -m json.tool | head -20
-```
-
-Expected output for a typical dataset:
-
-```
-  712 dataset/export/alpaca/train.jsonl
-   89 dataset/export/alpaca/val.jsonl
-   89 dataset/export/alpaca/test.jsonl
 ```
 
 ## Next Step

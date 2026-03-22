@@ -12,6 +12,12 @@ uv sync
 
 This creates a `.venv/` virtual environment and installs all Python dependencies.
 
+For Apple Silicon (MLX training), also install the MLX group:
+
+```bash
+uv sync --group mlx
+```
+
 ## Configure
 
 Copy the example configuration and edit it:
@@ -34,7 +40,7 @@ Open `config.py` and set the required values:
 |---------|---------------------|-------------|
 | `anthropic_api_key` | `ANTHROPIC_API_KEY` | For Claude-based annotation (default backend) |
 | `deepseek_api_key` | `DEEPSEEK_API_KEY` | For DeepSeek annotation (alternative backend) |
-| `ncbi_api_key` | — | Optional. Increases PubMed rate limit from 3/s to 10/s |
+| `ncbi_api_key` | -- | Optional. Increases PubMed rate limit from 3/s to 10/s |
 
 Environment variables take precedence over config file values for API keys.
 
@@ -79,12 +85,17 @@ biasbuster/
 ├── pipeline.py            # Main pipeline orchestrator
 ├── database.py            # SQLite database interface
 ├── export.py              # Training data exporter
+├── prompts.py             # Single source of truth for all prompts
+├── seed_database.py       # Post-collection cleanup & enrichment
 ├── collectors/            # Data source collectors
 ├── enrichers/             # Heuristic analysis modules
 ├── annotators/            # LLM annotation backends
+├── schemas/               # Bias taxonomy dataclasses & enums
 ├── evaluation/            # Model evaluation framework
-├── training/              # LoRA fine-tuning code
-├── utils/                 # Review GUI, training monitor
+├── training/              # LoRA fine-tuning code (PyTorch + MLX)
+├── agent/                 # Verification agent (tool-use loop)
+├── gui/                   # Fine-Tuning Workbench (NiceGUI)
+├── utils/                 # Review GUI, training monitor, retry helpers
 ├── dataset/               # Created at runtime (DB + exports)
 └── training_output/       # Created during training
 ```

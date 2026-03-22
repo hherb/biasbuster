@@ -11,14 +11,18 @@
 - Sufficient GPU memory (tested on DGX Spark with 128 GB)
 - The NGC PyTorch container image: `nvcr.io/nvidia/pytorch:25.11-py3`
 
+## Supported Models
+
+| Preset Key | HuggingFace ID | Download Size | Architecture |
+|------------|----------------|---------------|-------------|
+| `qwen3.5-27b` | `Qwen/Qwen3.5-27B` | ~54 GB | Dense |
+| `qwen3.5-9b` | `Qwen/Qwen3.5-9B` | ~18 GB | Dense |
+| `olmo-3.1-32b` | `allenai/OLMo-3.1-32B-Instruct` | ~64 GB | Dense |
+| `gpt-oss-20b` | `openai/gpt-oss-20b` | ~14 GB (MXFP4) | MoE (32 experts, top-4) |
+
 ## Download the Base Model from HuggingFace
 
-Training requires the full-precision base model weights from HuggingFace (not the quantized Ollama versions used for evaluation). These are large downloads:
-
-| Model | HuggingFace ID | Download Size |
-|-------|----------------|---------------|
-| Qwen 3.5 27B | `Qwen/Qwen3.5-27B` | ~54 GB |
-| OLMo 3.1 32B | `allenai/OLMo-3.1-32B-Instruct` | ~64 GB |
+Training requires the full-precision base model weights from HuggingFace (not the quantized Ollama versions used for evaluation). These are large downloads.
 
 ### Option A: Pre-download (Recommended)
 
@@ -32,6 +36,8 @@ uv tool install huggingface_hub
 hf download Qwen/Qwen3.5-27B
 # or
 hf download allenai/OLMo-3.1-32B-Instruct
+# or
+hf download openai/gpt-oss-20b
 ```
 
 Models are cached in `~/.cache/huggingface/hub/`. The training script mounts this directory into the Docker container, so the model is available without re-downloading.
@@ -74,11 +80,13 @@ A complete download will have a single snapshot directory containing `model.safe
 ## Start Training
 
 ```bash
-# Train from scratch
+# Dense models
 ./run_training.sh qwen3.5-27b
-
-# Or with OLMo
+./run_training.sh qwen3.5-9b
 ./run_training.sh olmo-3.1-32b
+
+# MoE model
+./run_training.sh gpt-oss-20b
 ```
 
 The script:
@@ -95,22 +103,25 @@ The script:
 
 # Smoke test (5 steps only)
 ./run_training.sh qwen3.5-27b --max-steps 5
+
+# Override hyperparameters from the command line
+./run_training.sh qwen3.5-27b --lr 1e-4 --epochs 5 --lora-rank 32
 ```
 
 ## Hyperparameters
 
-All hyperparameters are centralized in `training/configs.py`. The defaults are tuned for 27-32B parameter models on a single GPU:
+All hyperparameters are centralised in `training/configs.py`. The base defaults target 27-32B dense models; 9B and MoE models receive automatic overrides.
 
-### LoRA Configuration
+### LoRA Configuration (Base Defaults)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `lora_r` | 16 | LoRA rank (adaptation dimension) |
 | `lora_alpha` | 32 | Scaling factor (alpha/r = 2.0) |
-| `lora_dropout` | 0.05 | Regularization dropout |
+| `lora_dropout` | 0.05 | Regularisation dropout |
 | `target_modules` | q,k,v,o,gate,up,down | All attention + MLP layers |
 
-### Training Configuration
+### Training Configuration (Base Defaults)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -124,6 +135,32 @@ All hyperparameters are centralized in `training/configs.py`. The defaults are t
 | `bf16` | True | bfloat16 mixed precision |
 | `gradient_checkpointing` | True | Trades compute for memory |
 | `max_grad_norm` | 1.0 | Gradient clipping threshold |
+
+### 9B Model Overrides
+
+Applied automatically when the model key contains "9b":
+
+| Parameter | Override | Rationale |
+|-----------|---------|-----------|
+| `lora_r` | 32 | More LoRA capacity for smaller model |
+| `lora_alpha` | 64 | Maintain alpha/r = 2 |
+| `lora_dropout` | 0.08 | Higher to combat overfitting |
+| `weight_decay` | 0.02 | Additional regularisation |
+| `label_smoothing_factor` | 0.05 | Soften targets for better calibration |
+
+### GPT-OSS MoE Overrides
+
+Applied automatically for `gpt-oss-20b`. The MoE architecture requires special handling:
+
+| Parameter | Override | Rationale |
+|-----------|---------|-----------|
+| `target_modules` | q,k,v,o only | Skip expert FFNs and router for stable training |
+| `learning_rate` | 5e-6 | Conservative LR to avoid expert collapse |
+| `lora_dropout` | 0.1 | Combat rapid memorisation |
+| `num_train_epochs` | 1 | Model converges within half an epoch |
+| `weight_decay` | 0.02 | Additional regularisation |
+| `mxfp4_dequantize` | True | Backward pass not implemented for MXFP4 |
+| `attn_implementation` | eager | Required per OpenAI cookbook |
 
 ### Checkpointing
 

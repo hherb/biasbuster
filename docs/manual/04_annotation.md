@@ -79,7 +79,7 @@ Uses `httpx` with the OpenAI-compatible API. Configure:
 ```python
 deepseek_api_key = ""            # Or set DEEPSEEK_API_KEY env var
 deepseek_api_base = "https://api.deepseek.com"
-deepseek_model = "deepseek-chat"
+deepseek_model = "deepseek-reasoner"
 deepseek_max_tokens = 4000
 ```
 
