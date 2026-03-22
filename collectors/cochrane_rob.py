@@ -331,11 +331,14 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
     })
 
     # Regex to normalise "Author et al. 2020 [28]" → (author, year, ref_number)
+    # Handles: "Smith 2020", "Smith et al. 2020", "Smith et al. [28]",
+    #          "Hudson JL, 2020. [45]", "Smith 2020a"
     _STUDY_ID_RE = re.compile(
         r'(\w+)'                              # first-author surname
         r'(?:\s+et\s+al\.?,?)?'               # optional "et al." / "et al,"
-        r'(?:\s*,?\s*((?:19|20)\d{2})\w?)?'   # optional year (e.g. 2020, 2020a)
-        r'(?:\s*\[(\d+)\])?'                  # optional bracket ref [28]
+        r'(?:\s+[A-Z]{1,3})?'                 # optional initials (e.g. "JL", "AB")
+        r'(?:[,.\s]*\s*((?:19|20)\d{2})\w?)?'  # optional year (e.g. 2020, 2020a)
+        r'(?:[.\s]*\[(\d+)\])?'               # optional bracket ref [28], skip "." or spaces
     )
 
     @classmethod
