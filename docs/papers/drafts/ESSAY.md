@@ -217,23 +217,54 @@ This is fundamentally a class imbalance problem. The training data contains enou
 
 **CMS Open Payments collapsed from 57% to 22%.** Analysis of the training data shows Open Payments is mentioned in only 29.8% of examples, with a steep skew: 100% citation rate for HIGH COI severity, but only 16% for LOW and 13% for NONE. The model learned the strong HIGH-COI association and discarded the weaker signals. Since most test examples have LOW-MODERATE COI, the model defaults to not citing Open Payments.
 
+### Fifth Run: Fine-Tuning the MoE Model
+
+The gpt-oss:20b results were too promising to leave on the table. We fine-tuned it.
+
+This required solving several infrastructure problems first. GPT-OSS stores its expert weights in MXFP4 (4-bit floating point), and the backward pass isn't implemented for MXFP4 in PyTorch. We dequantised to BF16 on load via `Mxfp4Config(dequantize=True)`, which expanded the model to ~42 GB -- still comfortable within the DGX Spark's 128 GB. The model also requires `attn_implementation="eager"` instead of PyTorch SDPA, per the OpenAI cookbook.
+
+The LoRA configuration was deliberately conservative: attention-only targets (q/k/v/o projections), rank 16, learning rate 5×10⁻⁶ (50× lower than dense model defaults), 1 epoch, and higher dropout (0.1) to combat memorisation. Only 7.96M of 20.9B parameters (0.04%) were trainable. The initial training run with 3 epochs and 1×10⁻⁵ LR showed rapid saturation -- loss collapsed to near-zero within 200 steps, with the remaining 1,000 steps producing essentially zero gradients. The revised configuration (1 epoch, 5×10⁻⁶ LR) was more conservative still.
+
+Export also required a new approach. Standard adapter merging fails because MXFP4→BF16 reverse conversion isn't implemented, and dequantising to BF16 then re-quantising to GGUF would be wasteful when Ollama supports MXFP4 natively at ~14 GB. Instead, we used Ollama's `ADAPTER` directive to overlay the LoRA adapter on the MXFP4 base model at load time.
+
+**The results were a mixed bag:**
+
+| What | gpt-oss:20b (baseline) | gpt-oss:20b (fine-tuned) |
+|------|:---:|:---:|
+| Overall binary F1 | 0.918 | **0.938** |
+| Recall | 0.941 | **1.000** |
+| Precision | **0.895** | 0.883 |
+| Per-dimension F1 (avg) | 0.77 | **0.80** |
+| Ordinal kappa | **0.158** | 0.042 |
+| Verification score | 0.591 | **0.624** |
+| Thinking chains | 0% | 0% |
+| Mean latency | **76.7s** | 123.6s |
+
+Fine-tuning achieved the **best binary detection of any model we've tested** -- F1 0.938 with perfect recall (catches every biased paper). COI detection saw the largest per-dimension gain (+0.077 F1, driven by recall jumping from 0.734 to 0.973). Spin and outcome reporting also improved.
+
+But severity calibration **collapsed**. Kappa dropped from 0.158 to 0.042 -- the worst of any fine-tuned model. Three of five ordinal tests reached statistical significance, all favouring the baseline (methodology p<0.001, COI p=0.017, statistical reporting p=0.049). The fine-tuned model learned "something is biased here" extremely well, but lost the ability to grade *how* biased.
+
+And the biggest disappointment: **no thinking chains**. Despite the training data containing `<think>` reasoning blocks, the fine-tuned model never produces them. The attention-only LoRA -- which can redirect the model's attention to bias-relevant features -- apparently lacks the capacity to teach a new output structure. The frozen expert FFN weights control output formatting, and 0.04% trainable parameters can't override them.
+
+This tells us something important about attention-only LoRA on MoE models: it can sharpen detection (what the attention layers are already doing) but can't teach new behaviours (severity grading, thinking chains) that depend on the frozen expert weights. The adapter is too thin.
+
 ### The Key Takeaways
 
-**Mixture-of-Experts models are exceptionally strong baselines -- and prime fine-tuning candidates.** gpt-oss:20b, without any fine-tuning, outperformed our fine-tuned 9B model on severity calibration (κ 0.158 vs 0.124) and verification quality (0.591 vs 0.495), and achieved binary F1 of 0.918 -- all while running 2.6× faster. Its MoE architecture (32 experts, top-4 routing, 3.6B active of 21B total) may be inherently well-suited to multi-domain tasks. We've already added gpt-oss:20b training configurations for both DGX Spark (attention-only LoRA at 1e-5 LR) and Apple Silicon (MLX QLoRA). If the same training data improvements that lifted Qwen 9B by +0.120 F1 translate, a fine-tuned gpt-oss:20b could push well past 0.95 F1 with `<think>` chains -- at 2.6× the inference speed.
+**Mixture-of-Experts models are exceptionally strong baselines -- and respond differently to fine-tuning than dense models.** gpt-oss:20b's attention-only LoRA improved binary detection to the best we've seen (F1 0.938, recall 1.000) but degraded severity calibration (κ 0.158 → 0.042) and failed to produce thinking chains. The 0.04% trainable parameter fraction can redirect attention but cannot override frozen expert knowledge. Dense model fine-tuning (Runs 1-4) successfully taught both new capabilities and output formatting; MoE fine-tuning with conservative LoRA only sharpened existing capabilities.
 
 **Not all small models are equal.** Granite3.3:8b's catastrophic failure (F1 0.022, recall 1.1%) versus Qwen3.5-9B's strong performance (F1 0.924 fine-tuned) shows that baseline capability depends on pretraining corpus composition. Sufficient exposure to biomedical methodology literature is a prerequisite.
 
 **Prompt engineering and fine-tuning solve different problems.** An enriched prompt handles coarse detection; fine-tuning adds granular domain-level analysis, severity calibration, and structured reasoning. They're complementary, not competing.
 
-**Verification source knowledge can be taught -- and lost.** The First Run showed that fine-tuning can *destroy* database citation patterns. The Second Run showed that explicitly teaching database selection reasoning in the training data fixes this. The Fourth Run showed that even with good training, citation patterns are fragile when the training signal is unevenly distributed across severity levels. gpt-oss:20b's uniformly high citation rates (>94% across all five sources) without any training set a new target for fine-tuned models to match.
+**Verification source knowledge can be taught -- and lost.** The First Run showed that fine-tuning can *destroy* database citation patterns. The Second Run showed that explicitly teaching database selection reasoning in the training data fixes this. The Fourth Run showed that even with good training, citation patterns are fragile when the training signal is unevenly distributed across severity levels. The fine-tuned gpt-oss:20b showed a nuanced version of this: individual source citation rates dropped (e.g. ORCID 97% → 85%, Retraction Watch 96% → 78%), but the mean verification *score* improved (0.591 → 0.624), suggesting citations became more targeted even if less frequent.
 
-**Training data quality dominates hyperparameters.** Four runs have shown that the single biggest lever is the training data format -- not learning rate, not epoch count, not LoRA rank. The jump from 706 old-format examples to 1,235 new-format examples (with all five domains, NONE reasoning, and severity oversampling) produced a +0.120 F1 improvement. The hyperparameter change between the Third and Fourth Runs produced a +0.046 improvement in eval loss. Data quality wins by a wide margin.
+**Training data quality dominates hyperparameters.** Five runs have shown that the single biggest lever is the training data format -- not learning rate, not epoch count, not LoRA rank. The jump from 706 old-format examples to 1,235 new-format examples (with all five domains, NONE reasoning, and severity oversampling) produced a +0.120 F1 improvement. The hyperparameter change between the Third and Fourth Runs produced a +0.046 improvement in eval loss. Data quality wins by a wide margin.
 
-**Learning dynamics are model-size-agnostic for LoRA.** The 27B defaults (2e-4 LR, 3 epochs, effective batch 4) work equally well for both 9B and 32B models on this task. The 9B model's differentiation should be in LoRA capacity and regularisation (higher rank, more dropout, weight decay), not in learning rate or epoch count. Don't tune learning rate by model size for LoRA. For MoE models, an even more conservative approach is warranted: 1e-5 LR, attention-only targeting, and frozen router weights.
+**Learning dynamics are model-size-agnostic for LoRA -- but MoE models are a different beast.** The 27B defaults (2e-4 LR, 3 epochs, effective batch 4) work equally well for both 9B and 32B dense models on this task. But MoE models require dramatically more conservative settings: attention-only targeting, 50× lower learning rate (5e-6 vs 2e-4), higher dropout, and fewer epochs. Even then, attention-only LoRA at 0.04% trainable parameters can sharpen detection but cannot teach new output behaviours like thinking chains.
 
-**Severity calibration is a data problem, not a modelling problem.** Four training runs with different hyperparameters have left ordinal kappa stuck in the 0.12-0.29 range. The "moderate collapse" is driven by class imbalance in the training data, not by model capacity or learning dynamics. Fixing this requires either hundreds more boundary-case annotations, an ordinal-aware loss function, or post-hoc calibration.
+**Severity calibration is a data problem, not a modelling problem.** Five training runs with different hyperparameters, model architectures, and LoRA configurations have left ordinal kappa stuck in the 0.04-0.29 range. The "moderate collapse" is driven by class imbalance in the training data, not by model capacity or learning dynamics. The fine-tuned gpt-oss:20b made this worse (κ 0.158 → 0.042), suggesting that attention-only LoRA actively harms calibration by amplifying detection sensitivity without the capacity to encode ordinal gradations. Fixing this requires either hundreds more boundary-case annotations, an ordinal-aware loss function, or post-hoc calibration.
 
-**Small models are viable for production use.** A 9B model fine-tuned on 1,235 examples achieves binary F1 of 0.924 with 95% recall, per-dimension F1 of 0.70-0.84, and produces actionable verification recommendations with step-by-step reasoning. It runs on a single desktop GPU. And an MoE model may push these numbers even higher at lower inference cost. For comparison, a human Cochrane reviewer takes hours per paper.
+**The right architecture depends on the use case.** Five runs have revealed a clear trade-off landscape: the fine-tuned gpt-oss:20b is the best *screening* model (F1 0.938, recall 1.000 -- misses nothing), the unfine-tuned gpt-oss:20b is the best *calibrated* assessor (κ 0.158, balanced severity ratings), and the fine-tuned Qwen3.5-9B is the best *explainer* (100% thinking chains, per-dimension F1 0.70-0.84). A production system might use all three in sequence: fine-tuned MoE for high-recall screening, unfine-tuned MoE for severity assessment, and fine-tuned 9B for detailed explanations on flagged papers.
 
 ## From Assessment to Action: The Verification Agent
 
@@ -252,7 +283,9 @@ This is where the verification-focused training pays off. Because the model was 
 
 ## What's Next
 
-**Fine-tuning gpt-oss:20b.** The highest-priority next step. Given its strong baseline (F1 0.918, κ 0.158, verification 0.591), fine-tuning with our 1,235 training examples should produce the strongest model yet. The MoE architecture requires care: attention-only LoRA (q/k/v/o projections only, skipping expert FFN weights and the router), conservative learning rate (1e-5, 10× lower than dense models), and monitoring for expert collapse. We'll train on the DGX Spark and evaluate on the M3 Mac. If this works, the result would be a model that combines fine-tuned accuracy and `<think>` reasoning with MoE inference efficiency -- the best of both worlds.
+**Unlocking thinking chains on gpt-oss:20b.** The Fifth Run showed that attention-only LoRA can't teach the MoE model to produce `<think>` reasoning. Three approaches are on the table: (1) expanding LoRA targets to include non-expert MLP layers (gate/up/down projections, skipping expert FFNs and the router) to increase trainable parameters while preserving routing stability, (2) increasing LoRA rank from 16 to 64 to give the adapter more capacity, and (3) training for 2-3 epochs at the same conservative LR to give the model more exposure to the thinking chain format. If any of these produces reasoning chains while maintaining the 0.938 F1, the gpt-oss:20b fine-tune becomes the clear production winner.
+
+**Ensemble pipeline.** The current results suggest a practical two-stage architecture: fine-tuned gpt-oss:20b for high-recall screening (catches everything), then unfine-tuned gpt-oss:20b for severity assessment on flagged papers (best calibration). The fine-tuned Qwen3.5-9B can provide detailed explanations when needed. This ensemble leverages each model's strengths rather than asking any single model to do everything.
 
 **Solving the "moderate collapse."** Targeted annotation of 200+ boundary cases -- examples specifically chosen to illustrate the LOW-MODERATE distinction across all five dimensions. The model has enough data to learn "biased vs not biased" but not enough to learn the finer gradations. Alternatively, replacing standard cross-entropy with an ordinal regression loss (e.g., CORN or cumulative link) that penalises adjacent-class errors less than distant errors could teach the model that the severity scale has an ordering.
 
@@ -266,9 +299,9 @@ This is where the verification-focused training pays off. Because the model was 
 
 BiasBuster is not a replacement for peer review or systematic review methodology. It's a screening tool -- a first pass that can flag the abstracts most deserving of careful human scrutiny, and point the reviewer exactly where to look.
 
-The medical literature is too large for manual screening and too important for uncritical trust. A 9B-parameter model running on a single desktop GPU, trained on 1,235 examples over four iterative runs, can now detect five dimensions of bias with F1 above 0.70 on every dimension and 0.924 overall, catch 95% of biased studies, produce step-by-step reasoning explaining its assessment, and recommend specific databases where each claim can be verified. An unfine-tuned 20B MoE model achieves even stronger baseline numbers (F1 0.918, κ 0.158) at 2.6× the inference speed -- and fine-tuning it is next.
+The medical literature is too large for manual screening and too important for uncritical trust. Five iterative runs have now mapped the landscape: a fine-tuned 20B MoE model achieves the best binary detection we've seen (F1 0.938, perfect recall), its unfine-tuned counterpart remains the best calibrated assessor (κ 0.158), and a 9B dense model fine-tuned on 1,235 examples produces the most detailed explanations (100% thinking chains, per-dimension F1 0.70-0.84). All run on a single desktop GPU or laptop.
 
-It's not perfect -- severity grading remains coarse and one verification source still needs better training signal. But it's fast, it's explainable, and the trajectory is clear: each round of data improvement moves the needle more than any amount of hyperparameter tuning, and the MoE architecture may provide the model capacity to push past current limits.
+It's not perfect -- severity grading remains coarse, thinking chains haven't yet been unlocked on the MoE model, and the ideal production system is probably an ensemble rather than a single model. But the trajectory is clear: each round of data improvement moves the needle more than any amount of hyperparameter tuning, and the interaction between model architecture and fine-tuning strategy is itself a finding worth sharing.
 
 ---
 

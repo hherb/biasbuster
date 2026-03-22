@@ -191,10 +191,145 @@ bash training/export_adapter_to_ollama.sh gpt-oss:20b \
 | Full merge + safetensors | `export_to_ollama.sh` | Dense models (Qwen, OLMo) |
 | Full merge + GGUF | `export_to_ollama.sh --gguf Q4_K_M` | Dense models when disk/memory constrained |
 
-## 8. Next Steps
+## 8. Evaluation Results (Post-Revised Training)
 
-1. **Re-run training** with the revised hyperparameters (1 epoch, LR 5e-6, dropout 0.1, weight_decay 0.02)
-2. **Export adapter** to Ollama via `export_adapter_to_ollama.sh` (preserving MXFP4)
-3. **Evaluate** on the 157-example test set (same as Fifth Run) for direct comparison with the unfine-tuned baseline
-4. **Compare thinking chains** -- verify that the fine-tuned model produces `<think>` reasoning while the baseline does not
-5. If evaluation looks good, consider whether expanding the training dataset would yield further gains beyond the attention-only LoRA ceiling
+Training was re-run with the revised hyperparameters (1 epoch, LR 5e-6, dropout 0.1, weight_decay 0.02), and the adapter was exported to Ollama via `export_adapter_to_ollama.sh` (preserving MXFP4 base + LoRA overlay, ~14 GB total). The fine-tuned model (`hherb/gpt-oss-20b-biasbuster:latest`) was evaluated on the same 157-example test set as the Fifth Run, enabling direct comparison with the unfine-tuned baseline.
+
+### 8.1 Overall Performance
+
+| Metric | gpt-oss:20b (baseline) | gpt-oss-20b-biasbuster (fine-tuned) | Δ |
+|--------|:---:|:---:|:---:|
+| Binary F1 | 0.918 | **0.938** | +0.020 |
+| Precision | **0.895** | 0.883 | -0.012 |
+| Recall | 0.941 | **1.000** | +0.059 |
+| Accuracy | 0.854 | **0.885** | +0.031 |
+| Ordinal κ | **0.158** | 0.042 | -0.116 |
+| Calibration error | 0.866 | 0.866 | 0.000 |
+| Verification score | 0.591 | **0.624** | +0.033 |
+| Parse failures | 0 | 0 | — |
+| Mean latency (s) | **76.7** | 123.6 | +46.9 |
+| Tokens/sec | **31.8** | 27.6 | -4.2 |
+| Thinking chains | 0% | 0% | — |
+
+**Key finding:** Fine-tuning improved binary detection (F1 +0.020, recall to perfect 1.000) and mean verification score (+0.033), but **severely degraded severity grading** (κ 0.158 → 0.042). The fine-tuned model did not produce `<think>` reasoning chains, despite the training data containing them.
+
+### 8.2 Per-Dimension Binary F1
+
+| Dimension | Baseline | Fine-Tuned | Δ |
+|-----------|:---:|:---:|:---:|
+| Statistical reporting | 0.805 | 0.800 | -0.005 |
+| Spin | 0.748 | **0.795** | +0.047 |
+| Outcome reporting | 0.752 | **0.788** | +0.036 |
+| COI | 0.751 | **0.828** | +0.077 |
+| Methodology | 0.793 | 0.797 | +0.004 |
+
+The fine-tuned model wins or ties on every dimension. The largest gain is in **COI detection (+0.077 F1)**, driven by massively improved recall (0.734 → 0.973). Spin and outcome reporting also improved meaningfully.
+
+### 8.3 Statistical Significance (Pairwise Tests)
+
+| Test | Dimension | p-value | Significant? | Winner |
+|------|-----------|---------|:---:|:---:|
+| McNemar | Statistical reporting (binary) | 0.739 | No | Tie |
+| McNemar | Spin (binary) | 0.669 | No | Tie |
+| McNemar | Outcome reporting (binary) | 0.695 | No | Tie |
+| McNemar | COI (binary) | 0.252 | No | Tie |
+| McNemar | Methodology (binary) | 0.846 | No | Tie |
+| Wilcoxon | Statistical reporting (ordinal) | **0.049** | **Yes** | **Baseline** |
+| Wilcoxon | Spin (ordinal) | 0.118 | No | Tie |
+| Wilcoxon | Outcome reporting (ordinal) | 0.973 | No | Tie |
+| Wilcoxon | COI (ordinal) | **0.017** | **Yes** | **Baseline** |
+| Wilcoxon | Methodology (ordinal) | **<0.001** | **Yes** | **Baseline** |
+
+**No binary detection differences reach significance** — the fine-tuned model's improvements in spin, outcome, and COI are trends, not proven gains at n=157.
+
+**Three ordinal tests are significant, all favouring the baseline.** The fine-tuned model's severity grading is significantly worse on statistical reporting (MAE 0.777 → 0.949, p=0.049), COI (MAE 0.771 → 0.994, p=0.017), and methodology (MAE 0.713 → 1.121, p<0.001).
+
+### 8.4 Ordinal Severity Comparison
+
+| Dimension | Metric | Baseline | Fine-Tuned | Winner |
+|-----------|--------|:---:|:---:|:---:|
+| Statistical reporting | κ | **0.197** | 0.153 | Baseline |
+| Statistical reporting | MAE | **0.777** | 0.949 | Baseline |
+| Spin | κ | **0.186** | 0.119 | Baseline |
+| Spin | MAE | **1.185** | 1.344 | Baseline |
+| Outcome reporting | κ | **0.127** | 0.068 | Baseline |
+| Outcome reporting | MAE | 1.089 | 1.102 | ~Tie |
+| COI | κ | **0.244** | 0.048 | Baseline |
+| COI | MAE | **0.771** | 0.994 | Baseline |
+| Methodology | κ | **0.254** | 0.062 | Baseline |
+| Methodology | MAE | **0.713** | 1.121 | Baseline |
+
+The baseline wins severity grading on every dimension. The fine-tuned model systematically over-predicts severity — when it detects bias, it defaults to "moderate" or "high" regardless of ground truth.
+
+### 8.5 Verification Source Citation Rates
+
+| Source | Baseline | Fine-Tuned | Δ |
+|--------|:---:|:---:|:---:|
+| CMS Open Payments | **95.5%** | 89.8% | -5.7% |
+| ClinicalTrials.gov | 93.6% | **96.2%** | +2.6% |
+| ORCID | **97.5%** | 84.7% | -12.8% |
+| Retraction Watch | **95.5%** | 77.7% | -17.8% |
+| Europe PMC | **97.5%** | 90.5% | -7.0% |
+| **Mean score** | 0.591 | **0.624** | +0.033 |
+
+The baseline cites individual verification sources more consistently, but the fine-tuned model has a higher mean verification *score* (0.624 vs 0.591), suggesting it uses citations more appropriately when it does include them.
+
+### 8.6 Efficiency
+
+| Metric | Baseline | Fine-Tuned |
+|--------|:---:|:---:|
+| Mean latency | **76.7s** | 123.6s |
+| Tokens/sec | **31.8** | 27.6 |
+| Error rate | 0% | 0% |
+
+The fine-tuned model is ~60% slower, likely generating longer outputs.
+
+## 9. Analysis
+
+### 9.1 The Attention-Only LoRA Ceiling
+
+The evaluation reveals a clear pattern: fine-tuning with attention-only LoRA at 0.04% trainable parameters **improved the model's detection sensitivity** (perfect recall, better COI/spin F1) but **destroyed its severity calibration** (κ dropped from 0.158 to 0.042). This is the same trade-off seen in Run 1 (OLMo-3.1-32B), but more extreme.
+
+The likely mechanism: attention-only LoRA can redirect the model's attention to bias-relevant features in the abstract (improving detection), but the tiny adapter lacks capacity to encode the nuanced ordinal severity scale. The frozen expert FFN weights — which contain the model's domain knowledge about severity gradations — cannot be updated, so the model defaults to its training data's modal severity class (MODERATE).
+
+### 9.2 Missing Thinking Chains
+
+The fine-tuned model produces 0% `<think>` reasoning chains despite the training data containing them. This is likely because:
+1. The attention-only LoRA cannot redirect output formatting behaviour that is controlled by the frozen FFN/MoE layers
+2. The Harmony chat template may interact differently with chain-of-thought generation
+3. One epoch of training at 5e-6 LR may be insufficient to teach the model a new output structure
+
+This is the most disappointing result — chain-of-thought reasoning was a primary motivation for fine-tuning beyond the strong baseline.
+
+### 9.3 Comparison with Prior Runs
+
+| Configuration | Type | Size | n | Binary F1 | Recall | Ordinal κ | Verification | Thinking |
+|--------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| gpt-oss:20b baseline | Baseline | 20B MoE | 157 | 0.918 | 0.941 | **0.158** | 0.591 | 0% |
+| **gpt-oss:20b fine-tuned (Run 6)** | **Fine-tuned** | **20B MoE** | **157** | **0.938** | **1.000** | 0.042 | **0.624** | **0%** |
+| Qwen3.5-9B fine-tuned (Run 4) | Fine-tuned | 9B | 144 | 0.924 | 0.950 | 0.124 | 0.495 | 100% |
+| OLMo-3.1-32B fine-tuned (Run 1) | Fine-tuned | 32B | 89 | 0.952 | 0.920 | 0.285 | 0.368 | 100% |
+
+Run 6 achieves the **highest binary F1 (0.938) and recall (1.000) of any model evaluated**, but the **lowest severity κ (0.042)** of any fine-tuned model, and **no thinking chains**. It is the best screening model (misses nothing) but the worst calibrated assessor.
+
+## 10. Key Takeaways
+
+1. **Attention-only LoRA on MoE improves detection but degrades calibration.** The 0.04% trainable parameter fraction is sufficient to redirect attention to bias-relevant features, but insufficient to teach severity grading or output formatting (thinking chains).
+
+2. **The fine-tuned gpt-oss:20b is the strongest binary detector.** F1 0.938 with perfect recall makes it the best screening model. For use cases where "flag everything suspicious" is acceptable, it outperforms all other configurations.
+
+3. **The unfine-tuned gpt-oss:20b remains the best calibrated model.** κ 0.158 and balanced per-dimension severity grading make it the best choice when severity ratings matter.
+
+4. **Chain-of-thought training failed for MoE attention-only LoRA.** A different approach is needed — either including expert FFN layers in LoRA targets (risking expert collapse), using a higher-rank adapter, training for more steps, or using a higher learning rate.
+
+5. **Production recommendation: ensemble.** Use the fine-tuned model for binary screening (perfect recall), then use the unfine-tuned baseline for severity assessment and verification recommendations on flagged papers. This combines the strengths of both.
+
+## 11. Next Steps
+
+1. **Investigate thinking chain failure.** Test whether increasing LoRA rank (32 → 64), training for 2-3 epochs, or adding MLP layers to LoRA targets produces `<think>` chains without expert collapse.
+
+2. **Test ensemble approach.** Build a two-stage pipeline: fine-tuned gpt-oss:20b for screening → unfine-tuned gpt-oss:20b for severity assessment.
+
+3. **Expand LoRA targets cautiously.** Try including gate_proj/up_proj/down_proj for non-expert MLP layers only (skip expert FFNs and router). This would increase trainable parameters while preserving MoE routing stability.
+
+4. **Consider longer training with current config.** The 1-epoch, 5e-6 LR setting may be too conservative for teaching new output formatting. Try 2-3 epochs to see if thinking chains emerge with more exposure.

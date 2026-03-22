@@ -4,7 +4,7 @@
 
 **Corresponding author:** Horst Herb <hherb@consensus-ai.org>
 
-**Word count:** [~5,500 main text - consider trimming for submission target]
+**Word count:** [~6,500 main text - consider trimming for submission target]
 
 ---
 
@@ -16,9 +16,9 @@
 
 **Methods:** The pipeline integrates five data sources: retracted papers via Crossref/Retraction Watch (known-biased positives), Cochrane Risk of Bias 2.0 assessments via Europe PMC (expert ground truth), PubMed randomized controlled trials filtered by MeSH domain (general population), ClinicalTrials.gov registry data (outcome switching detection), and CMS Open Payments/ORCID (conflict of interest verification). Abstracts undergo heuristic enrichment (effect size auditing, funding classification) before structured annotation by multiple LLMs using identical prompts. Inter-model agreement is evaluated with Cohen's kappa, McNemar's test, and Wilcoxon signed-rank tests. Training data is exported in three fine-tuning formats with chain-of-thought reasoning and actionable verification steps.
 
-**Results:** We present the system architecture, annotation taxonomy, and evaluation across four iterative fine-tuning runs plus expanded baseline comparison. Zero-shot baselines spanning 8B to 32B parameters were evaluated: Qwen 3.5-27B and OLMo-3.1-32B-Instruct achieved binary F1 of 0.989 with perfect recall but near-chance severity calibration (weighted κ = 0.021 and 0.066); OpenAI's gpt-oss:20b (a 21B Mixture-of-Experts model with 3.6B active parameters per token) achieved F1 of 0.918 with κ = 0.158 and verification score of 0.591 without any fine-tuning; IBM's granite3.3:8b failed catastrophically (F1 = 0.022, recall = 1.1%). LoRA fine-tuning of OLMo-3.1-32B improved severity grading (κ 0.066 → 0.285) and COI detection (F1 0.667 → 0.927) but degraded verification source citations (CMS Open Payments 85% → 16%). Enriching the training pipeline---expanding system prompts, synthesising verification reasoning in thinking chains, and growing the dataset from 706 to 1,235 examples---restored verification citations and shifted the dominant improvement axis to training data quality. The final Qwen3.5-9B fine-tuned model achieved binary F1 of 0.924, recall of 0.950, and per-dimension F1 of 0.70--0.84 across all five domains, with 100% chain-of-thought reasoning. The unfine-tuned gpt-oss:20b MoE model's strong baseline performance (F1 0.918, verification 0.591) identifies it as a high-priority fine-tuning candidate whose MoE architecture may be particularly well-suited to multi-domain bias detection. Severity calibration remained the primary limitation across all configurations (κ = 0.12--0.29), driven by class imbalance in the training data producing systematic over-prediction of moderate severity.
+**Results:** We present the system architecture, annotation taxonomy, and evaluation across five iterative fine-tuning runs plus expanded baseline comparison. Zero-shot baselines spanning 8B to 32B parameters were evaluated: Qwen 3.5-27B and OLMo-3.1-32B-Instruct achieved binary F1 of 0.989 with perfect recall but near-chance severity calibration (weighted κ = 0.021 and 0.066); OpenAI's gpt-oss:20b (a 21B Mixture-of-Experts model with 3.6B active parameters per token) achieved F1 of 0.918 with κ = 0.158 and verification score of 0.591 without any fine-tuning; IBM's granite3.3:8b failed catastrophically (F1 = 0.022, recall = 1.1%). LoRA fine-tuning of OLMo-3.1-32B improved severity grading (κ 0.066 → 0.285) and COI detection (F1 0.667 → 0.927) but degraded verification source citations (CMS Open Payments 85% → 16%). Enriching the training pipeline---expanding system prompts, synthesising verification reasoning in thinking chains, and growing the dataset from 706 to 1,235 examples---restored verification citations and shifted the dominant improvement axis to training data quality. The Qwen3.5-9B fine-tuned model achieved binary F1 of 0.924, recall of 0.950, and per-dimension F1 of 0.70--0.84 across all five domains, with 100% chain-of-thought reasoning. Fine-tuning gpt-oss:20b with attention-only LoRA (0.04% trainable parameters) achieved the strongest binary detection of any configuration (F1 = 0.938, recall = 1.000) but degraded severity calibration (κ 0.158 → 0.042) and failed to produce chain-of-thought reasoning, revealing that attention-only LoRA on MoE models can sharpen detection but cannot teach new output behaviours. Severity calibration remained the primary limitation across all configurations (κ = 0.04--0.29), driven by class imbalance in the training data producing systematic over-prediction of moderate severity.
 
-**Conclusions:** BiasBuster demonstrates that a 9B-parameter model fine-tuned on 1,235 verification-focused examples can detect five dimensions of bias in clinical trial abstracts with F1 above 0.70 per dimension and 95% recall, while producing actionable verification recommendations citing specific databases. The strong zero-shot performance of gpt-oss:20b (F1 0.918) suggests that Mixture-of-Experts architectures may be inherently well-suited to multi-domain bias detection, and that fine-tuning such models could yield further gains. Training data quality---not model size or hyperparameter tuning---was the dominant factor across four iterative runs. The pipeline's modular design enables community extension to additional data sources, bias domains, and model architectures.
+**Conclusions:** BiasBuster demonstrates that small models fine-tuned on 1,347 verification-focused examples can detect five dimensions of bias in clinical trial abstracts with high accuracy, while producing actionable verification recommendations citing specific databases. The fine-tuned gpt-oss:20b MoE model achieved the strongest binary detection (F1 = 0.938, perfect recall), while the unfine-tuned baseline retained the best severity calibration (κ = 0.158), and the fine-tuned Qwen3.5-9B produced the most detailed explanations (100% chain-of-thought reasoning, per-dimension F1 0.70--0.84). Training data quality---not model size or hyperparameter tuning---was the dominant factor across five iterative runs. Attention-only LoRA on MoE models improves detection sensitivity but cannot teach severity grading or output formatting, suggesting that production systems may benefit from ensembling models with complementary strengths. The pipeline's modular design enables community extension to additional data sources, bias domains, and model architectures.
 
 **Keywords:** bias detection, risk of bias, research integrity, large language models, training data, systematic review, spin, conflict of interest, outcome reporting
 
@@ -267,23 +267,25 @@ Inference latency on the DGX Spark averaged 150.8 seconds per abstract for Qwen 
 
 ### Fine-Tuning: Iterative Improvement Across Four Runs
 
-We conducted four LoRA fine-tuning runs over three days, each informed by the failures of the previous run. All training used the same hardware (DGX Spark), framework (TRL SFTTrainer), and base LoRA configuration (target modules: q, k, v, o, gate, up, down; bf16 precision; max sequence length 4,096 tokens; cosine learning rate schedule with 10% warmup). Table 6 summarises the configuration changes across runs.
+We conducted five LoRA fine-tuning runs, each informed by the failures of the previous run. Runs 1--4 used dense models (OLMo-3.1-32B, Qwen3.5-9B) with full-module LoRA (target modules: q, k, v, o, gate, up, down; bf16 precision). Run 5 fine-tuned the gpt-oss:20b MoE model with attention-only LoRA (q, k, v, o only) to avoid expert collapse. All training used the same hardware (DGX Spark), framework (TRL SFTTrainer), max sequence length 4,096 tokens, and cosine learning rate schedule with 10% warmup. Table 6 summarises the configuration changes across runs.
 
-**Table 6. Fine-tuning configuration across four runs.**
+**Table 6. Fine-tuning configuration across five runs.**
 
-| Parameter | Run 1 (OLMo-32B) | Run 2 (Qwen-9B) | Run 3 (Qwen-9B) | Run 4 (Qwen-9B) |
-|-----------|:-:|:-:|:-:|:-:|
-| Base model | OLMo-3.1-32B | Qwen3.5-9B | Qwen3.5-9B | Qwen3.5-9B |
-| Training examples | 706 | 706 | 1,235 | 1,235 |
-| LoRA rank / alpha | 16 / 32 | 16 / 32 | 32 / 64 | 32 / 64 |
-| Learning rate | 2×10⁻⁴ | 2×10⁻⁴ | 4×10⁻⁴ | 2×10⁻⁴ |
-| Epochs | 3 | 3 | 5 | 3 |
-| Effective batch size | 4 | 4 | 2 | 4 |
-| LoRA dropout | 0.05 | 0.05 | 0.08 | 0.08 |
-| Weight decay | 0.0 | 0.0 | 0.02 | 0.02 |
-| Label smoothing | 0.0 | 0.0 | 0.05 | 0.05 |
-| Total steps | 531 | 690 | 3,090 | 927 |
-| Training time | ~4.5 h | ~2.5 h | ~8 h | ~2.5 h |
+| Parameter | Run 1 (OLMo-32B) | Run 2 (Qwen-9B) | Run 3 (Qwen-9B) | Run 4 (Qwen-9B) | Run 5 (gpt-oss-20B) |
+|-----------|:-:|:-:|:-:|:-:|:-:|
+| Base model | OLMo-3.1-32B | Qwen3.5-9B | Qwen3.5-9B | Qwen3.5-9B | gpt-oss:20b (MoE) |
+| Training examples | 706 | 706 | 1,235 | 1,235 | 1,347 |
+| LoRA targets | All (q,k,v,o,gate,up,down) | All | All | All | Attention only (q,k,v,o) |
+| LoRA rank / alpha | 16 / 32 | 16 / 32 | 32 / 64 | 32 / 64 | 16 / 32 |
+| Learning rate | 2×10⁻⁴ | 2×10⁻⁴ | 4×10⁻⁴ | 2×10⁻⁴ | 5×10⁻⁶ |
+| Epochs | 3 | 3 | 5 | 3 | 1 |
+| Effective batch size | 4 | 4 | 2 | 4 | 4 |
+| LoRA dropout | 0.05 | 0.05 | 0.08 | 0.08 | 0.10 |
+| Weight decay | 0.0 | 0.0 | 0.02 | 0.02 | 0.02 |
+| Label smoothing | 0.0 | 0.0 | 0.05 | 0.05 | 0.0 |
+| Trainable params (%) | ~0.12% | ~0.22% | ~0.22% | ~0.22% | 0.04% |
+| Total steps | 531 | 690 | 3,090 | 927 | ~337 |
+| Training time | ~4.5 h | ~2.5 h | ~8 h | ~2.5 h | ~1.5 h |
 
 #### Run 1: OLMo-3.1-32B (Baseline Fine-Tune)
 
@@ -353,30 +355,64 @@ We reverted learning dynamics to the Run 1/2 defaults (2×10⁻⁴ LR, 3 epochs,
 
 The Run 2 recall problem was solved (0.679 → 0.950), and the 9B model now nearly matched the 32B on binary detection (F1 gap narrowed from 0.148 to 0.028), while exceeding it on recall (0.950 vs. 0.920) and verification quality (0.495 vs. 0.368).
 
+#### Run 5: gpt-oss:20b MoE Fine-Tuning (Attention-Only LoRA)
+
+Given gpt-oss:20b's strong baseline performance, we fine-tuned it using attention-only LoRA (q/k/v/o projections only, skipping expert FFN weights and the router to avoid expert collapse). This required dequantising MXFP4 expert weights to BF16 on load (~42 GB) and using eager attention per the OpenAI cookbook. Configuration was deliberately conservative: rank 16, learning rate 5×10⁻⁶ (50× lower than dense model defaults), 1 epoch, dropout 0.1, weight decay 0.02. Only 7.96M of 20.9B parameters (0.04%) were trainable.
+
+Export used a novel adapter overlay approach: Ollama's `ADAPTER` directive applies the LoRA adapter on top of the MXFP4 base model at load time, preserving the native ~14 GB format rather than dequantising and re-quantising.
+
+**Table 11. Run 5: gpt-oss:20b fine-tuned vs. zero-shot baseline (n = 157).**
+
+| Metric | Baseline | Fine-Tuned | Δ |
+|--------|:---:|:---:|:---:|
+| Binary F1 | 0.918 | **0.938** | +0.020 |
+| Precision | **0.895** | 0.883 | -0.012 |
+| Recall | 0.941 | **1.000** | +0.059 |
+| Ordinal κ | **0.158** | 0.042 | -0.116 |
+| Verification score | 0.591 | **0.624** | +0.033 |
+| Thinking chains | 0% | 0% | — |
+
+Fine-tuning achieved the strongest binary detection of any model evaluated (F1 0.938, perfect recall) and improved the mean verification score (0.624 vs. 0.591). However, severity calibration collapsed (κ 0.158 → 0.042), with three of five ordinal Wilcoxon tests reaching statistical significance favouring the baseline (methodology p < 0.001, COI p = 0.017, statistical reporting p = 0.049). No binary detection differences reached significance (all McNemar p > 0.25).
+
+**Table 12. Run 5: per-dimension binary F1 (fine-tuned vs. baseline).**
+
+| Dimension | Baseline | Fine-Tuned | Δ |
+|-----------|:---:|:---:|:---:|
+| Statistical reporting | 0.805 | 0.800 | -0.005 |
+| Spin | 0.748 | **0.795** | +0.047 |
+| Outcome reporting | 0.752 | **0.788** | +0.036 |
+| COI | 0.751 | **0.828** | +0.077 |
+| Methodology | 0.793 | 0.797 | +0.004 |
+
+The largest per-dimension gain was in COI detection (+0.077 F1), driven by recall improving from 0.734 to 0.973.
+
+Critically, the fine-tuned model produced no chain-of-thought reasoning (0% `<think>` presence), despite training data containing thinking chains. The attention-only LoRA at 0.04% trainable parameters can redirect the model's attention to bias-relevant features (improving detection) but cannot override the frozen expert FFN weights that control output formatting. This reveals a fundamental limitation of attention-only LoRA on MoE architectures: it sharpens existing capabilities but cannot teach new output behaviours.
+
 ### Cross-Model Summary
 
-Table 11 summarises all evaluated configurations across four fine-tuning runs and expanded baseline comparison.
+Table 13 summarises all evaluated configurations across five fine-tuning runs and expanded baseline comparison.
 
-**Table 11. Cross-model performance summary.**
+**Table 13. Cross-model performance summary.**
 
 | Configuration | Type | Size | n | Binary F1 | Recall | Ordinal κ | Verification | Thinking |
 |--------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | granite3.3:8b baseline | Baseline | 8B | 101 | 0.022 | 0.011 | 0.004 | 0.435 | 0% |
 | Qwen3.5-27B baseline | Baseline | 27B | 89 | 0.989 | 1.000 | 0.021 | 0.539 | 0% |
 | OLMo-3.1-32B baseline | Baseline | 32B | 89 | 0.989 | 1.000 | 0.066 | 0.528 | 0% |
-| **gpt-oss:20b baseline** | **Baseline** | **20B MoE** | **157** | **0.918** | **0.941** | **0.158** | **0.591** | **0%** |
+| gpt-oss:20b baseline | Baseline | 20B MoE | 157 | 0.918 | 0.941 | **0.158** | 0.591 | 0% |
 | Qwen3.5-9B enriched prompt | Prompt eng. | 9B | 115 | 0.866 | 0.793 | 0.118 | 0.495 | 0% |
-| Qwen3.5-9B fine-tuned (Run 2) | Fine-tuned | 9B | 115 | 0.804 | 0.679 | 0.159 | **0.541** | 99% |
-| OLMo-3.1-32B fine-tuned (Run 1) | Fine-tuned | 32B | 89 | 0.952 | 0.920 | **0.285** | 0.368 | 100% |
-| **Qwen3.5-9B fine-tuned (Run 4)** | **Fine-tuned** | **9B** | **144** | **0.924** | **0.950** | 0.124 | 0.495 | **100%** |
+| Qwen3.5-9B fine-tuned (Run 2) | Fine-tuned | 9B | 115 | 0.804 | 0.679 | 0.159 | 0.541 | 99% |
+| OLMo-3.1-32B fine-tuned (Run 1) | Fine-tuned | 32B | 89 | 0.952 | 0.920 | 0.285 | 0.368 | 100% |
+| Qwen3.5-9B fine-tuned (Run 4) | Fine-tuned | 9B | 144 | 0.924 | 0.950 | 0.124 | 0.495 | 100% |
+| **gpt-oss:20b fine-tuned (Run 5)** | **Fine-tuned** | **20B MoE** | **157** | **0.938** | **1.000** | 0.042 | **0.624** | **0%** |
 
-The inclusion of gpt-oss:20b reveals a striking finding: this unfine-tuned MoE model outperforms all baselines on severity calibration (κ = 0.158) and verification quality (0.591), and achieves binary F1 (0.918) competitive with the fine-tuned models---without any domain-specific training. Its 32-expert architecture with top-4 routing may be particularly well-suited to multi-domain bias detection, where different bias domains could activate different expert subnetworks. This identifies gpt-oss:20b as a high-priority fine-tuning candidate.
+The table reveals a clear trade-off landscape. No single model dominates all metrics: the fine-tuned gpt-oss:20b achieves the strongest binary detection (F1 0.938, perfect recall) but the weakest severity calibration of any fine-tuned model (κ 0.042); the unfine-tuned gpt-oss:20b retains the best severity calibration (κ 0.158); the OLMo-3.1-32B fine-tuned model achieves the highest kappa overall (0.285); and the Qwen3.5-9B fine-tuned models are the only configurations producing chain-of-thought reasoning (99--100%). This suggests that production systems should ensemble models with complementary strengths rather than relying on any single configuration.
 
 ### Severity Calibration Analysis
 
 Ordinal kappa remained in the 0.12--0.29 range across all four runs regardless of model size or hyperparameters. Confusion matrix analysis revealed a systematic "moderate collapse": when the model detected bias, it defaulted to predicting MODERATE severity because MODERATE was the modal non-NONE class in the training data (50% of Statistical Reporting labels, 36% of COI, 35% of Outcome Reporting). For example, in Statistical Reporting, only 2 of 36 true-LOW examples were predicted correctly---the remainder were predicted as MODERATE (24) or HIGH (7).
 
-**Table 12. Training data severity distribution (1,235 examples, Runs 3--4).**
+**Table 14. Training data severity distribution (1,235 examples, Runs 3--4).**
 
 | Dimension | NONE | LOW | MODERATE | HIGH | CRITICAL |
 |-----------|:---:|:---:|:---:|:---:|:---:|
@@ -392,17 +428,17 @@ HIGH and CRITICAL classes had only ~11 examples per dimension per class after ov
 
 Verification source knowledge showed a complex trajectory across runs. The enriched training pipeline (Runs 2--4) restored citations that Run 1 had degraded, but CMS Open Payments regressed in Run 4.
 
-**Table 13. Verification source citation rates across runs.**
+**Table 15. Verification source citation rates across runs.**
 
-| Source | Baselines | Run 1 (32B) | Run 2 (9B) | Run 4 (9B) |
-|--------|:---:|:---:|:---:|:---:|
-| ClinicalTrials.gov | 98--99% | 89% | 99% | 99% |
-| ORCID | 88--93% | 87% | 94% | 100% |
-| Retraction Watch | 96--100% | 43% | 95% | 100% |
-| Europe PMC | 100% | 97% | 98% | 100% |
-| CMS Open Payments | 85--98% | **16%** | 57% | **22%** |
+| Source | Baselines | Run 1 (32B) | Run 2 (9B) | Run 4 (9B) | Run 5 (20B MoE) |
+|--------|:---:|:---:|:---:|:---:|:---:|
+| ClinicalTrials.gov | 98--99% | 89% | 99% | 99% | 96% |
+| ORCID | 88--93% | 87% | 94% | 100% | 85% |
+| Retraction Watch | 96--100% | 43% | 95% | 100% | 78% |
+| Europe PMC | 100% | 97% | 98% | 100% | 90% |
+| CMS Open Payments | 85--98% | **16%** | 57% | **22%** | 90% |
 
-CMS Open Payments collapsed in Run 4 (57% → 22%) despite improving elsewhere. Training data analysis revealed the cause: Open Payments was cited in only 29.8% of training examples, with a steep skew by COI severity---100% citation rate for HIGH COI but only 16% for LOW and 13% for NONE. The model learned the strong HIGH-COI association and discarded the weaker signals.
+CMS Open Payments collapsed in Run 4 (57% → 22%) despite improving elsewhere. Training data analysis revealed the cause: Open Payments was cited in only 29.8% of training examples, with a steep skew by COI severity---100% citation rate for HIGH COI but only 16% for LOW and 13% for NONE. The model learned the strong HIGH-COI association and discarded the weaker signals. Interestingly, Run 5 (gpt-oss:20b fine-tuned) showed a different pattern: individual source citation rates decreased relative to the strong baseline (ORCID 97% → 85%, Retraction Watch 96% → 78%), but the mean verification *score* improved (0.591 → 0.624), suggesting citations became more targeted even if less uniformly frequent. The MoE model's frozen expert knowledge may partially buffer citation patterns against the training data skew that affected the dense models.
 
 ### Training Data Format
 
@@ -500,9 +536,13 @@ These definitions transform subjective judgments into reproducible classificatio
 
 ### Mixture-of-Experts Architecture and Multi-Domain Tasks
 
-The strong zero-shot performance of gpt-oss:20b---a 21B MoE model with 32 experts and top-4 routing---is a notable finding. Without any fine-tuning, it achieved the best severity calibration (κ = 0.158) and verification source coverage (0.591) of any model evaluated. Its per-dimension F1 scores (0.75--0.81) showed balanced performance across all five bias domains, suggesting that the MoE routing mechanism may naturally distribute multi-domain tasks across different expert subnetworks.
+The gpt-oss:20b results---both zero-shot and fine-tuned---are among the most instructive findings. Without any fine-tuning, the model achieved the best severity calibration (κ = 0.158) and verification source coverage (0.591) of any model evaluated. Its per-dimension F1 scores (0.75--0.81) showed balanced performance across all five bias domains, suggesting that the MoE routing mechanism may naturally distribute multi-domain tasks across different expert subnetworks.
 
-This has practical implications: MoE models activate only a fraction of their parameters per token (3.6B of 21B for gpt-oss:20b), giving them inference speeds comparable to much smaller dense models while accessing a larger parameter space. gpt-oss:20b processed abstracts at 31.8 tokens/second on an M3 Mac---2.6× faster than the 9B dense Qwen model at 12.4 tokens/second. A fine-tuned MoE model could potentially combine the accuracy gains from domain-specific training with the efficiency and capacity of the MoE architecture, using attention-only LoRA (targeting q/k/v/o projections while leaving expert FFN weights and the router frozen) to maintain training stability.
+Fine-tuning with attention-only LoRA (Run 5) sharpened detection further---achieving the highest binary F1 of any configuration (0.938, with perfect recall)---but at a significant cost: severity calibration collapsed from κ = 0.158 to 0.042, and the model failed to produce chain-of-thought reasoning despite training data containing `<think>` blocks. This reveals a fundamental asymmetry in attention-only LoRA on MoE models: the adapter can redirect attention to bias-relevant features (improving what the model already does), but cannot override frozen expert FFN weights that encode severity knowledge and output formatting behaviour.
+
+This has both practical and theoretical implications. Practically, MoE models activate only a fraction of their parameters per token (3.6B of 21B for gpt-oss:20b), giving them inference speeds comparable to much smaller dense models---31.8 tokens/second on an M3 Mac, 2.6× faster than the 9B dense Qwen model. But the MoE architecture also constrains fine-tuning: the expert weights that give the model its strong baseline knowledge are the same weights that resist modification through attention-only LoRA. Expanding LoRA targets to include non-expert MLP layers (while keeping expert FFNs and the router frozen) may offer a path to teaching new output behaviours without risking expert collapse.
+
+The combined results suggest that production systems should consider ensembling: the fine-tuned MoE model for high-recall screening (catches everything), the unfine-tuned baseline for calibrated severity assessment (best κ), and a fine-tuned dense model for detailed chain-of-thought explanations when needed.
 
 ### Comparison with Existing Tools
 
@@ -512,27 +552,29 @@ Recent work on LLM-based bias assessment^13^ has demonstrated promising zero-sho
 
 ### Future Directions
 
-Planned extensions include: (1) LoRA fine-tuning of gpt-oss:20b using attention-only targeting to leverage its strong baseline and MoE efficiency, (2) targeted annotation of LOW-MODERATE boundary cases to address the "moderate collapse" in severity grading, (3) ordinal-aware loss functions as an alternative to cross-entropy for severity prediction, (4) broadening CMS Open Payments citation triggers in the export pipeline, (5) full-text analysis for papers available through Europe PMC, (6) active learning to prioritize human review of maximally informative examples, and (7) public release of a validated training dataset and evaluation benchmark as a community resource.
+Planned extensions include: (1) expanding LoRA targets on gpt-oss:20b to include non-expert MLP layers (gate/up/down projections), testing whether this enables chain-of-thought reasoning and severity calibration without expert collapse, (2) building an ensemble pipeline combining the fine-tuned MoE model (screening), unfine-tuned baseline (severity), and fine-tuned dense model (explanations), (3) targeted annotation of LOW-MODERATE boundary cases to address the "moderate collapse" in severity grading, (4) ordinal-aware loss functions as an alternative to cross-entropy for severity prediction, (5) broadening CMS Open Payments citation triggers in the export pipeline, (6) full-text analysis for papers available through Europe PMC, (7) active learning to prioritize human review of maximally informative examples, and (8) public release of a validated training dataset and evaluation benchmark as a community resource.
 
 ---
 
 ## Conclusions
 
-BiasBuster provides a reproducible, modular pipeline for constructing multi-dimensional bias detection training datasets from diverse biomedical data sources, and demonstrates that the resulting training data can produce performant small models. Four iterative fine-tuning runs and expanded baseline comparison established several findings:
+BiasBuster provides a reproducible, modular pipeline for constructing multi-dimensional bias detection training datasets from diverse biomedical data sources, and demonstrates that the resulting training data can produce performant small models. Five iterative fine-tuning runs and expanded baseline comparison established several findings:
 
-1. **A 9B-parameter model can approach 32B performance on bias detection.** The final Qwen3.5-9B model achieved binary F1 of 0.924 (vs. 0.952 for the 32B), recall of 0.950 (exceeding the 32B's 0.920), and per-dimension F1 of 0.70--0.84 across all five bias domains, while producing 100% chain-of-thought reasoning and actionable verification recommendations.
+1. **A 9B-parameter model can approach 32B performance on bias detection.** The Qwen3.5-9B model achieved binary F1 of 0.924 (vs. 0.952 for the 32B), recall of 0.950 (exceeding the 32B's 0.920), and per-dimension F1 of 0.70--0.84 across all five bias domains, while producing 100% chain-of-thought reasoning and actionable verification recommendations.
 
-2. **Mixture-of-Experts architecture shows exceptional promise.** The unfine-tuned gpt-oss:20b (21B MoE, 3.6B active) achieved binary F1 of 0.918, severity κ of 0.158, and verification score of 0.591---outperforming all baselines on severity calibration and verification quality, and rivalling fine-tuned models on binary detection, while running 2.6× faster than the 9B dense model. This identifies MoE models as high-priority fine-tuning candidates for multi-domain tasks.
+2. **Mixture-of-Experts architecture excels at detection but resists fine-grained adaptation.** The unfine-tuned gpt-oss:20b achieved the best severity calibration (κ = 0.158) and verification quality (0.591) of any baseline. Fine-tuning with attention-only LoRA produced the strongest binary detection of any configuration (F1 = 0.938, perfect recall) but degraded severity calibration (κ = 0.042) and failed to produce chain-of-thought reasoning, revealing that attention-only LoRA on MoE models can sharpen detection but cannot teach new output behaviours. This suggests production systems should ensemble models with complementary strengths.
 
-3. **Training data quality is the dominant lever.** Across four runs, improvements to training data format and content consistently produced larger gains than changes to model size, learning rate, epoch count, or LoRA rank.
+3. **Training data quality is the dominant lever.** Across five runs, improvements to training data format and content consistently produced larger gains than changes to model size, learning rate, epoch count, or LoRA rank.
 
 4. **Prompt engineering and fine-tuning solve complementary problems.** Enriched prompts achieve high recall on coarse binary detection; fine-tuning adds per-dimension granularity, severity calibration, and structured reasoning chains.
 
-5. **Severity calibration remains the primary bottleneck**, driven by class imbalance in the training data rather than model capacity or hyperparameter choice. Addressing this requires targeted annotation of boundary cases or ordinal-aware loss functions.
+5. **Severity calibration remains the primary bottleneck**, driven by class imbalance in the training data rather than model capacity or hyperparameter choice. Fine-tuning MoE models with attention-only LoRA exacerbated this (κ 0.158 → 0.042), indicating that severity knowledge resides in the frozen expert FFN weights. Addressing this requires targeted annotation of boundary cases, ordinal-aware loss functions, or expanding LoRA targets beyond attention layers.
 
-6. **Verification source knowledge is teachable but fragile.** Explicit database selection reasoning in training chains restores citation patterns that naïve fine-tuning destroys, but the training signal must be distributed evenly across severity levels.
+6. **Verification source knowledge is teachable but fragile.** Explicit database selection reasoning in training chains restores citation patterns that naïve fine-tuning destroys. The fine-tuned MoE model showed a nuanced pattern: individual citation rates decreased but mean verification score improved (0.591 → 0.624), suggesting more targeted use.
 
 7. **Not all small models are viable.** Granite3.3:8b's catastrophic failure (F1 = 0.022) demonstrates that baseline model capability varies dramatically---sufficient pretraining on biomedical and methodological literature is a prerequisite for both zero-shot and fine-tuned bias detection.
+
+8. **No single model dominates all metrics.** The fine-tuned gpt-oss:20b is the best screener (F1 0.938, perfect recall), the unfine-tuned baseline is the best calibrated assessor (κ 0.158), and the fine-tuned Qwen3.5-9B is the best explainer (100% thinking chains, per-dimension F1 0.70--0.84). An ensemble architecture leveraging each model's strengths is the most promising path to a production system.
 
 The open-source pipeline, shared annotation prompts, evaluation harness, and fine-tuned model weights support transparent, reproducible research in automated bias detection for biomedical literature.
 
