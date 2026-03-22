@@ -629,11 +629,17 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 return []
 
             data = resp.json()
-            text_out = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
+            message = data.get("choices", [{}])[0].get("message", {})
+            text_out = message.get("content", "") or ""
+
+            # DeepSeek reasoner may put the answer in reasoning_content
+            # and leave content empty
+            if not text_out.strip():
+                text_out = message.get("reasoning_content", "") or ""
+
+            if not text_out:
+                logger.warning(f"LLM returned empty content for {label}")
+                return []
 
             text_out = text_out.strip()
             if text_out.startswith("```"):
@@ -641,6 +647,12 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             if text_out.endswith("```"):
                 text_out = text_out[:-3]
             text_out = text_out.strip()
+
+            # If text contains mixed reasoning + JSON, extract the JSON array
+            if not text_out.startswith("["):
+                array_match = re.search(r'\[[\s\S]*\]', text_out)
+                if array_match:
+                    text_out = array_match.group(0)
 
             studies = json.loads(text_out)
             if not isinstance(studies, list):
