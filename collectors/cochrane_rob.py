@@ -139,6 +139,10 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         self.client: Optional[httpx.AsyncClient] = None
         self._cache_path = cache_path if cache_path is not None else self.DEFAULT_CACHE_PATH
         self._llm_cache: dict[str, list[dict]] = self._load_cache()
+        self._cache_dirty = 0  # number of unsaved entries
+
+    # Flush cache to disk every N new entries (avoids rewriting on every call)
+    _CACHE_FLUSH_INTERVAL = 5
 
     def _load_cache(self) -> dict[str, list[dict]]:
         """Load the LLM extraction cache from disk."""
@@ -151,11 +155,20 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 logger.warning(f"Failed to load LLM cache: {e}")
         return {}
 
-    def _save_cache(self) -> None:
-        """Persist the LLM extraction cache to disk."""
+    def _save_cache(self, force: bool = False) -> None:
+        """Persist the LLM extraction cache to disk.
+
+        Writes are batched: the file is only rewritten every
+        ``_CACHE_FLUSH_INTERVAL`` new entries, or when *force* is True
+        (e.g. at shutdown).
+        """
+        self._cache_dirty += 1
+        if not force and self._cache_dirty < self._CACHE_FLUSH_INTERVAL:
+            return
         try:
             self._cache_path.parent.mkdir(parents=True, exist_ok=True)
             self._cache_path.write_text(json.dumps(self._llm_cache, indent=1))
+            self._cache_dirty = 0
         except OSError as e:
             logger.warning(f"Failed to save LLM cache: {e}")
 
@@ -165,7 +178,9 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         return self
 
     async def __aexit__(self, *args) -> None:
-        """Close the underlying HTTP client."""
+        """Close the underlying HTTP client and flush the LLM cache."""
+        if self._cache_dirty:
+            self._save_cache(force=True)
         if self.client:
             await self.client.aclose()
 

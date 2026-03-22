@@ -43,28 +43,20 @@ logger = logging.getLogger(__name__)
 DEFAULT_SEED_DIR = Path("dataset/cleanseed")
 DEFAULT_DB_PATH = Path("dataset/biasbuster.db")
 
-# Tables to export and their column order (deterministic output)
-EXPORT_TABLES = {
-    "papers": [
-        "pmid", "doi", "title", "abstract", "journal", "year",
-        "authors", "grants", "mesh_terms", "subjects", "source",
-        "collected_at", "retraction_doi", "retraction_reasons",
-        "retraction_source", "cochrane_review_pmid", "overall_rob",
-        "randomization_bias", "deviation_bias", "missing_outcome_bias",
-        "measurement_bias", "reporting_bias", "domain",
-        "excluded", "excluded_reason",
-    ],
-    "enrichments": [
-        "pmid", "suspicion_level", "reporting_bias_score",
-        "effect_size_audit", "outcome_switching", "enriched_at",
-    ],
-}
+# Tables to export (columns are auto-discovered from the DB schema)
+EXPORT_TABLES = ["papers", "enrichments"]
 
 # Columns that store JSON strings in SQLite
 JSON_COLUMNS = {
     "authors", "grants", "mesh_terms", "subjects",
     "retraction_reasons", "effect_size_audit", "outcome_switching",
 }
+
+
+def _get_table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
+    """Discover column names from the DB schema via PRAGMA."""
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return [row[1] for row in rows]
 
 
 def _decode_json_fields(row: dict) -> dict:
@@ -101,7 +93,8 @@ def export_seed(db_path: Path, seed_dir: Path) -> None:
         "tables": {},
     }
 
-    for table, columns in EXPORT_TABLES.items():
+    for table in EXPORT_TABLES:
+        columns = _get_table_columns(conn, table)
         out_path = seed_dir / f"{table}.jsonl"
         col_list = ", ".join(columns)
         cursor = conn.execute(f"SELECT {col_list} FROM {table} ORDER BY pmid")
@@ -159,13 +152,20 @@ def import_seed(seed_dir: Path, db_path: Path) -> None:
     db.initialize()
 
     # Import tables in order (papers first due to foreign keys)
-    for table in ["papers", "enrichments"]:
+    for table in EXPORT_TABLES:
         jsonl_path = seed_dir / f"{table}.jsonl"
         if not jsonl_path.exists():
             logger.warning(f"Missing {jsonl_path}, skipping")
             continue
 
-        columns = EXPORT_TABLES[table]
+        # Discover columns from the first JSONL record (matches what was exported)
+        with open(jsonl_path) as f:
+            first_line = f.readline().strip()
+        if not first_line:
+            logger.warning(f"Empty {jsonl_path}, skipping")
+            continue
+        columns = list(json.loads(first_line).keys())
+
         placeholders = ", ".join("?" for _ in columns)
         col_list = ", ".join(columns)
         sql = f"INSERT OR REPLACE INTO {table} ({col_list}) VALUES ({placeholders})"
