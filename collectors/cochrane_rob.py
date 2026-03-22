@@ -111,12 +111,16 @@ return an empty array [].
 
 Respond ONLY with the JSON array. No preamble, no markdown fences."""
 
+    # Default path for caching LLM extraction results (avoids re-spending tokens)
+    DEFAULT_CACHE_PATH = Path("dataset/llm_rob_cache.json")
+
     def __init__(
         self,
         ncbi_api_key: str = "",
         llm_api_key: str = "",
         llm_api_base: str = "",
         llm_model: str = "",
+        cache_path: Optional[Path] = None,
     ) -> None:
         """Initialise the collector.
 
@@ -125,12 +129,35 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             llm_api_key: API key for the OpenAI-compatible LLM used for RoB extraction.
             llm_api_base: Base URL for the LLM API (e.g. https://api.deepseek.com).
             llm_model: Model ID (e.g. deepseek-reasoner).
+            cache_path: Path for LLM extraction result cache.  Set to ``None``
+                to use the default (``dataset/llm_rob_cache.json``).
         """
         self.ncbi_api_key = ncbi_api_key
         self.llm_api_key = llm_api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self.llm_api_base = llm_api_base.rstrip("/") if llm_api_base else ""
         self.llm_model = llm_model
         self.client: Optional[httpx.AsyncClient] = None
+        self._cache_path = cache_path if cache_path is not None else self.DEFAULT_CACHE_PATH
+        self._llm_cache: dict[str, list[dict]] = self._load_cache()
+
+    def _load_cache(self) -> dict[str, list[dict]]:
+        """Load the LLM extraction cache from disk."""
+        if self._cache_path.exists():
+            try:
+                data = json.loads(self._cache_path.read_text())
+                logger.info(f"Loaded LLM RoB cache: {len(data)} entries from {self._cache_path}")
+                return data
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to load LLM cache: {e}")
+        return {}
+
+    def _save_cache(self) -> None:
+        """Persist the LLM extraction cache to disk."""
+        try:
+            self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+            self._cache_path.write_text(json.dumps(self._llm_cache, indent=1))
+        except OSError as e:
+            logger.warning(f"Failed to save LLM cache: {e}")
 
     async def __aenter__(self) -> "CochraneRoBCollector":
         """Create the shared ``httpx.AsyncClient`` used for all HTTP requests."""
@@ -481,39 +508,50 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         if not self.llm_api_key or not self.llm_api_base or not self.llm_model:
             return []
 
-        logger.info(f"Regex found 0 in {pmcid}, trying LLM extraction...")
+        # Check LLM cache before spending tokens
+        if pmcid in self._llm_cache:
+            all_studies = self._llm_cache[pmcid]
+            logger.info(
+                f"Cache hit for {pmcid}: {len(all_studies)} raw study entries"
+            )
+        else:
+            logger.info(f"Regex found 0 in {pmcid}, trying LLM extraction...")
 
-        # Strip XML tags — keep just the text content
-        import xml.etree.ElementTree as ET
-        try:
-            root = ET.fromstring(full_text)
-            plain = ET.tostring(root, encoding="unicode", method="text")
-        except ET.ParseError:
-            plain = re.sub(r"<[^>]+>", " ", full_text)
+            # Strip XML tags — keep just the text content
+            import xml.etree.ElementTree as ET
+            try:
+                root = ET.fromstring(full_text)
+                plain = ET.tostring(root, encoding="unicode", method="text")
+            except ET.ParseError:
+                plain = re.sub(r"<[^>]+>", " ", full_text)
 
-        # Chunk & map-reduce: split into overlapping chunks, extract from
-        # each, merge results.  NEVER truncate — the RoB tables may be
-        # anywhere in the document.
-        chunk_size = 28_000  # chars per chunk (conservative for token limits)
-        overlap = 2_000
-        chunks: list[str] = []
-        start = 0
-        while start < len(plain):
-            end = start + chunk_size
-            chunks.append(plain[start:end])
-            start = end - overlap
-        if not chunks:
-            chunks = [plain]
+            # Chunk & map-reduce: split into overlapping chunks, extract from
+            # each, merge results.  NEVER truncate — the RoB tables may be
+            # anywhere in the document.
+            chunk_size = 28_000  # chars per chunk (conservative for token limits)
+            overlap = 2_000
+            chunks: list[str] = []
+            start = 0
+            while start < len(plain):
+                end = start + chunk_size
+                chunks.append(plain[start:end])
+                start = end - overlap
+            if not chunks:
+                chunks = [plain]
 
-        logger.debug(
-            f"{pmcid}: {len(plain)} chars -> {len(chunks)} chunk(s) for LLM"
-        )
+            logger.debug(
+                f"{pmcid}: {len(plain)} chars -> {len(chunks)} chunk(s) for LLM"
+            )
 
-        all_studies: list[dict] = []
-        for i, chunk in enumerate(chunks):
-            chunk_label = f"{pmcid} chunk {i + 1}/{len(chunks)}"
-            studies = await self._llm_extract_chunk(chunk, chunk_label)
-            all_studies.extend(studies)
+            all_studies: list[dict] = []
+            for i, chunk in enumerate(chunks):
+                chunk_label = f"{pmcid} chunk {i + 1}/{len(chunks)}"
+                studies = await self._llm_extract_chunk(chunk, chunk_label)
+                all_studies.extend(studies)
+
+            # Cache raw LLM results for future re-resolution runs
+            self._llm_cache[pmcid] = all_studies
+            self._save_cache()
 
         # Deduplicate and convert to RoBAssessment objects
         assessments: list[RoBAssessment] = []
