@@ -13,6 +13,8 @@ import logging
 import os
 from typing import Optional
 
+from tqdm import tqdm
+
 import httpx
 
 from . import (
@@ -183,9 +185,17 @@ class OpenAICompatAnnotator:
 
         semaphore = asyncio.Semaphore(concurrency)
         successful: list[dict] = []
-        flush_every = 10
+        failed = 0
+
+        pbar = tqdm(
+            total=len(remaining),
+            desc=f"Annotating ({self.model})",
+            unit="paper",
+            dynamic_ncols=True,
+        )
 
         async def process_one(item):
+            nonlocal failed
             async with semaphore:
                 result = await self.annotate_abstract(
                     pmid=item["pmid"],
@@ -198,11 +208,10 @@ class OpenAICompatAnnotator:
                     successful.append(result)
                     if on_result:
                         on_result(result)
-                    if len(successful) % flush_every == 0:
-                        logger.info(
-                            f"Checkpoint: {len(successful)}/{len(remaining)} "
-                            f"annotations completed"
-                        )
+                else:
+                    failed += 1
+                pbar.set_postfix(ok=len(successful), fail=failed, refresh=False)
+                pbar.update(1)
                 await asyncio.sleep(delay)
                 return result
 
@@ -210,6 +219,7 @@ class OpenAICompatAnnotator:
             *(process_one(item) for item in remaining)
         )
 
+        pbar.close()
         logger.info(
             f"Annotated {len(successful)}/{len(remaining)} abstracts successfully "
             f"(model: {self.model})"

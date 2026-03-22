@@ -42,6 +42,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress noisy HTTP request logging (httpx logs every request at INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 async def stage_collect(config: Config, db: Database) -> None:
     """Collect candidate abstracts from multiple sources.
