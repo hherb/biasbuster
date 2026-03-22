@@ -166,10 +166,40 @@ Cochrane RoB 2 expert assessment: overall=high, randomization=some_concerns,
 measurement=high. Use these expert judgments to calibrate your severity ratings.
 ```
 
+### 3f. LLM extraction cache and targeted re-resolution (2026-03-23)
+
+**Problem**: LLM-based RoB extraction costs tokens (DeepSeek reasoner).  When
+PMID resolution fails, the extracted study IDs are discarded — re-running the
+pipeline re-spends tokens on the same reviews.  In the initial run, 70/132
+extracted studies were lost to failed resolution.
+
+**Changes**:
+
+- **LLM result cache** (`dataset/llm_rob_cache.json`): `extract_rob_via_llm()`
+  now caches raw LLM responses keyed by PMCID.  On re-run, cached reviews skip
+  the LLM entirely and go straight to resolution.  Cache is saved incrementally
+  after each LLM call.
+- **`reprocess_rob.py`**: Standalone script that re-processes specific reviews
+  with the improved resolution code.  Can parse a pipeline log file to
+  automatically identify reviews with incomplete resolution.
+
+```bash
+# Re-process reviews with incomplete resolution from a prior run:
+uv run python reprocess_rob.py --from-log log.txt
+
+# Or target specific PMCIDs:
+uv run python reprocess_rob.py PMC12987355 PMC11152306 PMC12942296
+```
+
+The script fetches the review XML (free), uses cached LLM results (no tokens),
+runs multi-layer PMID resolution with the improved code, saves new papers to
+the database, and fetches their abstracts from PubMed.
+
 **New CLI**: `python pipeline.py --stage collect-rob` runs Cochrane/RoB
 collection only (no retraction watch or PubMed RCTs).
 
 **Reproduction**: Run `pipeline.py --stage collect-rob` then `seed_database.py --step fetch-abs`.
+After a run, recover lost studies with `reprocess_rob.py --from-log log.txt`.
 
 ---
 
@@ -231,6 +261,7 @@ reference specific evidence from the annotation.
 | `prompts.py` | Single source of truth for severity boundaries |
 | `enrichers/retraction_classifier.py` | Retraction reason → severity floor mapping |
 | `seed_database.py` | Reproducible post-collection cleanup (3 steps) |
+| `reprocess_rob.py` | Targeted re-resolution of failed Cochrane reviews (parses log, uses LLM cache) |
 | `docs/MISTAKES_ROUND_1_AND_FIXES.md` | Round 1 post-mortem |
 | `docs/ROUND_2_PREPARATIONS.md` | This document |
 
@@ -243,7 +274,7 @@ reference specific evidence from the annotation.
 | `export.py` | Import prompt from `prompts.py`; remove oversampling; stratified split; retraction floors; evidence-grounded thinking chains |
 | `schemas/bias_taxonomy.py` | Updated lazy import |
 | `pipeline.py` | Added `seed` and `collect-rob` stages |
-| `collectors/cochrane_rob.py` | Broader search, 5-layer PMID resolution (bracket-ref + author+year + surname-only + DOI + PubMed search), LLM extraction with `ref_number`, study ID normalisation ("et al." / bracket handling), junk filter |
+| `collectors/cochrane_rob.py` | Broader search, 5-layer PMID resolution (bracket-ref + author+year + surname-only + DOI + PubMed search), LLM extraction with `ref_number` + result caching, study ID normalisation ("et al." / bracket / initials handling), junk filter |
 | `config.example.py` | Updated defaults (deepseek-reasoner, cochrane_max_reviews=200, cochrane_min_year=2015) |
 | `CLAUDE.md` | Updated architecture docs, commands, module descriptions |
 
