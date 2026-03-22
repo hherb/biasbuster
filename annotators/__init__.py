@@ -254,13 +254,53 @@ def repair_json(text: str) -> str:
     return text
 
 
+# Fields that must be present in a complete annotation.
+# If any are missing, the response was likely truncated.
+REQUIRED_ANNOTATION_FIELDS = {
+    "statistical_reporting",
+    "spin",
+    "outcome_reporting",
+    "conflict_of_interest",
+    "methodology",
+    "overall_severity",
+    "overall_bias_probability",
+    "recommended_verification_steps",
+    "confidence",
+}
+
+
+def validate_annotation(annotation: dict, pmid: str = "") -> list[str]:
+    """Check that a parsed annotation has all required fields.
+
+    Returns a list of missing field names (empty if valid).
+    """
+    missing = []
+    for field in REQUIRED_ANNOTATION_FIELDS:
+        if field not in annotation:
+            missing.append(field)
+        elif field in (
+            "statistical_reporting", "spin", "outcome_reporting",
+            "conflict_of_interest", "methodology",
+        ):
+            # Domain fields must be dicts with a severity key
+            val = annotation[field]
+            if not isinstance(val, dict) or "severity" not in val:
+                missing.append(f"{field}.severity")
+    if missing:
+        logger.warning(
+            f"PMID {pmid}: incomplete annotation, missing: {', '.join(missing)}"
+        )
+    return missing
+
+
 def parse_llm_json(text: str, pmid: str = "") -> dict | None:
     """Parse JSON from LLM output with repair and logging.
 
     Shared across all annotator backends. Tries direct parse first,
-    then attempts repair if that fails.
+    then attempts repair if that fails. Validates that all required
+    annotation fields are present (rejects truncated responses).
 
-    Returns parsed dict or None if unrecoverable.
+    Returns parsed dict or None if unrecoverable or incomplete.
     """
     text = strip_markdown_fences(text)
 
@@ -269,20 +309,36 @@ def parse_llm_json(text: str, pmid: str = "") -> dict | None:
         return None
 
     # Try direct parse first
+    result = None
     try:
-        return json.loads(text)
+        result = json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # Attempt repair
-    repaired = repair_json(text)
-    try:
-        result = json.loads(repaired)
-        logger.info(f"JSON repaired successfully for PMID {pmid}")
-        return result
-    except json.JSONDecodeError as e:
+    # Attempt repair if direct parse failed
+    if result is None:
+        repaired = repair_json(text)
+        try:
+            result = json.loads(repaired)
+            logger.info(f"JSON repaired successfully for PMID {pmid}")
+        except json.JSONDecodeError as e:
+            logger.warning(
+                f"JSON repair failed for PMID {pmid}: {e}\n"
+                f"  Raw response (first 300 chars): {text[:300]}"
+            )
+            return None
+
+    # Validate completeness — reject truncated responses so they get retried
+    if not isinstance(result, dict):
+        logger.warning(f"PMID {pmid}: parsed result is not a dict")
+        return None
+
+    missing = validate_annotation(result, pmid=pmid)
+    if missing:
         logger.warning(
-            f"JSON repair failed for PMID {pmid}: {e}\n"
-            f"  Raw response (first 300 chars): {text[:300]}"
+            f"PMID {pmid}: rejecting truncated response "
+            f"(missing {len(missing)} fields)"
         )
         return None
+
+    return result
