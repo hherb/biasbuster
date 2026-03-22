@@ -1,0 +1,8 @@
+{
+  "exported_at": "2026-03-22T22:25:29.729074+00:00",
+  "source_db": "dataset/biasbuster.db",
+  "tables": {
+    "papers": 4184,
+    "enrichments": 3238
+  }
+}
