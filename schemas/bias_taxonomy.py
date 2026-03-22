@@ -11,9 +11,9 @@ from typing import Optional
 import json
 
 def _get_system_prompt() -> str:
-    """Lazy import to avoid circular dependency with export.py."""
-    from export import SYSTEM_PROMPT
-    return SYSTEM_PROMPT
+    """Lazy import to avoid circular dependency."""
+    from prompts import TRAINING_SYSTEM_PROMPT
+    return TRAINING_SYSTEM_PROMPT
 
 
 class Severity(str, Enum):

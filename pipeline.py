@@ -102,6 +102,83 @@ async def stage_collect(config: Config, db: Database) -> None:
     )
 
 
+async def stage_collect_rob(config: Config, db: Database) -> None:
+    """Collect only Cochrane Risk of Bias assessments.
+
+    Use this to expand RoB data without re-running the full collection
+    pipeline (retraction watch + PubMed RCTs).  Fetches abstracts from
+    PubMed immediately so the seed step can be skipped.
+
+    Usage:
+        python pipeline.py --stage collect-rob
+    """
+    from collectors.cochrane_rob import CochraneRoBCollector
+
+    before = db.conn.execute(
+        "SELECT COUNT(*) FROM papers WHERE source = 'cochrane_rob'"
+    ).fetchone()[0]
+    logger.info(f"Cochrane RoB papers before: {before}")
+
+    logger.info("=== Collecting RoB assessments (regex + LLM fallback) ===")
+
+    # Incremental save callback — each assessment is persisted immediately
+    # so progress survives interruptions.
+    inserted_count = 0
+
+    def save_assessment(a) -> None:
+        nonlocal inserted_count
+        paper_dict = asdict(a)
+        paper_dict["source"] = "cochrane_rob"
+        paper_dict["title"] = paper_dict.pop("study_title", "")
+        paper_dict["abstract"] = ""
+        if db.insert_paper(paper_dict):
+            inserted_count += 1
+            logger.info(
+                f"  Saved PMID {a.pmid} (RoB={a.overall_rob}) — "
+                f"total inserted: {inserted_count}"
+            )
+
+    async with CochraneRoBCollector(
+        ncbi_api_key=config.ncbi_api_key,
+        llm_api_key=config.deepseek_api_key,
+        llm_api_base=config.deepseek_api_base,
+        llm_model=config.deepseek_model,
+    ) as collector:
+        await collector.collect_rob_dataset(
+            domains=config.focus_domains[:5],
+            max_reviews=config.cochrane_max_reviews,
+            max_studies=config.cochrane_rob_max,
+            on_result=save_assessment,
+        )
+
+    logger.info(f"Inserted {inserted_count} new Cochrane RoB papers")
+
+    # Fetch abstracts from PubMed for newly inserted papers
+    if inserted_count > 0:
+        logger.info("Fetching abstracts for new Cochrane papers...")
+        from seed_database import fetch_missing_abstracts
+        await fetch_missing_abstracts(config, db)
+
+    after = db.conn.execute(
+        "SELECT COUNT(*) FROM papers WHERE source = 'cochrane_rob'"
+    ).fetchone()[0]
+    with_abs = db.conn.execute(
+        "SELECT COUNT(*) FROM papers WHERE source = 'cochrane_rob' "
+        "AND abstract IS NOT NULL AND length(abstract) > 100"
+    ).fetchone()[0]
+
+    # RoB distribution
+    rob_dist = db.conn.execute(
+        "SELECT overall_rob, COUNT(*) FROM papers "
+        "WHERE source = 'cochrane_rob' GROUP BY overall_rob"
+    ).fetchall()
+
+    logger.info(f"Cochrane RoB papers: {before} → {after} (+{after - before})")
+    logger.info(f"  With abstracts: {with_abs}")
+    for rob, cnt in rob_dist:
+        logger.info(f"  {rob}: {cnt}")
+
+
 async def collect_rcts_from_pubmed(config: Config, db: Database) -> None:
     """Search PubMed for recent RCTs in focus domains.
 
@@ -615,9 +692,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Bias Detection Dataset Builder")
     parser.add_argument(
         "--stage",
-        choices=["collect", "enrich", "annotate", "export", "compare", "all"],
+        choices=["collect", "collect-rob", "seed", "enrich", "annotate", "export", "compare", "all"],
         default="all",
-        help="Pipeline stage to run",
+        help="Pipeline stage to run. collect-rob = Cochrane RoB only; "
+             "seed = enrich RW reasons + fetch abstracts + clean notices",
     )
     parser.add_argument(
         "--models",
@@ -643,8 +721,16 @@ def main() -> None:
     db = Database(config.db_path)
     db.initialize()
 
+    async def stage_seed(cfg: Config, database: Database) -> None:
+        """Seed step: enrich RW reasons, fetch missing abstracts, clean notices."""
+        from seed_database import run_steps, ALL_STEPS, print_summary
+        await run_steps(ALL_STEPS, cfg, database)
+        print_summary(database)
+
     stages = {
         "collect": lambda cfg: stage_collect(cfg, db),
+        "collect-rob": lambda cfg: stage_collect_rob(cfg, db),
+        "seed": lambda cfg: stage_seed(cfg, db),
         "enrich": lambda cfg: stage_enrich(cfg, db),
         "annotate": lambda cfg: stage_annotate(cfg, db, models=annotation_models),
         "export": lambda cfg: stage_export(cfg, db),
@@ -654,7 +740,7 @@ def main() -> None:
     try:
         if args.stage == "all":
             async def run_all() -> None:
-                for name in ["collect", "enrich", "annotate", "export"]:
+                for name in ["collect", "seed", "enrich", "annotate", "export"]:
                     logger.info(f"\n{'='*60}")
                     logger.info(f"STAGE: {name.upper()}")
                     logger.info(f"{'='*60}")

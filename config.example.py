@@ -46,7 +46,7 @@ class Config:
     # DeepSeek API (alternative annotator for comparison)
     deepseek_api_key: str = ""  # Set via env var DEEPSEEK_API_KEY preferred
     deepseek_api_base: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    deepseek_model: str = "deepseek-reasoner"
     deepseek_max_tokens: int = 4000
 
     # ORCID (for author affiliation verification)
@@ -86,11 +86,11 @@ class Config:
     # Collection targets
     retraction_watch_max: int = 2000      # Max retracted papers to collect
     cochrane_rob_max: int = 1000           # Max Cochrane high-RoB studies
-    cochrane_max_reviews: int = 50         # Max Cochrane reviews to search
+    cochrane_max_reviews: int = 200        # Max Cochrane/systematic reviews to search
     spin_screening_max: int = 5000         # Max abstracts to screen for spin heuristics
     clean_examples_max: int = 500          # Negative examples (low-bias)
     pubmed_rct_start_date: str = "2020/01/01"
-    cochrane_min_year: int = 2018
+    cochrane_min_year: int = 2015
 
     # Annotation limits per source (for cost control)
     annotation_max_per_source: dict = field(default_factory=lambda: {

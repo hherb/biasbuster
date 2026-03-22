@@ -53,7 +53,12 @@ CREATE TABLE IF NOT EXISTS papers (
     missing_outcome_bias TEXT,
     measurement_bias TEXT,
     reporting_bias TEXT,
-    domain TEXT
+    domain TEXT,
+
+    -- Soft-delete: papers flagged as excluded (e.g. bare retraction notices)
+    -- are kept in the DB but skipped by annotation/export queries.
+    excluded INTEGER NOT NULL DEFAULT 0,
+    excluded_reason TEXT
 );
 
 -- Enrichment data (one row per paper, added during enrich stage)
@@ -173,6 +178,19 @@ class Database:
     def initialize(self) -> None:
         """Create tables and indexes if they don't exist."""
         self.conn.executescript(SCHEMA_SQL)
+        # Migrate: add excluded columns if missing (for existing databases)
+        cols = {
+            row[1]
+            for row in self.conn.execute("PRAGMA table_info(papers)").fetchall()
+        }
+        if "excluded" not in cols:
+            self.conn.execute(
+                "ALTER TABLE papers ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0"
+            )
+        if "excluded_reason" not in cols:
+            self.conn.execute(
+                "ALTER TABLE papers ADD COLUMN excluded_reason TEXT"
+            )
         self.conn.commit()
 
     # ---- Papers ----
@@ -294,13 +312,23 @@ class Database:
         self,
         source: Optional[str] = None,
         limit: Optional[int] = None,
+        include_excluded: bool = False,
     ) -> list[dict]:
-        """Get papers, optionally filtered by source."""
+        """Get papers, optionally filtered by source.
+
+        By default, excludes soft-deleted papers (excluded=1).
+        Pass ``include_excluded=True`` to get everything.
+        """
         query = "SELECT * FROM papers"
         params: list = []
+        conditions: list[str] = []
         if source:
-            query += " WHERE source = ?"
+            conditions.append("source = ?")
             params.append(source)
+        if not include_excluded:
+            conditions.append("excluded = 0")
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY pmid"
         if limit:
             query += " LIMIT ?"
@@ -681,12 +709,16 @@ class Database:
     # ---- Export helpers ----
 
     def get_all_annotations_for_export(self) -> list[dict]:
-        """Get all annotations with paper data merged in, for export."""
+        """Get all annotations with paper data merged in, for export.
+
+        Excludes soft-deleted papers (excluded=1).
+        """
         rows = self.conn.execute("""
             SELECT a.pmid, a.model_name, a.annotation,
                    p.title, p.abstract
             FROM annotations a
             JOIN papers p ON a.pmid = p.pmid
+            WHERE p.excluded = 0
             ORDER BY a.pmid
         """).fetchall()
         results = []

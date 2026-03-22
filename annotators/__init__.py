@@ -149,6 +149,34 @@ def build_user_message(
                 f"NOTE: This paper has been RETRACTED. "
                 f"Reasons: {', '.join(reasons)}"
             )
+            # Add retraction classification with severity floor guidance
+            from enrichers.retraction_classifier import (
+                classify_retraction,
+                format_retraction_context,
+            )
+            floor, category = classify_retraction(
+                reasons,
+                title=title,
+                abstract="",  # Don't pass the original abstract as notice text
+            )
+            retraction_context = format_retraction_context(floor, category)
+            if retraction_context:
+                user_parts.append(retraction_context)
+
+        # Cochrane Risk of Bias 2 expert judgments (when available)
+        overall_rob = metadata.get("overall_rob")
+        if overall_rob:
+            rob_parts = [f"overall={overall_rob}"]
+            for rob_field in ("randomization_bias", "deviation_bias",
+                              "missing_outcome_bias", "measurement_bias",
+                              "reporting_bias"):
+                val = metadata.get(rob_field)
+                if val:
+                    rob_parts.append(f"{rob_field.replace('_bias', '')}={val}")
+            user_parts.append(
+                f"\nCochrane RoB 2 expert assessment: {', '.join(rob_parts)}. "
+                "Use these expert judgments to calibrate your severity ratings."
+            )
 
         audit = _ensure_parsed(metadata.get("effect_size_audit"), default={})
         if audit:

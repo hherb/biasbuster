@@ -21,10 +21,11 @@ Data sources:
 import asyncio
 import json
 import logging
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 
@@ -85,14 +86,52 @@ class CochraneRoBCollector:
     EUROPMC_BASE = "https://www.ebi.ac.uk/europepmc/webservices/rest"
     PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
-    def __init__(self, ncbi_api_key: str = "") -> None:
-        """Initialise the collector with an optional NCBI API key for PubMed lookups."""
+    # Prompt for LLM-based RoB extraction from review full text
+    _ROB_EXTRACTION_PROMPT = """\
+You are a systematic review data extractor.  Given the full text of a
+systematic review or meta-analysis that used the Cochrane Risk of Bias 2
+(RoB 2) tool, extract every individual study that received a risk-of-bias
+judgment.
+
+For each study, return:
+- "study_id": the author-year identifier as written in the review (e.g. "Smith 2020")
+- "overall_rob": one of "high", "low", or "some_concerns"
+
+Return ONLY a JSON array.  Example:
+[
+  {"study_id": "Smith 2020", "overall_rob": "high"},
+  {"study_id": "Jones 2019", "overall_rob": "low"}
+]
+
+If the review does not contain individual study-level RoB judgments,
+return an empty array [].
+
+Respond ONLY with the JSON array. No preamble, no markdown fences."""
+
+    def __init__(
+        self,
+        ncbi_api_key: str = "",
+        llm_api_key: str = "",
+        llm_api_base: str = "",
+        llm_model: str = "",
+    ) -> None:
+        """Initialise the collector.
+
+        Args:
+            ncbi_api_key: NCBI E-utilities API key (optional, increases rate limit).
+            llm_api_key: API key for the OpenAI-compatible LLM used for RoB extraction.
+            llm_api_base: Base URL for the LLM API (e.g. https://api.deepseek.com).
+            llm_model: Model ID (e.g. deepseek-reasoner).
+        """
         self.ncbi_api_key = ncbi_api_key
+        self.llm_api_key = llm_api_key or os.environ.get("DEEPSEEK_API_KEY", "")
+        self.llm_api_base = llm_api_base.rstrip("/") if llm_api_base else ""
+        self.llm_model = llm_model
         self.client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "CochraneRoBCollector":
         """Create the shared ``httpx.AsyncClient`` used for all HTTP requests."""
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=120.0)
         return self
 
     async def __aexit__(self, *args) -> None:
@@ -106,19 +145,21 @@ class CochraneRoBCollector:
         max_results: int = 100,
         min_year: int = 2018,
     ) -> list[dict]:
-        """
-        Search Europe PMC for Cochrane reviews with risk of bias assessments.
+        """Search Europe PMC for systematic reviews with RoB assessments.
+
+        Searches both Cochrane reviews AND open-access systematic reviews
+        in PubMed Central that used the RoB 2 tool.
         """
         query_parts = [
-            'SRC:MED',
-            '"Cochrane Database of Systematic Reviews"[JOURNAL]',
+            'SRC:PMC',
+            'OPEN_ACCESS:Y',
+            'HAS_FT:Y',
             f'PUB_YEAR:[{min_year} TO 2026]',
+            '("risk-of-bias" OR "risk of bias 2" OR "RoB 2")',
+            '("included studies" OR "randomized controlled" OR "randomized")',
         ]
         if domain:
             query_parts.append(f'"{domain}"')
-
-        # Add terms likely to indicate RoB assessment
-        query_parts.append('("risk of bias" OR "quality assessment" OR "RoB 2")')
 
         query = " AND ".join(query_parts)
 
@@ -247,19 +288,64 @@ class CochraneRoBCollector:
             logger.warning(f"Reference extraction failed for {pmcid}: {e}")
             return []
 
-    async def extract_rob_from_fulltext(self, pmcid: str) -> list[RoBAssessment]:
-        """
-        Parse RoB assessments from Cochrane review full text.
+    # Common words that the regex falsely captures as "author" names.
+    _JUNK_AUTHORS = frozenset({
+        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+        "had", "has", "have", "in", "is", "it", "no", "not", "of", "on",
+        "or", "our", "per", "so", "the", "to", "up", "was", "we", "were",
+        "with", "all", "also", "any", "been", "both", "but", "can", "did",
+        "do", "each", "few", "get", "got", "her", "him", "his", "how",
+        "its", "may", "more", "most", "new", "now", "old", "one", "only",
+        "own", "pre", "see", "set", "she", "six", "ten", "two", "use",
+        "via", "who", "yet",
+        # Months
+        "january", "february", "march", "april", "may", "june", "july",
+        "august", "september", "october", "november", "december",
+        # Common non-author tokens found in Cochrane text
+        "since", "until", "between", "during", "after", "before", "about",
+        "over", "under", "into", "some", "such", "than", "that", "then",
+        "them", "they", "this", "very", "what", "when", "here", "just",
+        "like", "long", "much", "must", "near", "next", "once", "only",
+        "same", "than", "used", "well", "will", "risk", "bias", "high",
+        "low", "overall", "study", "trial", "total", "group", "data",
+        "analysis", "outcome", "table", "figure", "section", "review",
+        "included", "excluded", "results", "methods", "based", "using",
+        "report", "compared", "evidence", "quality", "patients",
+        "participants", "treatment", "intervention", "control", "placebo",
+        "effect", "effects", "significant", "studies", "trials",
+        "art", "candidates", "statement", "eular", "criteria",
+        "removed", "assessed", "conducted", "reported", "performed",
+    })
 
-        Cochrane reviews include RoB tables/figures. We look for:
-        - Structured RoB summary tables
-        - Text mentioning "high risk of bias", "low risk of bias"
-        - References to specific studies with RoB judgments
+    @classmethod
+    def _is_valid_study_id(cls, study_id: str) -> bool:
+        """Check whether a regex-captured study_id looks like a real Author Year."""
+        parts = study_id.strip().split()
+        if len(parts) < 2:
+            return False
+        author = parts[0].lower().rstrip(",;:")
+        # Must start with uppercase (proper noun) and not be a common word
+        if not parts[0][0].isupper():
+            return False
+        if author in cls._JUNK_AUTHORS:
+            return False
+        # Author name should be at least 2 chars
+        if len(author) < 2:
+            return False
+        return True
+
+    async def extract_rob_from_fulltext(self, pmcid: str) -> list[RoBAssessment]:
+        """Parse RoB assessments from Cochrane review full text.
+
+        Extracts study-level risk of bias judgments from Cochrane review XML.
+        Filters out false-positive study IDs (common words, months, etc.).
+        Deduplicates within a single review (same study_id keeps first match).
         """
         if not pmcid:
             return []
 
         assessments = []
+        seen_ids: set[str] = set()
         try:
             resp = await fetch_with_retry(
                 self.client, "GET",
@@ -271,45 +357,216 @@ class CochraneRoBCollector:
 
             text = resp.text
 
-            # Extract study-level RoB mentions
-            # Pattern: "Author Year" followed by risk of bias judgment
             rob_patterns = [
                 # "Smith 2020 was judged to be at high risk of bias"
-                r'(\w+\s+(?:19|20)\d{2}[a-z]?)\s+(?:was|were)\s+(?:judged|rated|assessed|considered)\s+'
+                r'([A-Z][a-z]+\s+(?:19|20)\d{2}[a-z]?)\s+(?:was|were)\s+(?:judged|rated|assessed|considered)\s+'
                 r'(?:to\s+be\s+)?(?:at\s+)?(\w+)\s+risk\s+of\s+bias',
                 # "high risk of bias (Smith 2020)"
-                r'(\w+)\s+risk\s+of\s+bias\s*\(([^)]+(?:19|20)\d{2}[a-z]?)\)',
-                # Table-style: "Smith 2020 ... High ... Low ..."
-                r'(\w+\s+(?:19|20)\d{2}[a-z]?).*?(low|high|unclear|some\s+concerns)\s+risk',
+                r'(\w+)\s+risk\s+of\s+bias\s*\(([A-Z][a-z]+[^)]*(?:19|20)\d{2}[a-z]?)\)',
+                # "Smith 2020: high risk" or "Smith 2020 - high risk"
+                r'([A-Z][a-z]+\s+(?:19|20)\d{2}[a-z]?)\s*[:–\-]\s*(low|high|unclear|some concerns)\s+risk',
+                # "rated as high risk of bias: Smith 2020, Jones 2021"
+                r'(high|low|unclear)\s+risk\s+of\s+bias[^.]*?([A-Z][a-z]+\s+(?:19|20)\d{2}[a-z]?)',
+                # "Smith 2020 ... overall ... high" (table rows, up to 200 chars)
+                r'([A-Z][a-z]+\s+(?:19|20)\d{2}[a-z]?).{0,200}?overall.{0,50}?(low|high|some\s+concerns)',
             ]
 
             for pattern in rob_patterns:
                 for match in re.finditer(pattern, text, re.IGNORECASE):
                     groups = match.groups()
-                    if len(groups) >= 2:
-                        study_id = groups[0].strip()
-                        rob_level = groups[1].strip().lower()
+                    if len(groups) < 2:
+                        continue
 
-                        # Normalize
-                        if "high" in rob_level:
-                            overall = "high"
-                        elif "low" in rob_level:
-                            overall = "low"
-                        elif "some" in rob_level or "unclear" in rob_level:
-                            overall = "some_concerns"
-                        else:
-                            overall = rob_level
+                    study_id = groups[0].strip()
+                    rob_level = groups[1].strip().lower()
 
-                        assessments.append(RoBAssessment(
-                            study_id=study_id,
-                            overall_rob=overall,
-                            cochrane_review_pmid="",  # Will be filled by caller
-                        ))
+                    if not self._is_valid_study_id(study_id):
+                        continue
+
+                    # Deduplicate within this review
+                    sid_key = study_id.lower()
+                    if sid_key in seen_ids:
+                        continue
+                    seen_ids.add(sid_key)
+
+                    # Normalize RoB level
+                    if "high" in rob_level:
+                        overall = "high"
+                    elif "low" in rob_level:
+                        overall = "low"
+                    elif "some" in rob_level or "unclear" in rob_level:
+                        overall = "some_concerns"
+                    else:
+                        overall = rob_level
+
+                    assessments.append(RoBAssessment(
+                        study_id=study_id,
+                        overall_rob=overall,
+                        cochrane_review_pmid="",
+                    ))
 
         except Exception as e:
             logger.warning(f"RoB extraction failed for {pmcid}: {e}")
 
         return assessments
+
+    async def extract_rob_via_llm(self, pmcid: str, full_text: str) -> list[RoBAssessment]:
+        """Extract RoB assessments from review full text using an LLM.
+
+        Sends the review text to an OpenAI-compatible LLM (e.g. DeepSeek
+        reasoner) with a structured extraction prompt.  Falls back to
+        regex-based extraction if the LLM is not configured.
+
+        Args:
+            pmcid: PMC identifier (for logging).
+            full_text: Raw XML/text of the review.
+
+        Returns:
+            List of RoBAssessment objects extracted by the LLM.
+        """
+        # Try regex first (fast, free). Fall back to LLM only if regex
+        # finds nothing and LLM is configured.
+        regex_results = await self.extract_rob_from_fulltext(pmcid)
+        if regex_results:
+            logger.info(
+                f"Regex extracted {len(regex_results)} RoB assessments from {pmcid}"
+            )
+            return regex_results
+
+        if not self.llm_api_key or not self.llm_api_base or not self.llm_model:
+            return []
+
+        logger.info(f"Regex found 0 in {pmcid}, trying LLM extraction...")
+
+        # Strip XML tags — keep just the text content
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.fromstring(full_text)
+            plain = ET.tostring(root, encoding="unicode", method="text")
+        except ET.ParseError:
+            plain = re.sub(r"<[^>]+>", " ", full_text)
+
+        # Chunk & map-reduce: split into overlapping chunks, extract from
+        # each, merge results.  NEVER truncate — the RoB tables may be
+        # anywhere in the document.
+        chunk_size = 28_000  # chars per chunk (conservative for token limits)
+        overlap = 2_000
+        chunks: list[str] = []
+        start = 0
+        while start < len(plain):
+            end = start + chunk_size
+            chunks.append(plain[start:end])
+            start = end - overlap
+        if not chunks:
+            chunks = [plain]
+
+        logger.debug(
+            f"{pmcid}: {len(plain)} chars -> {len(chunks)} chunk(s) for LLM"
+        )
+
+        all_studies: list[dict] = []
+        for i, chunk in enumerate(chunks):
+            chunk_label = f"{pmcid} chunk {i + 1}/{len(chunks)}"
+            studies = await self._llm_extract_chunk(chunk, chunk_label)
+            all_studies.extend(studies)
+
+        # Deduplicate and convert to RoBAssessment objects
+        assessments: list[RoBAssessment] = []
+        seen: set[str] = set()
+        for s in all_studies:
+            sid = s.get("study_id", "").strip()
+            rob = s.get("overall_rob", "").strip().lower()
+            if not sid or not rob:
+                continue
+            if not self._is_valid_study_id(sid):
+                continue
+            sid_key = sid.lower()
+            if sid_key in seen:
+                continue
+            seen.add(sid_key)
+
+            if "high" in rob:
+                overall = "high"
+            elif "low" in rob:
+                overall = "low"
+            elif "some" in rob or "unclear" in rob:
+                overall = "some_concerns"
+            else:
+                overall = rob
+
+            assessments.append(RoBAssessment(
+                study_id=sid,
+                overall_rob=overall,
+            ))
+
+        logger.info(
+            f"LLM extracted {len(assessments)} RoB assessments from "
+            f"{pmcid} ({len(chunks)} chunk(s))"
+        )
+        return assessments
+
+    async def _llm_extract_chunk(
+        self, text: str, label: str,
+    ) -> list[dict]:
+        """Send one chunk to the LLM for RoB extraction.
+
+        Returns a list of dicts with ``study_id`` and ``overall_rob`` keys,
+        or an empty list on failure.
+        """
+        payload = {
+            "model": self.llm_model,
+            "messages": [
+                {"role": "system", "content": self._ROB_EXTRACTION_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            "max_tokens": 4000,
+            "temperature": 0.0,
+        }
+
+        try:
+            resp = await self.client.post(
+                f"{self.llm_api_base}/v1/chat/completions",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {self.llm_api_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=httpx.Timeout(180.0),
+            )
+
+            if resp.status_code != 200:
+                logger.warning(f"LLM RoB extraction failed for {label}: HTTP {resp.status_code}")
+                return []
+
+            data = resp.json()
+            text_out = (
+                data.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+
+            text_out = text_out.strip()
+            if text_out.startswith("```"):
+                text_out = text_out.split("\n", 1)[1] if "\n" in text_out else text_out[3:]
+            if text_out.endswith("```"):
+                text_out = text_out[:-3]
+            text_out = text_out.strip()
+
+            studies = json.loads(text_out)
+            if not isinstance(studies, list):
+                logger.warning(f"LLM returned non-list for {label}: {type(studies)}")
+                return []
+            return studies
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"LLM returned invalid JSON for {label}: {e}")
+            return []
+        except httpx.TimeoutException:
+            logger.warning(f"LLM timeout for {label}")
+            return []
+        except Exception as e:
+            logger.warning(f"LLM extraction error for {label}: {e}")
+            return []
 
     async def resolve_study_pmids(
         self, assessments: list[RoBAssessment]
@@ -331,10 +588,11 @@ class CochraneRoBCollector:
             year = match.group(2)
 
             try:
+                # Search without Publication Type filter — Cochrane reviews
+                # include studies that PubMed may not tag as RCTs.
                 params = {
                     "db": "pubmed",
-                    "term": f"{author}[Author] AND {year}[Date - Publication] AND "
-                            f"randomized controlled trial[Publication Type]",
+                    "term": f"{author}[Author] AND {year}[Date - Publication]",
                     "retmax": 5,
                     "retmode": "json",
                 }
@@ -366,15 +624,113 @@ class CochraneRoBCollector:
         logger.info(f"Resolved {resolved}/{len(assessments)} study IDs to PMIDs")
         return assessments
 
+    async def _resolve_pmids_from_refs(
+        self,
+        assessments: list[RoBAssessment],
+        refs: list[dict],
+    ) -> None:
+        """Match RoB assessments to reference PMIDs/DOIs extracted from XML.
+
+        Cochrane full-text XML often has ``<pub-id pub-id-type="pmid">``
+        and DOIs directly in the reference list.  Matching by first-author
+        surname + year is much more reliable than PubMed search.
+        """
+        # Build lookup: (surname_lower, year) → ref data
+        ref_lookup: dict[tuple[str, str], dict] = {}
+        for ref in refs:
+            year = str(ref.get("year", "")).strip()
+            authors = ref.get("authors", [])
+            if authors and year:
+                # First author surname
+                surname = authors[0].split()[0].lower() if authors[0] else ""
+                if surname:
+                    ref_lookup[(surname, year)] = ref
+
+        matched = 0
+        for a in assessments:
+            if a.pmid:
+                continue
+            m = re.match(r'(\w+)\s+((?:19|20)\d{2})', a.study_id)
+            if not m:
+                continue
+            author_lower = m.group(1).lower()
+            year = m.group(2)
+
+            ref = ref_lookup.get((author_lower, year))
+            if ref:
+                if ref.get("pmid"):
+                    a.pmid = ref["pmid"]
+                    matched += 1
+                elif ref.get("doi"):
+                    a.doi = ref["doi"]
+                if ref.get("title"):
+                    a.study_title = ref["title"]
+
+        if matched:
+            logger.info(f"Matched {matched} PMIDs from Cochrane reference list")
+
+    async def _resolve_pmids_via_doi(
+        self, assessments: list[RoBAssessment],
+    ) -> None:
+        """Resolve PMIDs for assessments that have a DOI but no PMID.
+
+        Uses the NCBI ID Converter API (pmcids → pmids).
+        """
+        need_doi = [a for a in assessments if a.doi and not a.pmid]
+        if not need_doi:
+            return
+
+        # PubMed can look up by DOI via esearch
+        resolved = 0
+        for a in need_doi:
+            try:
+                params = {
+                    "db": "pubmed",
+                    "term": f"{a.doi}[DOI]",
+                    "retmax": 1,
+                    "retmode": "json",
+                }
+                if self.ncbi_api_key:
+                    params["api_key"] = self.ncbi_api_key
+                resp = await fetch_with_retry(
+                    self.client, "GET",
+                    f"{self.PUBMED_BASE}/esearch.fcgi", params=params,
+                )
+                if resp.status_code == 200:
+                    pmids = resp.json().get("esearchresult", {}).get("idlist", [])
+                    if pmids:
+                        a.pmid = pmids[0]
+                        resolved += 1
+                await asyncio.sleep(0.35)
+            except Exception as e:
+                logger.debug(f"DOI→PMID lookup failed for {a.doi}: {e}")
+
+        if resolved:
+            logger.info(f"Resolved {resolved} PMIDs via DOI lookup")
+
     async def collect_rob_dataset(
         self,
         domains: Optional[list[str]] = None,
         max_reviews: int = 50,
         max_studies: int = 500,
+        on_result: Optional[Callable[[RoBAssessment], None]] = None,
     ) -> list[RoBAssessment]:
-        """
-        Full pipeline: search Cochrane reviews, extract RoB, resolve PMIDs.
-        Returns RoBAssessments with PMIDs ready for abstract fetching.
+        """Full pipeline: search reviews, extract RoB, resolve PMIDs.
+
+        Saves results incrementally via ``on_result`` callback after each
+        review is processed, so progress survives interruptions.
+
+        Args:
+            domains: Clinical domains to search.
+            max_reviews: Max reviews to search across all domains.
+            max_studies: Stop after this many total assessments.
+            on_result: Optional callback(RoBAssessment) called for each
+                resolved assessment.  Use this for incremental DB saves.
+
+        Resolution strategy (per review, not batched):
+        1. Extract PMIDs/DOIs directly from Cochrane reference XML
+        2. Resolve DOIs → PMIDs via PubMed
+        3. Fall back to author+year PubMed search for remaining
         """
         if domains is None:
             domains = [
@@ -382,50 +738,104 @@ class CochraneRoBCollector:
                 "mental health", "respiratory",
             ]
 
-        all_assessments = []
+        all_results: list[RoBAssessment] = []
+        seen_pmcids: set[str] = set()
+        seen_pmids: set[str] = set()
 
-        for domain in domains:
-            logger.info(f"Searching Cochrane reviews for '{domain}'...")
+        # Per-domain + broad search
+        search_passes: list[tuple[str, int]] = [
+            (d, max_reviews // (len(domains) + 1)) for d in domains
+        ]
+        search_passes.append(("", max_reviews // (len(domains) + 1)))
+
+        for domain, per_domain_max in search_passes:
+            label = f"'{domain}'" if domain else "(all domains)"
+            logger.info(f"Searching systematic reviews for {label}...")
             reviews = await self.search_cochrane_reviews(
                 domain=domain,
-                max_results=max_reviews // len(domains),
+                max_results=per_domain_max,
             )
 
             for review in reviews:
                 pmcid = review.get("pmcid", "")
-                if not pmcid:
+                if not pmcid or pmcid in seen_pmcids:
+                    continue
+                seen_pmcids.add(pmcid)
+
+                # Fetch full text
+                try:
+                    ft_resp = await fetch_with_retry(
+                        self.client, "GET",
+                        f"{self.EUROPMC_BASE}/{pmcid}/fullTextXML",
+                    )
+                    if ft_resp.status_code != 200:
+                        await asyncio.sleep(0.5)
+                        continue
+                    full_text = ft_resp.text
+                except Exception:
+                    await asyncio.sleep(0.5)
                     continue
 
-                # Extract RoB assessments
-                assessments = await self.extract_rob_from_fulltext(pmcid)
+                # Extract RoB assessments (regex first, LLM fallback)
+                assessments = await self.extract_rob_via_llm(pmcid, full_text)
+                if not assessments:
+                    await asyncio.sleep(0.5)
+                    continue
+
+                # Extract references for PMID matching
+                refs = await self.extract_included_study_refs(pmcid)
+
                 for a in assessments:
                     a.cochrane_review_pmid = review.get("pmid", "")
                     a.cochrane_review_doi = review.get("doi", "")
                     a.cochrane_review_title = review.get("title", "")
                     a.domain = domain
 
-                all_assessments.extend(assessments)
+                # Resolve PMIDs per-review (not batched at end)
+                # Layer 1: reference list
+                await self._resolve_pmids_from_refs(assessments, refs)
+                # Layer 2: DOI lookup
+                await self._resolve_pmids_via_doi(assessments)
+                # Layer 3: author+year search
+                unresolved = [a for a in assessments if not a.pmid]
+                if unresolved:
+                    await self.resolve_study_pmids(assessments)
+
+                # Save results incrementally — deduplicate by PMID
+                for a in assessments:
+                    if not a.pmid or a.pmid in seen_pmids:
+                        continue
+                    seen_pmids.add(a.pmid)
+                    all_results.append(a)
+                    if on_result:
+                        on_result(a)
+
+                saved_from_review = sum(
+                    1 for a in assessments if a.pmid and a.pmid in seen_pmids
+                )
+                logger.info(
+                    f"Review {pmcid}: {len(assessments)} extracted, "
+                    f"{saved_from_review} with PMID. "
+                    f"Running total: {len(all_results)}"
+                )
+
                 await asyncio.sleep(0.5)
 
-                if len(all_assessments) >= max_studies:
+                if len(all_results) >= max_studies:
                     break
 
-            if len(all_assessments) >= max_studies:
+            if len(all_results) >= max_studies:
                 break
 
-        # Resolve PMIDs
-        all_assessments = await self.resolve_study_pmids(all_assessments)
-
-        # Separate high and low RoB
-        high_rob = [a for a in all_assessments if a.overall_rob == "high"]
-        low_rob = [a for a in all_assessments if a.overall_rob == "low"]
+        high_rob = sum(1 for a in all_results if a.overall_rob == "high")
+        low_rob = sum(1 for a in all_results if a.overall_rob == "low")
 
         logger.info(
-            f"Collected {len(all_assessments)} RoB assessments: "
-            f"{len(high_rob)} high, {len(low_rob)} low"
+            f"Collection complete: {len(all_results)} unique RoB assessments "
+            f"({high_rob} high, {low_rob} low) from {len(seen_pmcids)} reviews."
         )
 
-        return all_assessments
+        return all_results
 
 if __name__ == "__main__":
     async def demo():

@@ -16,125 +16,48 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a biomedical research integrity analyst. Given a clinical trial abstract,
-assess it for potential bias across five domains. For each domain, assign a severity level
-using the specific boundary definitions below.
-
-SEVERITY SCALE (applies to all domains):
-- NONE: No concerns identified in this domain.
-- LOW: A single minor concern that does not affect interpretation of primary findings.
-- MODERATE: Multiple minor concerns, OR one concern that could meaningfully affect
-  interpretation of the primary findings.
-- HIGH: Concerns that likely affect the reliability of primary conclusions.
-- CRITICAL: Fundamental flaws or evidence of misconduct that invalidate the findings.
-
-1. STATISTICAL REPORTING: Does the abstract report only relative measures (RRR, OR, HR)
-   without absolute measures (ARR, NNT, baseline risk)? Sole reliance on relative measures
-   inflates perceived benefit and is a strong indicator of potential bias.
-   - "relative_only" = TRUE only when effect sizes are expressed SOLELY as relative measures
-     AND no absolute information appears anywhere in the abstract.
-   - "relative_only" = FALSE if raw event counts in both arms, percentages in both arms,
-     absolute risk difference, NNT, or baseline/control event rate appear.
-   Severity boundaries:
-   - LOW: Minor omission (e.g., NNT not reported but both arm rates given, or baseline
-     risk derivable from raw counts). Reader can still assess clinical significance.
-   - MODERATE: Relative measures only OR selective p-value reporting. Reader cannot
-     assess clinical significance without external data.
-   - HIGH: Multiple reporting concerns (e.g., relative only + subgroup emphasis +
-     selective p-values). Pattern suggests intentional obfuscation.
-
-2. SPIN: Do the conclusions match the actual results? Classify using the Boutron taxonomy:
-   - HIGH: No uncertainty, no recommendation for further trials, no acknowledgment of
-     non-significant primary outcome, or recommends clinical use despite weak evidence.
-   - MODERATE: Some uncertainty OR further trials recommended, but non-significant
-     primary outcome not acknowledged.
-   - LOW: Uncertainty AND further trials recommended, OR acknowledges non-significant primary.
-   - NONE: Conclusions accurately reflect results.
-
-3. OUTCOME REPORTING: Are outcomes patient-centred or surrogate?
-   - Patient-centred: mortality, overall survival, quality of life, functional status,
-     symptom burden, major clinical events (MI, stroke), patient-reported outcomes.
-   - Surrogate: lab values, imaging markers, biomarkers, process measures, physiological
-     parameters, response rates without survival data.
-   - Flag composite endpoints that are not disaggregated.
-   - Check ClinicalTrials.gov for evidence of outcome switching from the registered protocol.
-   Severity boundaries:
-   - LOW: Patient-centred primary outcome but with a secondary surrogate endpoint
-     given undue prominence, OR a well-validated surrogate used appropriately.
-   - MODERATE: Primary outcome is a surrogate without established patient-centred
-     validation, OR a composite endpoint is not disaggregated.
-   - HIGH: Surrogate endpoint with no validation AND evidence of outcome switching
-     from a registered patient-centred endpoint.
-
-4. CONFLICT OF INTEREST: Is funding disclosed? Are authors affiliated with the sponsor?
-   - Naming a funding source alone (e.g., "Funded by Amgen") does NOT count as COI
-     disclosure. COI disclosure requires author-level conflict statements.
-   - Industry author affiliations = TRUE if any author is affiliated with a pharmaceutical,
-     device, or biotech company.
-   Severity boundaries:
-   - LOW: Funding disclosed, COI disclosed, but industry involvement present (e.g.,
-     industry-funded with full transparency). Potential bias exists but is documented.
-   - MODERATE: Industry funding OR industry author affiliations present, but COI
-     not fully disclosed in the abstract. Transparency gaps warrant verification.
-   - HIGH: Industry funding with undisclosed COI AND author affiliations with sponsor.
-     Multiple undisclosed conflicts suggest systematic non-disclosure.
-
-5. METHODOLOGICAL RED FLAGS: Inappropriate comparator? Enrichment design (run-in
-   responders, prior-use requirement)? Per-protocol only without ITT? Premature stopping?
-   Short follow-up (chronic disease <12 months, acute <4 weeks)?
-   Severity boundaries:
-   - LOW: A single minor concern (e.g., slightly short follow-up for a chronic condition,
-     or standard enrichment design acknowledged in limitations).
-   - MODERATE: One significant concern (e.g., per-protocol only without ITT, or
-     inappropriate comparator) OR two minor concerns together.
-   - HIGH: Multiple significant concerns, OR a single concern that likely invalidates
-     the primary analysis (e.g., enrichment + premature stopping + inappropriate comparator).
-
-VERIFICATION DATABASES — recommend specific checks based on the study:
-- CMS Open Payments (openpaymentsdata.cms.gov): Check author payment records when the
-  study involves a marketed drug or device AND any COI concern exists (industry funding,
-  industry author affiliations, or undisclosed conflicts). Not limited to industry-funded
-  studies — authors may have personal consulting or speaker relationships.
-- ClinicalTrials.gov: Verify registered outcomes, sponsor identity, protocol amendments.
-  Always recommend for any RCT.
-- ORCID: Check author affiliation histories for undisclosed industry ties.
-- Europe PMC (europepmc.org): Access full-text for funding and COI disclosure sections.
-- Medicines Australia / EFPIA (betransparent.eu): For non-US physician payment data.
-- Retraction Watch / Crossref: Check for post-publication notices, corrections, retractions.
-
-CALIBRATION: Not every industry-funded study is biased. Not every study reporting only
-relative measures is intentionally misleading. Assess the totality of evidence.
-
-Provide your reasoning step by step, then a structured assessment with recommended
-verification steps citing specific databases and URLs."""
+# Canonical prompt imported from the single source of truth.
+# See docs/MISTAKES_ROUND_1_AND_FIXES.md for why prompt unification matters.
+from annotators import _ensure_parsed
+from prompts import TRAINING_SYSTEM_PROMPT as SYSTEM_PROMPT  # noqa: E402
 
 
 def build_thinking_chain(annotation: dict) -> str:
-    """
-    Build a <think> reasoning chain from the annotation.
+    """Build a <think> reasoning chain from the annotation.
 
-    This teaches the model to reason through bias assessment step by step,
-    including which verification databases to check and why.
+    Evidence-grounded: references specific flags, quotes, and concern counts
+    to justify severity assignments per the canonical boundary definitions.
+    See docs/MISTAKES_ROUND_1_AND_FIXES.md (Phase 4) for the rationale.
     """
     parts = ["<think>"]
     reasoning = annotation.get("reasoning", "")
     if reasoning:
         parts.append(reasoning)
 
-    # Always build domain-level reasoning with severity boundary explanations.
-    # When raw reasoning exists, this adds structured severity justifications
-    # and verification database selection logic that the raw text may lack.
+    # Domain-level reasoning with evidence-grounded severity justifications
     _build_statistical_reasoning(parts, annotation)
     _build_spin_reasoning(parts, annotation)
     _build_outcome_reasoning(parts, annotation)
     _build_coi_reasoning(parts, annotation)
     _build_methodology_reasoning(parts, annotation)
 
-    # Always end with a verification summary
+    # Cross-domain calibration step
+    _build_calibration_summary(parts, annotation)
+
+    # Retraction floor reasoning (if applicable)
+    _build_retraction_reasoning(parts, annotation)
+
+    # Verification database summary
     _build_verification_summary(parts, annotation)
 
     parts.append("</think>")
     return "\n".join(parts)
+
+
+def _quote_evidence(parts: list[str], evidence_quotes: list) -> None:
+    """Append the first evidence quote if available."""
+    if evidence_quotes:
+        parts.append(f'Evidence from abstract: "{evidence_quotes[0]}"')
 
 
 def _build_statistical_reasoning(parts: list[str], annotation: dict) -> None:
@@ -143,7 +66,6 @@ def _build_statistical_reasoning(parts: list[str], annotation: dict) -> None:
     severity = stat.get("severity", "none")
 
     if severity == "none":
-        # Explain why no statistical reporting concerns were found
         positives = []
         if stat.get("absolute_reported"):
             positives.append("absolute measures are reported")
@@ -154,153 +76,144 @@ def _build_statistical_reasoning(parts: list[str], annotation: dict) -> None:
         if positives:
             parts.append(
                 "Statistical reporting appears adequate: "
-                + "; ".join(positives) + "."
+                + "; ".join(positives) + ". Severity: NONE."
             )
         else:
             parts.append(
-                "Statistical reporting appears balanced with both relative "
-                "and absolute measures provided."
+                "No statistical reporting concerns identified. Severity: NONE."
             )
-    else:
-        # Collect specific issues
-        issues = []
-        if stat.get("relative_only"):
-            issues.append(
-                "effect sizes reported using only relative measures without "
-                "absolute risk reduction or NNT"
-            )
-        if stat.get("selective_p_values"):
-            issues.append("selective reporting of favourable p-values")
-        if stat.get("subgroup_emphasis"):
-            issues.append("emphasis on subgroup results over primary analysis")
-        if not stat.get("baseline_risk_reported", True):
-            issues.append("baseline risk not reported")
-        if issues:
-            parts.append(
-                "Statistical reporting concerns: " + "; ".join(issues) + "."
-            )
+        return
 
-        # Explain severity level with boundary reasoning
-        if severity == "low":
-            parts.append(
-                "Severity is LOW because the concern is minor — the reader can "
-                "still assess clinical significance from other reported data "
-                "(e.g., both arm rates or raw event counts are available)."
-            )
-        elif severity == "moderate":
-            parts.append(
-                "Severity is MODERATE because the reader cannot assess clinical "
-                "significance without external data (e.g., only relative measures "
-                "reported, or selective p-value reporting obscures the full picture)."
-            )
-        elif severity in ("high", "critical"):
-            parts.append(
-                f"Severity is {severity.upper()} because multiple reporting "
-                "concerns are present together, suggesting a pattern of selective "
-                "or misleading statistical presentation."
-            )
+    # Collect specific issues with their names for counting
+    issues = []
+    if stat.get("relative_only"):
+        issues.append("relative_only (no absolute measures)")
+    if stat.get("selective_p_values"):
+        issues.append("selective p-value reporting")
+    if stat.get("subgroup_emphasis"):
+        issues.append("subgroup emphasis over primary analysis")
+    if not stat.get("baseline_risk_reported", True):
+        issues.append("baseline risk not reported")
 
-    if stat.get("evidence_quotes"):
-        parts.append(f"Key text: {stat['evidence_quotes'][0]}")
+    if issues:
+        parts.append(
+            f"Statistical reporting: {len(issues)} concern(s) identified: "
+            + "; ".join(issues) + "."
+        )
+
+    _quote_evidence(parts, stat.get("evidence_quotes", []))
+
+    # Severity justification grounded in concern count + boundary definitions
+    if severity == "low":
+        parts.append(
+            f"Severity: LOW — {len(issues)} minor concern(s). Per boundary "
+            "definition: reader can still assess clinical significance "
+            "(e.g., both arm rates or raw counts available)."
+        )
+    elif severity == "moderate":
+        parts.append(
+            f"Severity: MODERATE — {len(issues)} concern(s). Per boundary "
+            "definition: reader cannot assess clinical significance without "
+            "external data (relative measures only or selective p-values)."
+        )
+    elif severity in ("high", "critical"):
+        parts.append(
+            f"Severity: {severity.upper()} — {len(issues)} concern(s). "
+            "Per boundary definition: multiple reporting concerns together "
+            "suggest a pattern of selective or misleading presentation."
+        )
 
 
 def _build_spin_reasoning(parts: list[str], annotation: dict) -> None:
     """Add spin reasoning with Boutron classification to thinking chain."""
     spin = annotation.get("spin", {})
     spin_level = spin.get("spin_level", spin.get("severity", "none"))
+
+    reasons = []
+    if not spin.get("conclusion_matches_results", True):
+        reasons.append("conclusions do not match reported results")
+    if spin.get("focus_on_secondary_when_primary_ns"):
+        reasons.append("focus on secondary outcomes despite NS primary")
+    if spin.get("inappropriate_extrapolation"):
+        reasons.append("inappropriate extrapolation beyond studied population")
+    if spin.get("causal_language_from_observational"):
+        reasons.append("causal language from observational data")
+    if spin.get("title_spin"):
+        reasons.append("spin present in the title")
+
     if spin_level in ("moderate", "high"):
-        reasons = []
-        if not spin.get("conclusion_matches_results", True):
-            reasons.append("conclusions do not accurately reflect the reported results")
-        if spin.get("focus_on_secondary_when_primary_ns"):
-            reasons.append(
-                "the primary outcome was not significant but conclusions "
-                "focus on secondary or subgroup analyses"
-            )
-        if spin.get("inappropriate_extrapolation"):
-            reasons.append("results are extrapolated beyond the studied population")
-        if spin.get("causal_language_from_observational"):
-            reasons.append("causal language used for observational data")
-        reason_text = "; ".join(reasons) if reasons else "conclusions overstate the findings"
+        reason_text = "; ".join(reasons) if reasons else "conclusions overstate findings"
         parts.append(
-            f"Spin is classified as {spin_level.upper()} (Boutron taxonomy) because "
-            f"{reason_text}."
+            f"Spin: {spin_level.upper()} (Boutron taxonomy). "
+            f"Indicators: {reason_text}."
         )
         if spin_level == "moderate":
             parts.append(
-                "This is MODERATE rather than HIGH because some uncertainty is "
-                "expressed or further trials are recommended, but the non-significant "
-                "primary outcome is not acknowledged."
+                "MODERATE not HIGH because some uncertainty is expressed or "
+                "further trials recommended, but NS primary not acknowledged."
             )
     elif spin_level == "low":
         parts.append(
-            "Spin is LOW (Boutron taxonomy) — some overstatement is present but "
-            "conclusions include appropriate uncertainty or acknowledge limitations. "
-            "This is LOW rather than MODERATE because the authors acknowledge the "
-            "non-significant primary outcome or express uncertainty AND recommend "
+            "Spin: LOW (Boutron) — some overstatement but conclusions include "
+            "uncertainty or acknowledge limitations. LOW not MODERATE because "
+            "authors acknowledge NS primary or express uncertainty AND recommend "
             "further trials."
         )
     else:
         parts.append(
-            "Spin is NONE (Boutron taxonomy) — conclusions accurately reflect "
-            "the reported results with appropriate acknowledgment of limitations."
+            "Spin: NONE (Boutron) — conclusions accurately reflect results."
         )
+
+    _quote_evidence(parts, spin.get("evidence_quotes", []))
 
 
 def _build_outcome_reasoning(parts: list[str], annotation: dict) -> None:
     """Add outcome reporting reasoning to thinking chain."""
     outcome = annotation.get("outcome_reporting", {})
     severity = outcome.get("severity", "none")
+    outcome_type = outcome.get("primary_outcome_type", "unclear")
 
     if severity == "none":
         parts.append(
-            "Primary outcomes appear patient-centred (e.g., mortality, quality "
-            "of life, functional status). No surrogate endpoint or composite "
-            "disaggregation concerns identified."
+            f"Outcome reporting: primary outcome is {outcome_type}. "
+            "No surrogate or composite concerns. Severity: NONE."
         )
         return
 
     issues = []
     if outcome.get("surrogate_without_validation"):
-        issues.append(
-            "the primary outcome is a surrogate endpoint without established "
-            "validation linking it to patient-centred outcomes"
-        )
+        issues.append("surrogate endpoint without established patient-centred validation")
     if outcome.get("composite_not_disaggregated"):
-        issues.append(
-            "a composite endpoint is used but individual component results "
-            "are not reported separately"
-        )
+        issues.append("composite endpoint not disaggregated")
+
     if issues:
         parts.append(
-            "Outcome reporting concerns: " + "; ".join(issues) + ". "
-            "Verify against ClinicalTrials.gov whether the registered primary "
-            "outcome matches what was reported in the abstract."
+            f"Outcome reporting: primary is {outcome_type}. "
+            f"Concerns: {'; '.join(issues)}. "
+            "Verify against ClinicalTrials.gov for outcome switching."
         )
 
-    # Explain severity boundary
+    _quote_evidence(parts, outcome.get("evidence_quotes", []))
+
     if severity == "low":
         parts.append(
-            "Severity is LOW because the primary outcome is patient-centred "
-            "but a secondary surrogate endpoint is given undue prominence, "
-            "or a well-validated surrogate is used appropriately."
+            "Severity: LOW — patient-centred primary but secondary surrogate "
+            "given undue prominence, or well-validated surrogate used."
         )
     elif severity == "moderate":
         parts.append(
-            "Severity is MODERATE because the primary outcome is a surrogate "
-            "without established patient-centred validation, or a composite "
-            "endpoint is not disaggregated."
+            "Severity: MODERATE — primary is surrogate without patient-centred "
+            "validation, or composite not disaggregated."
         )
     elif severity in ("high", "critical"):
         parts.append(
-            f"Severity is {severity.upper()} because surrogate endpoints are "
-            "used without validation AND there is evidence of outcome switching "
-            "from a registered patient-centred endpoint."
+            f"Severity: {severity.upper()} — surrogate without validation AND "
+            "evidence of outcome switching from registered primary."
         )
 
 
 def _build_coi_reasoning(parts: list[str], annotation: dict) -> None:
-    """Add conflict of interest reasoning with database selection to thinking chain."""
+    """Add conflict of interest reasoning to thinking chain."""
     coi = annotation.get("conflict_of_interest", {})
     severity = coi.get("severity", "none")
     funding_type = coi.get("funding_type", "unclear")
@@ -308,58 +221,60 @@ def _build_coi_reasoning(parts: list[str], annotation: dict) -> None:
     if severity == "none":
         if funding_type == "public":
             parts.append(
-                "Publicly funded study with no apparent industry conflicts. "
-                "Funding and COI disclosures appear adequate."
+                "COI: publicly funded, no industry conflicts identified. "
+                "Severity: NONE."
             )
         else:
             parts.append(
-                "No significant conflict of interest concerns identified "
-                "based on available abstract information."
+                f"COI: funding type is {funding_type}. No significant "
+                "conflicts identified. Severity: NONE."
             )
         return
 
-    # Describe specific concerns
+    # Count specific COI indicators
+    indicators = []
     if funding_type == "industry":
+        indicators.append(f"industry-funded ({funding_type})")
+    if coi.get("industry_author_affiliations"):
+        indicators.append("author(s) affiliated with pharma/device company")
+    if not coi.get("coi_disclosed"):
+        indicators.append("no author-level COI disclosure in abstract")
+    if not coi.get("funding_disclosed_in_abstract", True):
+        indicators.append("funding not disclosed in abstract")
+
+    parts.append(
+        f"COI: {len(indicators)} indicator(s): {'; '.join(indicators)}."
+    )
+
+    # Verification actions based on specific indicators
+    if funding_type == "industry" or coi.get("industry_author_affiliations"):
         parts.append(
-            "This is an industry-funded study. Check CMS Open Payments "
-            "(openpaymentsdata.cms.gov) for author payment records from the "
-            "study sponsor. Verify sponsor identity on ClinicalTrials.gov."
+            "Check CMS Open Payments for author payment records. "
+            "Verify sponsor on ClinicalTrials.gov."
         )
     if coi.get("industry_author_affiliations"):
-        parts.append(
-            "At least one author is affiliated with a pharmaceutical or device "
-            "company. Check ORCID for undisclosed industry affiliations. "
-            "Check CMS Open Payments (openpaymentsdata.cms.gov) for author "
-            "payment records — authors may have consulting or speaker "
-            "relationships even if the study is not industry-funded."
-        )
+        parts.append("Check ORCID for undisclosed industry affiliations.")
     if not coi.get("coi_disclosed"):
         parts.append(
-            "No author-level conflict of interest disclosure found in the "
-            "abstract. Search Europe PMC (europepmc.org) for the full-text "
-            "article to review the COI disclosures section."
+            "Search Europe PMC for full-text COI disclosure section."
         )
 
-    # Explain severity boundary
+    # Severity justification grounded in indicator count
     if severity == "low":
         parts.append(
-            "Severity is LOW because industry involvement is present but "
-            "fully disclosed — funding source and author-level COI are "
-            "transparent. Potential bias exists but is documented."
+            f"Severity: LOW — {len(indicators)} indicator(s). Industry "
+            "involvement present but fully disclosed and transparent."
         )
     elif severity == "moderate":
         parts.append(
-            "Severity is MODERATE because industry funding or author "
-            "affiliations are present but COI is not fully disclosed in the "
-            "abstract. Transparency gaps warrant verification via CMS Open "
-            "Payments and Europe PMC."
+            f"Severity: MODERATE — {len(indicators)} indicator(s). Industry "
+            "funding or affiliations present but COI not fully disclosed. "
+            "Transparency gaps warrant verification."
         )
     elif severity in ("high", "critical"):
         parts.append(
-            f"Severity is {severity.upper()} because multiple undisclosed "
-            "conflicts are present (e.g., industry funding with undisclosed "
-            "COI AND author affiliations with the sponsor), suggesting "
-            "systematic non-disclosure."
+            f"Severity: {severity.upper()} — {len(indicators)} indicator(s). "
+            "Multiple undisclosed conflicts suggest systematic non-disclosure."
         )
 
 
@@ -370,61 +285,113 @@ def _build_methodology_reasoning(parts: list[str], annotation: dict) -> None:
 
     if severity == "none":
         parts.append(
-            "No significant methodological red flags identified. Study "
-            "design appears appropriate with adequate comparator, follow-up "
-            "duration, and analysis approach."
+            "Methodology: no red flags. Design appears appropriate. "
+            "Severity: NONE."
         )
         return
 
     issues = []
     if meth.get("per_protocol_only"):
-        issues.append(
-            "only per-protocol results reported without ITT analysis — "
-            "check ClinicalTrials.gov for the pre-registered statistical analysis plan"
-        )
+        issues.append("per-protocol only (no ITT)")
     if meth.get("short_follow_up"):
-        issues.append(
-            "follow-up duration appears insufficient for the primary outcome"
-        )
+        issues.append("insufficient follow-up duration")
     if meth.get("inappropriate_comparator"):
-        issues.append(
-            "the comparator may be inappropriate (e.g., placebo when an active "
-            "standard of care exists)"
-        )
+        issues.append("potentially inappropriate comparator")
     if meth.get("enrichment_design"):
-        issues.append(
-            "enrichment design (run-in responders or prior-use requirement) "
-            "limits generalisability"
-        )
+        issues.append("enrichment design limiting generalisability")
     if meth.get("premature_stopping"):
-        issues.append("the trial may have been stopped prematurely")
-    if issues:
-        parts.append("Methodological concerns: " + "; ".join(issues) + ".")
+        issues.append("possible premature stopping")
 
-    # Explain severity boundary
-    issue_count = len(issues)
+    parts.append(
+        f"Methodology: {len(issues)} concern(s): {'; '.join(issues)}."
+    )
+
+    _quote_evidence(parts, meth.get("evidence_quotes", []))
+
     if severity == "low":
         parts.append(
-            "Severity is LOW because only a single minor methodological "
-            "concern is present that does not invalidate the primary analysis."
+            f"Severity: LOW — 1 minor concern that does not invalidate "
+            "the primary analysis."
         )
     elif severity == "moderate":
-        if issue_count >= 2:
+        if len(issues) >= 2:
             parts.append(
-                "Severity is MODERATE because multiple minor methodological "
-                "concerns are present together."
+                f"Severity: MODERATE — {len(issues)} minor concerns together."
             )
         else:
             parts.append(
-                "Severity is MODERATE because this single concern could "
-                "meaningfully affect interpretation of the primary findings."
+                "Severity: MODERATE — 1 significant concern that could "
+                "meaningfully affect interpretation."
             )
     elif severity in ("high", "critical"):
         parts.append(
-            f"Severity is {severity.upper()} because multiple significant "
-            "methodological concerns are present, suggesting the primary "
-            "analysis may not be reliable."
+            f"Severity: {severity.upper()} — {len(issues)} significant "
+            "concern(s) suggesting primary analysis may not be reliable."
         )
+
+
+def _build_calibration_summary(parts: list[str], annotation: dict) -> None:
+    """Add cross-domain calibration reasoning."""
+    domain_keys = [
+        ("statistical_reporting", "Statistical reporting"),
+        ("spin", "Spin"),
+        ("outcome_reporting", "Outcome reporting"),
+        ("conflict_of_interest", "COI"),
+        ("methodology", "Methodology"),
+    ]
+
+    severities = {}
+    for key, label in domain_keys:
+        domain = annotation.get(key, {})
+        sev = domain.get("severity", "none")
+        severities[label] = sev
+
+    non_none = {k: v for k, v in severities.items() if v != "none"}
+    overall = annotation.get("overall_severity", "none")
+
+    if not non_none:
+        parts.append(
+            "Cross-domain calibration: 0/5 domains have concerns. "
+            f"Overall severity: {overall.upper()}."
+        )
+    else:
+        highest = max(non_none.values(), key=lambda s: _SEV_ORDER.get(s, 0))
+        domain_list = ", ".join(f"{k}={v.upper()}" for k, v in non_none.items())
+        parts.append(
+            f"Cross-domain calibration: {len(non_none)}/5 domains have concerns "
+            f"({domain_list}). Highest domain severity: {highest.upper()}. "
+            f"Overall severity reflects the highest domain concern, "
+            f"tempered by breadth: {overall.upper()}."
+        )
+
+
+def _build_retraction_reasoning(parts: list[str], annotation: dict) -> None:
+    """Add retraction-specific severity floor reasoning if applicable."""
+    reasons = _ensure_parsed(annotation.get("retraction_reasons"))
+    if not reasons:
+        return
+
+    from enrichers.retraction_classifier import classify_retraction
+    floor, category = classify_retraction(
+        reasons, title=annotation.get("title", ""),
+    )
+
+    if floor is not None:
+        parts.append(
+            f"RETRACTION NOTE: This paper was retracted ({category.replace('_', ' ')}). "
+            f"Severity floor: {floor.upper()}. The overall severity must be at least "
+            f"{floor.upper()} regardless of abstract content, because the retraction "
+            f"indicates {category.replace('_', ' ')} that may not be visible in the text."
+        )
+    else:
+        parts.append(
+            f"RETRACTION NOTE: This paper was retracted ({category.replace('_', ' ')}). "
+            f"This is not a bias-relevant retraction — no severity floor applied."
+        )
+
+
+# Severity ordering for calibration summary
+_SEV_ORDER = {"none": 0, "low": 1, "moderate": 2, "high": 3, "critical": 4}
 
 
 def _build_verification_summary(parts: list[str], annotation: dict) -> None:
@@ -435,8 +402,7 @@ def _build_verification_summary(parts: list[str], annotation: dict) -> None:
     # ClinicalTrials.gov — always relevant for RCTs
     databases.append("ClinicalTrials.gov (registered outcomes, sponsor, amendments)")
 
-    # CMS Open Payments — for any COI concern (industry funding, affiliations, or
-    # undisclosed conflicts), not just industry-funded studies
+    # CMS Open Payments — for any COI concern
     coi_severity = coi.get("severity", "none")
     if (coi.get("funding_type") == "industry"
             or coi.get("industry_author_affiliations")
@@ -761,6 +727,79 @@ def oversample_rare_severities(
     return augmented
 
 
+def _apply_retraction_floors(annotations: list[dict]) -> list[dict]:
+    """Apply retraction severity floors to annotations (non-mutating).
+
+    For retracted papers, classifies the retraction reason and bumps
+    overall_severity up to the floor if it's too low.  Non-retracted
+    papers pass through unchanged.
+    """
+    from enrichers.retraction_classifier import (
+        classify_retraction,
+        enforce_severity_floor,
+    )
+
+    result = []
+    floors_applied = 0
+    for ann in annotations:
+        reasons = _ensure_parsed(ann.get("retraction_reasons"))
+        if reasons:
+            floor, category = classify_retraction(
+                reasons, title=ann.get("title", ""),
+            )
+            adjusted = enforce_severity_floor(ann, floor)
+            if adjusted is not ann:
+                floors_applied += 1
+            result.append(adjusted)
+        else:
+            result.append(ann)
+
+    if floors_applied:
+        logger.info(
+            f"Retraction severity floors applied to {floors_applied} annotations"
+        )
+    return result
+
+
+def _stratified_split(
+    examples: list[dict],
+    train_frac: float,
+    val_frac: float,
+    seed: int,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Split examples into train/val/test with stratification by severity.
+
+    Ensures each severity class is represented proportionally in all splits,
+    rather than relying on random shuffle which can skew small classes.
+    """
+    from collections import defaultdict
+
+    # Group by severity
+    by_severity: dict[str, list[dict]] = defaultdict(list)
+    for ex in examples:
+        sev = _extract_overall_severity(ex)
+        by_severity[sev].append(ex)
+
+    rng = random.Random(seed)
+    train, val, test = [], [], []
+
+    for sev, items in sorted(by_severity.items()):
+        rng.shuffle(items)
+        n = len(items)
+        n_train = max(1, int(n * train_frac)) if n >= 3 else n
+        n_val = max(1, int(n * val_frac)) if n - n_train >= 2 else 0
+        train.extend(items[:n_train])
+        val.extend(items[n_train : n_train + n_val])
+        test.extend(items[n_train + n_val :])
+
+    # Shuffle within each split so severity classes aren't grouped
+    rng.shuffle(train)
+    rng.shuffle(val)
+    rng.shuffle(test)
+
+    return train, val, test
+
+
 def export_dataset(
     annotations: list[dict],
     output_dir: Path,
@@ -772,9 +811,18 @@ def export_dataset(
 ):
     """
     Export annotations to training data files with train/val/test splits.
+
+    Changes from Round 1 (see docs/MISTAKES_ROUND_1_AND_FIXES.md):
+    - Retraction severity floors applied before conversion
+    - No oversampling — natural distribution preserved
+    - Stratified split by severity class
+    - Severity distribution stats in metadata
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Apply retraction severity floors before conversion
+    annotations = _apply_retraction_floors(annotations)
 
     # Convert format
     converter = {
@@ -790,18 +838,18 @@ def export_dataset(
         except Exception as e:
             logger.warning(f"Failed to convert PMID {ann.get('pmid', '?')}: {e}")
 
-    # Shuffle and split
-    random.seed(seed)
-    random.shuffle(converted)
+    # Stratified split (no oversampling — natural distribution preserved)
+    train_data, val_data, test_data = _stratified_split(
+        converted, train_split, val_split, seed,
+    )
 
-    n = len(converted)
-    n_train = int(n * train_split)
-    n_val = int(n * val_split)
-
-    train_data = converted[:n_train]
-    train_data = oversample_rare_severities(train_data)
-    val_data = converted[n_train : n_train + n_val]
-    test_data = converted[n_train + n_val :]
+    # Log severity distribution
+    from collections import Counter
+    train_dist = Counter(_extract_overall_severity(ex) for ex in train_data)
+    logger.info(
+        f"Training severity distribution (natural): "
+        f"{dict(sorted(train_dist.items()))}"
+    )
 
     # Write files
     for split_name, split_data in [
@@ -815,15 +863,18 @@ def export_dataset(
                 f.write(json.dumps(item) + "\n")
         logger.info(f"Exported {len(split_data)} examples to {path}")
 
-    # Also write metadata
+    # Write metadata with severity distribution stats
+    all_dist = Counter(_extract_overall_severity(ex) for ex in converted)
     meta = {
         "format": fmt,
         "include_thinking": include_thinking,
-        "total_examples": n,
+        "total_examples": len(converted),
         "train": len(train_data),
         "val": len(val_data),
         "test": len(test_data),
         "seed": seed,
+        "severity_distribution": dict(sorted(all_dist.items())),
+        "train_severity_distribution": dict(sorted(train_dist.items())),
     }
     with open(output_dir / "metadata.json", "w") as f:
         json.dump(meta, f, indent=2)

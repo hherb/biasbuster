@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## STOP AND CHECK — Before Writing Any Code
+
+These are non-negotiable. Violations have caused real data loss and wasted resources.
+
+- **Will this process run >2 minutes?** → Do NOT run it in Claude's shell. Print the command for the user to run in their own terminal. The user decides when to stop.
+- **Does this process produce results over time?** → It MUST save incrementally with checkpoint/resume support. Use `on_result` callbacks, periodic DB commits, or flush-every-N patterns. Never batch results in memory to save at the end.
+- **Am I truncating/trimming data that needs to be analyzed?** → NEVER. If data exceeds a context limit, use chunk & map-reduce, or skip the item with logging. Truncation silently destroys the information we need.
+- **Am I adding features beyond what was asked?** → Don't. Fix first, enhance later. No speculative error handling, no premature abstractions, no "while I'm here" refactors.
+- **Does this touch the annotation or training prompt?** → Both MUST use `prompts.py` as the single source of truth. Never inline prompt text.
+
 ## Project Overview
 
 BMLibrarian Bias Detection Dataset Builder — a toolkit for building curated training datasets to fine-tune LLMs for detecting bias in biomedical abstracts. The fine-tuned model learns to assess bias across 5 domains and suggest specific verification steps citing real databases.
@@ -42,11 +52,17 @@ uv sync
 # Configure (edit config.py with API keys)
 cp config.example.py config.py
 
-# Run full pipeline (stages 1-4)
+# Run full pipeline (stages 1-5)
 uv run python pipeline.py --stage all
 
 # Run individual stages
 uv run python pipeline.py --stage collect
+uv run python pipeline.py --stage collect-rob # Cochrane RoB only (+ fetch abstracts)
+uv run python pipeline.py --stage seed       # enrich RW reasons + fetch abstracts + clean notices
+uv run python seed_database.py               # standalone (same as --stage seed)
+uv run python seed_database.py --step enrich-rw   # just retraction reasons from RW CSV
+uv run python seed_database.py --step fetch-abs   # just missing abstracts from PubMed
+uv run python seed_database.py --step clean       # just retraction notice cleanup
 uv run python pipeline.py --stage enrich
 uv run python pipeline.py --stage annotate
 uv run python pipeline.py --stage annotate --models anthropic,deepseek  # multi-model
@@ -99,10 +115,11 @@ There is no formal test suite — modules have `if __name__ == "__main__":` demo
 
 ### Pipeline Stages
 
-6-stage workflow with two orchestrators:
+7-stage workflow with two orchestrators:
 
 **Data pipeline** (`pipeline.py` — async):
 1. **Collect** — Fetch abstracts from external APIs (Crossref/Retraction Watch, PubMed RCTs by MeSH domain, Cochrane RoB assessments via Europe PMC)
+1b. **Seed** (`seed_database.py`) — Post-collection cleanup: enrich retraction reasons from Retraction Watch CSV (structured ~111-category vocabulary), fetch missing abstracts from PubMed (Cochrane papers), remove bare retraction notices. Idempotent and reproducible.
 2. **Enrich** — Run heuristic analysis (effect size auditing, outcome switching via ClinicalTrials.gov) to bucket abstracts into high/low suspicion
 3. **Annotate** — Send abstracts to one or more LLMs for structured 5-domain bias assessment; store annotations in SQLite. Supports multiple backends via `--models` flag (default: anthropic). Each annotation is saved incrementally to the DB via an `on_result` callback. Retraction notices are filtered out via `is_retraction_notice()` before annotation.
 4. **Export** — Convert human-validated annotations to fine-tuning formats (alpaca with `<think>` chains, sharegpt, openai_chat) with 80/10/10 train/val/test splits
@@ -120,7 +137,7 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
 ### Module Pattern
 
 - **Collectors** (`collectors/`): Async classes using `httpx.AsyncClient` with rate limiting. Each fetches from a specific source (Crossref, PubMed, ClinicalTrials.gov, Europe PMC). Return typed dataclasses. PubMed XML parsing functions (`parse_pubmed_xml`, `parse_pubmed_xml_batch`) are standalone module-level functions in `retraction_watch.py`.
-- **Enrichers** (`enrichers/`): Mostly synchronous regex/heuristic processors. `effect_size_auditor` scores reporting bias 0-1. `funding_checker` classifies funding sources. `author_coi` is async (queries ORCID, Europe PMC, CMS Open Payments).
+- **Enrichers** (`enrichers/`): Mostly synchronous regex/heuristic processors. `effect_size_auditor` scores reporting bias 0-1. `funding_checker` classifies funding sources. `author_coi` is async (queries ORCID, Europe PMC, CMS Open Payments). `retraction_classifier` classifies retraction reasons and assigns severity floors (see `docs/MISTAKES_ROUND_1_AND_FIXES.md`).
 - **Annotators** (`annotators/`): Two backends sharing prompt, user-message construction, and output utilities via `annotators/__init__.py`:
   - `LLMAnnotator` (`llm_prelabel.py`) — Anthropic Claude via the `anthropic` async SDK
   - `OpenAICompatAnnotator` (`openai_compat.py`) — any OpenAI-compatible API (DeepSeek, vLLM, SGLang, etc.) via `httpx`
@@ -166,7 +183,7 @@ export/alpaca/{train,val,test}.jsonl → training/ → training_output/<model>-l
 - **Boutron spin classification**: Spin detection uses the established Boutron taxonomy (none/low/moderate/high).
 - **Config is a dataclass** (`config.py`): Contains all API endpoints, collection limits, MeSH focus domains, and `db_path`. `config.py` is gitignored — copy `config.example.py` to get started.
 - **SQLite as single source of truth**: `database.py` provides the `Database` class with schema-enforced PMID uniqueness, atomic upserts, WAL mode for concurrent reads, and foreign key constraints. All pipeline stages read/write via `Database` methods instead of file I/O.
-- **Single source of truth for SYSTEM_PROMPT**: The canonical annotation prompt lives in `annotators/llm_prelabel.py` (`ANNOTATION_SYSTEM_PROMPT`). The training system prompt lives in `export.py`. `schemas/bias_taxonomy.py` imports it lazily to avoid duplication.
+- **Single source of truth for prompts**: `prompts.py` contains all severity boundary definitions, domain criteria, and verification database recommendations. Both `ANNOTATION_SYSTEM_PROMPT` (used by annotators) and `TRAINING_SYSTEM_PROMPT` (used by export) share identical severity boundaries. `annotators/llm_prelabel.py` and `export.py` both import from `prompts.py`. See `docs/MISTAKES_ROUND_1_AND_FIXES.md` for why this unification matters.
 - **Shared annotator utilities**: `annotators/__init__.py` contains `build_user_message()`, `_ensure_parsed()`, `is_retraction_notice()`, `parse_llm_json()`, and `strip_markdown_fences()` — shared across all backends to eliminate duplication and ensure consistent behaviour.
 - **Incremental annotation persistence**: `annotate_batch()` accepts an `on_result` callback; the pipeline passes a function that calls `db.insert_annotation()` per result, so annotations survive mid-batch crashes.
 
