@@ -107,6 +107,7 @@ async def reprocess_reviews(
         llm_api_key=config.deepseek_api_key,
         llm_api_base=config.deepseek_api_base,
         llm_model=config.deepseek_model,
+        llm_max_tokens=config.deepseek_max_tokens,
     ) as collector:
         for pmcid in pmcids:
             logger.info(f"--- Re-processing {pmcid} ---")

@@ -141,6 +141,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         llm_api_key: str = "",
         llm_api_base: str = "",
         llm_model: str = "",
+        llm_max_tokens: int = 16000,
         cache_path: Optional[Path] = None,
     ) -> None:
         """Initialise the collector.
@@ -150,6 +151,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             llm_api_key: API key for the OpenAI-compatible LLM used for RoB extraction.
             llm_api_base: Base URL for the LLM API (e.g. https://api.deepseek.com).
             llm_model: Model ID (e.g. deepseek-reasoner).
+            llm_max_tokens: Max output tokens for LLM extraction calls.
             cache_path: Path for LLM extraction result cache.  Set to ``None``
                 to use the default (``dataset/llm_rob_cache.json``).
         """
@@ -157,6 +159,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         self.llm_api_key = llm_api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self.llm_api_base = llm_api_base.rstrip("/") if llm_api_base else ""
         self.llm_model = llm_model
+        self.llm_max_tokens = llm_max_tokens
         self.client: Optional[httpx.AsyncClient] = None
         self._cache_path = cache_path if cache_path is not None else self.DEFAULT_CACHE_PATH
         self._llm_cache: dict[str, list[dict]] = self._load_cache()
@@ -670,7 +673,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 {"role": "system", "content": self._ROB_EXTRACTION_PROMPT},
                 {"role": "user", "content": text},
             ],
-            "max_tokens": 16000,
+            "max_tokens": self.llm_max_tokens,
             "temperature": 0.0,
         }
 

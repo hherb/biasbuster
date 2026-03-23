@@ -125,6 +125,7 @@ async def main() -> None:
         llm_api_key=config.deepseek_api_key,
         llm_api_base=config.deepseek_api_base,
         llm_model=config.deepseek_model,
+        llm_max_tokens=config.deepseek_max_tokens,
     ) as collector:
         await collector.collect_rob_dataset(
             domains=config.focus_domains[:5],
