@@ -653,13 +653,16 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         )
         return assessments
 
+    _LLM_EXTRACT_MAX_RETRIES = 3
+
     async def _llm_extract_chunk(
         self, text: str, label: str,
     ) -> list[dict]:
         """Send one chunk to the LLM for RoB extraction.
 
         Returns a list of dicts with ``study_id`` and ``overall_rob`` keys,
-        or an empty list on failure.
+        or an empty list on failure.  Retries on JSON parse errors and
+        timeouts up to ``_LLM_EXTRACT_MAX_RETRIES`` times.
         """
         payload = {
             "model": self.llm_model,
@@ -667,74 +670,101 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 {"role": "system", "content": self._ROB_EXTRACTION_PROMPT},
                 {"role": "user", "content": text},
             ],
-            "max_tokens": 4000,
+            "max_tokens": 16000,
             "temperature": 0.0,
         }
 
-        try:
-            resp = await self.client.post(
-                f"{self.llm_api_base}/v1/chat/completions",
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {self.llm_api_key}",
-                    "Content-Type": "application/json",
-                },
-                timeout=httpx.Timeout(180.0),
-            )
+        last_error: str = ""
+        for attempt in range(self._LLM_EXTRACT_MAX_RETRIES):
+            try:
+                resp = await self.client.post(
+                    f"{self.llm_api_base}/v1/chat/completions",
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {self.llm_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=httpx.Timeout(180.0),
+                )
 
-            if resp.status_code != 200:
-                logger.warning(f"LLM RoB extraction failed for {label}: HTTP {resp.status_code}")
+                if resp.status_code == 429:
+                    retry_after = float(resp.headers.get("retry-after", 2 ** attempt))
+                    logger.warning(f"Rate limited for {label}, retrying in {retry_after}s")
+                    await asyncio.sleep(retry_after)
+                    continue
+
+                if resp.status_code != 200:
+                    logger.warning(f"LLM RoB extraction failed for {label}: HTTP {resp.status_code}")
+                    last_error = f"HTTP {resp.status_code}"
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+
+                data = resp.json()
+                message = data.get("choices", [{}])[0].get("message", {})
+                text_out = message.get("content", "") or ""
+
+                # DeepSeek reasoner may put the answer in reasoning_content
+                # and leave content empty
+                if not text_out.strip():
+                    text_out = message.get("reasoning_content", "") or ""
+
+                if not text_out:
+                    logger.warning(f"LLM returned empty content for {label}")
+                    last_error = "empty content"
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+
+                text_out = text_out.strip()
+                if text_out.startswith("```"):
+                    text_out = text_out.split("\n", 1)[1] if "\n" in text_out else text_out[3:]
+                if text_out.endswith("```"):
+                    text_out = text_out[:-3]
+                text_out = text_out.strip()
+
+                # If text contains mixed reasoning + JSON, extract the JSON array.
+                # Search from the end — the JSON array is typically the last
+                # bracket-enclosed block after any reasoning text.
+                if not text_out.startswith("["):
+                    for array_match in reversed(list(re.finditer(r'\[[\s\S]*?\]', text_out))):
+                        candidate = array_match.group(0)
+                        try:
+                            json.loads(candidate)
+                            text_out = candidate
+                            break
+                        except json.JSONDecodeError:
+                            continue
+
+                studies = json.loads(text_out)
+                if not isinstance(studies, list):
+                    logger.warning(f"LLM returned non-list for {label}: {type(studies)}")
+                    last_error = "non-list response"
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                return studies
+
+            except json.JSONDecodeError as e:
+                last_error = f"invalid JSON: {e}"
+                logger.warning(
+                    f"LLM returned invalid JSON for {label} "
+                    f"(attempt {attempt + 1}/{self._LLM_EXTRACT_MAX_RETRIES}): {e}"
+                )
+                await asyncio.sleep(2 ** attempt)
+                continue
+            except httpx.TimeoutException:
+                last_error = "timeout"
+                logger.warning(
+                    f"LLM timeout for {label} "
+                    f"(attempt {attempt + 1}/{self._LLM_EXTRACT_MAX_RETRIES})"
+                )
+                continue
+            except Exception as e:
+                logger.warning(f"LLM extraction error for {label}: {e}")
                 return []
 
-            data = resp.json()
-            message = data.get("choices", [{}])[0].get("message", {})
-            text_out = message.get("content", "") or ""
-
-            # DeepSeek reasoner may put the answer in reasoning_content
-            # and leave content empty
-            if not text_out.strip():
-                text_out = message.get("reasoning_content", "") or ""
-
-            if not text_out:
-                logger.warning(f"LLM returned empty content for {label}")
-                return []
-
-            text_out = text_out.strip()
-            if text_out.startswith("```"):
-                text_out = text_out.split("\n", 1)[1] if "\n" in text_out else text_out[3:]
-            if text_out.endswith("```"):
-                text_out = text_out[:-3]
-            text_out = text_out.strip()
-
-            # If text contains mixed reasoning + JSON, extract the JSON array.
-            # Search from the end — the JSON array is typically the last
-            # bracket-enclosed block after any reasoning text.
-            if not text_out.startswith("["):
-                # Find all [...] spans and try parsing from the last one
-                for array_match in reversed(list(re.finditer(r'\[[\s\S]*?\]', text_out))):
-                    candidate = array_match.group(0)
-                    try:
-                        json.loads(candidate)
-                        text_out = candidate
-                        break
-                    except json.JSONDecodeError:
-                        continue
-
-            studies = json.loads(text_out)
-            if not isinstance(studies, list):
-                logger.warning(f"LLM returned non-list for {label}: {type(studies)}")
-                return []
-            return studies
-
-        except json.JSONDecodeError as e:
-            logger.warning(f"LLM returned invalid JSON for {label}: {e}")
-            return []
-        except httpx.TimeoutException:
-            logger.warning(f"LLM timeout for {label}")
-            return []
-        except Exception as e:
-            logger.warning(f"LLM extraction error for {label}: {e}")
-            return []
+        logger.warning(
+            f"All {self._LLM_EXTRACT_MAX_RETRIES} attempts failed for {label}: {last_error}"
+        )
+        return []
 
     async def resolve_study_pmids(
         self, assessments: list[RoBAssessment]

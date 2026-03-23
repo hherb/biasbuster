@@ -49,18 +49,11 @@ async def main() -> None:
         f"Cochrane papers: {total} total, {has_domains} with domain data"
     )
 
-    # Rename LLM cache to force re-extraction with updated prompt
+    # Clear LLM cache to force re-extraction with domain-aware prompt
     cache_path = Path(CochraneRoBCollector.DEFAULT_CACHE_PATH)
-    backup = cache_path.with_suffix(".pre-backfill.bak")
     if cache_path.exists():
-        if not backup.exists():
-            # First run — preserve the original cache
-            cache_path.rename(backup)
-            logger.info(f"Moved LLM cache to {backup} (will re-extract with domain-aware prompt)")
-        else:
-            # Re-run after crash — delete partial new cache, original backup is safe
-            cache_path.unlink()
-            logger.info("Removed partial cache from previous run (original backup preserved)")
+        cache_path.unlink()
+        logger.info("Cleared LLM cache (will re-extract with domain-aware prompt)")
     else:
         logger.info("No LLM cache found — will extract fresh")
 
