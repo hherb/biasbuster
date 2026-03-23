@@ -640,6 +640,10 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             # Cache raw LLM results for future re-resolution runs
             self._llm_cache[pmcid] = all_studies
             self._save_cache()
+            logger.info(
+                f"LLM extracted {len(all_studies)} raw study entries from "
+                f"{pmcid} ({len(chunks)} chunk(s))"
+            )
 
         # Deduplicate and convert to RoBAssessment objects
         assessments: list[RoBAssessment] = []
@@ -699,10 +703,6 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 **domain_ratings,
             ))
 
-        logger.info(
-            f"LLM extracted {len(assessments)} RoB assessments from "
-            f"{pmcid} ({len(chunks)} chunk(s))"
-        )
         return assessments
 
     async def _llm_extract_chunk(
