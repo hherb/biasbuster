@@ -392,12 +392,21 @@ def print_summary(db: Database) -> None:
         print("\nCochrane RoB distribution:")
         for rob, count in cochrane:
             print(f"  {rob}: {count}")
+        cochrane_total = sum(c for _, c in cochrane)
+        with_domains = conn.execute(
+            "SELECT COUNT(*) FROM papers WHERE source = 'cochrane_rob' "
+            "AND randomization_bias != '' AND randomization_bias IS NOT NULL"
+        ).fetchone()[0]
+        print(f"  Per-domain ratings: {with_domains}/{cochrane_total}")
 
-    # Enrichments, annotations (should be empty after clean)
+    # Downstream tables (informational — these are populated by later pipeline stages)
+    downstream = []
     for table in ("enrichments", "annotations", "human_reviews", "eval_outputs"):
         count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         if count > 0:
-            print(f"\n  WARNING: {table} has {count} rows (expected 0 after clean)")
+            downstream.append(f"{table}: {count}")
+    if downstream:
+        print(f"\nDownstream data: {', '.join(downstream)}")
 
     print("=" * 60)
 
