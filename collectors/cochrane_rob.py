@@ -651,8 +651,8 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         for s in all_studies:
             if not isinstance(s, dict):
                 continue
-            sid = s.get("study_id", "").strip()
-            rob = s.get("overall_rob", "").strip().lower()
+            sid = (s.get("study_id") or "").strip()
+            rob = (s.get("overall_rob") or "").strip().lower()
             if not sid or not rob:
                 continue
 
