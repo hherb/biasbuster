@@ -16,7 +16,8 @@ bias_dataset_builder/
 ├── enrichers/
 │   ├── author_coi.py          # Author conflict-of-interest verification
 │   ├── funding_checker.py     # Funding source classification
-│   └── effect_size_auditor.py # Relative vs absolute reporting analysis
+│   ├── effect_size_auditor.py # Relative vs absolute reporting analysis
+│   └── retraction_classifier.py # Retraction reason → severity floor mapping
 ├── annotators/
 │   ├── __init__.py            # Shared utilities, retraction notice filter
 │   ├── llm_prelabel.py        # Anthropic Claude annotator
@@ -56,6 +57,11 @@ bias_dataset_builder/
 │   ├── review_gui.py           # NiceGUI web-based review tool (DB-backed)
 │   └── training_monitor.py     # Real-time training dashboard (NiceGUI)
 ├── database.py                # SQLite backend (single source of truth)
+├── prompts.py                 # Single source of truth for annotation/training prompts
+├── seed_database.py           # Post-collection cleanup (RW reasons, abstracts, notices)
+├── seed_export.py             # Seed data export/import (disaster recovery)
+├── backfill_cochrane_domains.py # Backfill per-domain RoB ratings (checkpoint/resume)
+├── reprocess_rob.py           # Re-resolve failed Cochrane PMID resolutions
 ├── migrate_jsonl_to_sqlite.py # Idempotent JSONL → SQLite migration script
 ├── config.py                  # Configuration and API keys
 ├── pipeline.py                # Orchestration pipeline
@@ -163,14 +169,18 @@ uv sync
 cp config.example.py config.py
 # Edit config.py with your API keys
 
-# Run full pipeline (collect → enrich → annotate → export)
+# Run full pipeline (collect → seed → enrich → annotate → export)
 uv run python pipeline.py --stage all
 
 # Or run individual stages
-uv run python pipeline.py --stage collect
+uv run python pipeline.py --stage collect       # retraction watch + PubMed RCTs + Cochrane RoB
+uv run python pipeline.py --stage collect-rob   # Cochrane RoB only (+ fetch abstracts)
+uv run python pipeline.py --stage seed          # enrich RW reasons + fetch abstracts + clean notices
 uv run python pipeline.py --stage enrich
 uv run python pipeline.py --stage annotate
+uv run python pipeline.py --stage annotate --models anthropic,deepseek  # multi-model
 uv run python pipeline.py --stage export
+uv run python pipeline.py --stage compare       # compare models vs human labels
 ```
 
 ### Data Storage
@@ -180,13 +190,16 @@ by default). The schema has four tables:
 
 | Table | Purpose | Key |
 |-------|---------|-----|
-| `papers` | All collected papers (retracted, RCT, Cochrane) | `pmid` |
+| `papers` | All collected papers (retracted, RCT, Cochrane) with RoB domain ratings, review metadata | `pmid` |
 | `enrichments` | Heuristic analysis results (effect size audit, outcome switching) | `pmid` |
 | `annotations` | LLM bias assessments (one row per paper per model) | `(pmid, model_name)` |
 | `human_reviews` | Human validation decisions | `(pmid, model_name)` |
+| `eval_outputs` | Evaluation harness results (per model+mode) | `(pmid, model_id, mode)` |
 
-This replaces the previous JSONL file-based layout. If you have existing JSONL
-data, run the migration script:
+Cochrane RoB papers use `upsert_cochrane_paper()` which preserves PubMed-fetched
+titles/abstracts while updating domain ratings and review metadata on re-runs.
+
+Legacy JSONL data can be imported with the migration script:
 
 ```bash
 uv run python migrate_jsonl_to_sqlite.py
@@ -239,7 +252,10 @@ flowchart TD
         M3[Markdown report]
     end
 
+    SD[Seed<br/>RW reasons + abstracts<br/>+ notice cleanup]
+
     Collect --> DB
+    DB --> SD --> DB
     DB --> Enrich --> DB
     DB --> Annotate --> DB
     DB --> HR --> DB

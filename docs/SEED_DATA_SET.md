@@ -8,7 +8,7 @@ corruption without re-collecting from external APIs.
 
 ```
 dataset/cleanseed/
-├── papers.jsonl        # 4 184 papers (one JSON object per line)
+├── papers.jsonl        # 4 255 papers (one JSON object per line)
 ├── enrichments.jsonl   # 3 238 enrichment records
 └── manifest.json       # row counts, export timestamp
 ```
@@ -17,9 +17,26 @@ dataset/cleanseed/
 
 | Source | Count | Description |
 |--------|-------|-------------|
-| `retraction_watch` | 767 | Retracted papers with structured RW reason codes |
+| `retraction_watch` | 767 | Retracted papers with structured RW reason codes (~111 categories) |
 | `pubmed_rct` | 3 238 | PubMed RCTs across 7 medical domains |
-| `cochrane_rob` | 179 | Expert RoB 2 assessments (48 high, 54 some_concerns, 77 low) |
+| `cochrane_rob` | 250 | Expert RoB 2 assessments (76 high, 92 some_concerns, 82 low) with per-domain ratings (D1-D5) |
+
+### Cochrane RoB detail
+
+Each Cochrane paper stores the overall RoB judgment plus five domain-level
+ratings (when available from per-domain backfill):
+
+| Column | RoB 2 Domain |
+|--------|-------------|
+| `randomization_bias` | D1 — bias from the randomization process |
+| `deviation_bias` | D2 — deviations from intended interventions |
+| `missing_outcome_bias` | D3 — missing outcome data |
+| `measurement_bias` | D4 — measurement of the outcome |
+| `reporting_bias` | D5 — selection of the reported result |
+
+Cochrane review metadata (`cochrane_review_pmid`, `cochrane_review_doi`,
+`cochrane_review_title`) traces each study back to the source systematic
+review for audit purposes.
 
 ### What is **not** included
 
@@ -27,6 +44,61 @@ dataset/cleanseed/
   re-generated.  They are deliberately excluded.
 - **Human reviews** — none existed at export time.
 - **Evaluation outputs** — separate from seed data.
+
+## Enrichment Stage
+
+The enrichment stage (`pipeline.py --stage enrich`) runs heuristic analysis
+on PubMed RCT papers and buckets them by suspicion level:
+
+| Enricher | What it does | Output field |
+|----------|-------------|-------------|
+| `effect_size_auditor` | Scores reporting bias 0-1 (relative-only, missing NNT, baseline risk omission) | `reporting_bias_score`, `effect_size_audit` |
+| `clinicaltrials_gov` | Detects outcome switching between registry and publication | `outcome_switching` |
+
+Papers are classified as `high_suspicion`, `medium`, or `low_suspicion`
+based on the combined heuristic scores.  The suspicion level determines
+annotation priority and sampling weight in export.
+
+Currently 3 238 enrichment records exist (all PubMed RCTs).  Retracted
+papers and Cochrane RoB papers are not enriched — they have ground truth
+from their source metadata.
+
+## Annotation Stage
+
+The annotation stage (`pipeline.py --stage annotate`) sends abstracts to
+LLMs for structured 5-domain bias assessment.  Key features:
+
+- **Multi-model**: `--models anthropic,deepseek` runs both backends.
+  Each annotation is stored per `(pmid, model_name)`.
+- **Incremental persistence**: Each annotation is saved to SQLite via
+  `on_result` callback immediately after LLM response — survives crashes.
+- **Checkpoint/resume**: `get_annotated_pmids(model)` skips already-annotated
+  papers on re-run.
+- **Retraction notice filter**: `is_retraction_notice()` skips bare notices
+  before sending to LLM (saves tokens).
+- **Retraction context**: `build_user_message()` includes classified
+  retraction reasons and severity floors from `retraction_classifier`.
+- **Cochrane RoB context**: Expert domain-level RoB judgments are passed
+  to the LLM when available for calibration.
+- **JSON validation**: `parse_llm_json()` repairs malformed JSON and
+  rejects truncated annotations (all 9 required fields must be present).
+
+### Annotation backends
+
+| Backend | Model | Module | Transport |
+|---------|-------|--------|-----------|
+| `anthropic` | Claude (configurable) | `annotators/llm_prelabel.py` | `anthropic` async SDK |
+| `deepseek` | DeepSeek Reasoner | `annotators/openai_compat.py` | `httpx` (OpenAI-compatible) |
+
+### Current annotation state
+
+| Model | Annotations |
+|-------|------------|
+| `deepseek` | 893 |
+
+Annotations cover papers from all sources (retracted, PubMed RCTs,
+Cochrane RoB) proportionally, with configurable per-source caps in
+`config.py`.
 
 ## Export
 
@@ -70,7 +142,7 @@ uv run python pipeline.py --stage annotate
 **JSONL** (JSON Lines) — chosen over YAML, CSV, or binary formats because:
 
 - **Git-friendly**: one record per line produces clean line-level diffs
-- **Compact**: ~19 MB for 4 184 papers (no pretty-printing overhead)
+- **Compact**: ~19 MB for 4 255 papers (no pretty-printing overhead)
 - **Standard**: already used throughout the project's export pipeline
 - **Nested fields**: handles JSON columns (authors, mesh_terms) natively
 - **Fast**: streaming read/write, no need to load entire file into memory

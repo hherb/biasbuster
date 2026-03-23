@@ -262,6 +262,7 @@ reference specific evidence from the annotation.
 | `enrichers/retraction_classifier.py` | Retraction reason → severity floor mapping |
 | `seed_database.py` | Reproducible post-collection cleanup (3 steps) |
 | `reprocess_rob.py` | Targeted re-resolution of failed Cochrane reviews (parses log, uses LLM cache) |
+| `backfill_cochrane_domains.py` | Backfill per-domain RoB ratings for existing Cochrane papers (checkpoint/resume) |
 | `docs/MISTAKES_ROUND_1_AND_FIXES.md` | Round 1 post-mortem |
 | `docs/ROUND_2_PREPARATIONS.md` | This document |
 
@@ -273,8 +274,10 @@ reference specific evidence from the annotation.
 | `annotators/__init__.py` | Retraction classification + Cochrane RoB context in `build_user_message()` |
 | `export.py` | Import prompt from `prompts.py`; remove oversampling; stratified split; retraction floors; evidence-grounded thinking chains |
 | `schemas/bias_taxonomy.py` | Updated lazy import |
-| `pipeline.py` | Added `seed` and `collect-rob` stages |
-| `collectors/cochrane_rob.py` | Broader search, 5-layer PMID resolution (bracket-ref + author+year + surname-only + DOI + PubMed search), LLM extraction with `ref_number` + result caching, study ID normalisation ("et al." / bracket / initials handling), junk filter |
+| `pipeline.py` | Added `seed` and `collect-rob` stages; Cochrane save uses `upsert_cochrane_paper()` via `on_result` |
+| `collectors/cochrane_rob.py` | Broader search, 5-layer PMID resolution, LLM extraction with caching, `rob_assessment_to_paper_dict()` shared function, `skip_pmids`/`skip_pmcids` support, public resolution methods |
+| `database.py` | `upsert_cochrane_paper()` with smart conflict handling; `cochrane_review_doi`/`cochrane_review_title` columns + migration |
+| `reprocess_rob.py` | Uses shared `rob_assessment_to_paper_dict()` + `upsert_cochrane_paper()`; best-effort Europe PMC review metadata lookup |
 | `config.example.py` | Updated defaults (deepseek-reasoner, cochrane_max_reviews=200, cochrane_min_year=2015) |
 | `CLAUDE.md` | Updated architecture docs, commands, module descriptions |
 
@@ -318,7 +321,7 @@ uv run python pipeline.py --stage all
 | Annotation prompt | No severity boundaries | Full severity boundaries from `prompts.py` |
 | Retraction reasons | Generic "Retraction" for all | Structured RW vocabulary (~111 categories) |
 | Retraction handling | Assess abstract content only | Severity floors based on retraction reason |
-| Cochrane data | 8 papers, no abstracts | 23+ papers with abstracts, expert RoB context |
+| Cochrane data | 8 papers, no abstracts | 250 papers with abstracts, per-domain RoB ratings, expert RoB context |
 | Export oversampling | 5% minimum per severity class | Natural distribution (no oversampling) |
 | Export split | Random shuffle | Stratified by severity class |
 | Thinking chains | Formulaic templates | Evidence-grounded with concern counts |
@@ -331,3 +334,75 @@ uv run python pipeline.py --stage all
 - **Weighted kappa**: > 0.3 (was 0.08-0.16)
 - **Severity distribution**: realistic (most papers LOW/MODERATE, no artificial inflation)
 - **Ground truth quality**: retracted papers correctly rated, Cochrane anchors, unified boundaries
+
+---
+
+## 9. Cochrane Persistence Consolidation (2026-03-23)
+
+**Problem**: Four scripts (`pipeline.py` `stage_collect`, `pipeline.py`
+`stage_collect_rob`, `reprocess_rob.py`, `backfill_cochrane_domains.py`)
+had duplicated, divergent logic for converting `RoBAssessment` dataclass
+instances to paper dicts and saving them to SQLite.  All used
+`INSERT OR IGNORE` via `insert_paper()`, which silently discarded domain
+ratings and review metadata for papers already in the DB.
+`reprocess_rob.py` additionally blanked `cochrane_review_pmid`/`doi`/`title`
+to empty strings, actively destroying expensively generated data.
+
+**Changes**:
+
+### 9a. Shared pure function `rob_assessment_to_paper_dict()`
+
+Added to `collectors/cochrane_rob.py` — single place for the
+`RoBAssessment` → paper dict mapping (`study_title` → `title`,
+`source` = `"cochrane_rob"`, drop `rob_notes`/`study_id`).  All four
+scripts now import and use this instead of inline conversion.
+
+### 9b. `Database.upsert_cochrane_paper()` with smart conflict handling
+
+New method in `database.py` uses `INSERT ... ON CONFLICT(pmid) DO UPDATE`
+with column-level preservation logic:
+
+| Column category | Behaviour | Rationale |
+|----------------|-----------|-----------|
+| RoB domain ratings (D1-D5), `overall_rob` | Always overwrite | Cochrane-authoritative data |
+| `cochrane_review_pmid`/`doi`/`title`, `domain`, `doi` | `COALESCE(NULLIF(new, ''), existing)` | Prevent empty strings from blanking previously stored values |
+| `title`, `abstract` | `CASE WHEN existing IS NULL OR '' THEN new ELSE existing END` | Preserve PubMed-fetched data; Cochrane passes empty strings |
+| `journal`, `year`, `authors`, `grants`, etc. | Preserve on conflict (not in UPDATE clause) | PubMed-authoritative |
+
+### 9c. DB migration: `cochrane_review_doi` and `cochrane_review_title`
+
+Added two new columns to the `papers` table via non-destructive
+`ALTER TABLE ADD COLUMN` migration in `Database.initialize()`.  These were
+already fields in the `RoBAssessment` dataclass and set by the collector,
+but never persisted to the DB.
+
+### 9d. `reprocess_rob.py` review metadata lookup
+
+Instead of blanking `cochrane_review_pmid`/`doi`/`title` to empty strings,
+`reprocess_rob.py` now does a best-effort Europe PMC lookup to resolve
+the review's PubMed ID and DOI from the PMCID.
+
+### 9e. `pipeline.py` `stage_collect` crash resilience
+
+Changed from batching all assessments in memory then looping to save, to
+using `on_result` callback for immediate per-record persistence (matching
+`stage_collect_rob` behaviour).
+
+### 9f. Public PMID resolution methods
+
+`_resolve_pmids_from_refs()` and `_resolve_pmids_via_doi()` renamed to
+public methods (no leading underscore) since they are called from
+`reprocess_rob.py`.
+
+### 9g. Backfill checkpoint/resume
+
+`backfill_cochrane_domains.py` now supports checkpoint/resume via:
+- `skip_pmids`: PMIDs already with domain data are passed to the
+  collector to skip entirely
+- `skip_pmcids`: Fully-processed review PMCIDs (from checkpoint file
+  `dataset/backfill_cochrane_checkpoint.json`) skip full text fetch,
+  LLM extraction, and PMID resolution
+
+**Reproduction**: Run the regular pipeline; all Cochrane data is now
+correctly upserted on every run.  For targeted backfill of domain-level
+ratings: `uv run python backfill_cochrane_domains.py`.
