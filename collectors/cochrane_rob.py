@@ -99,12 +99,33 @@ For each study, return:
 - "overall_rob": one of "high", "low", or "some_concerns"
 - "ref_number": the bracketed reference number if present (e.g. 28 for "[28]"),
   or null if not cited by number.
+- "randomization_bias": one of "high", "low", "some_concerns", or null if not reported
+- "deviation_bias": one of "high", "low", "some_concerns", or null if not reported
+- "missing_outcome_bias": one of "high", "low", "some_concerns", or null if not reported
+- "measurement_bias": one of "high", "low", "some_concerns", or null if not reported
+- "reporting_bias": one of "high", "low", "some_concerns", or null if not reported
+
+The five domain fields correspond to the standard RoB 2 domains:
+  D1 = randomization_bias (bias arising from the randomization process)
+  D2 = deviation_bias (bias due to deviations from intended interventions)
+  D3 = missing_outcome_bias (bias due to missing outcome data)
+  D4 = measurement_bias (bias in measurement of the outcome)
+  D5 = reporting_bias (bias in selection of the reported result)
 
 Return ONLY a JSON array.  Example:
 [
-  {"study_id": "Smith 2020", "overall_rob": "high", "ref_number": 12},
-  {"study_id": "Jones 2019", "overall_rob": "low", "ref_number": null}
+  {"study_id": "Smith 2020", "overall_rob": "high", "ref_number": 12,
+   "randomization_bias": "low", "deviation_bias": "some_concerns",
+   "missing_outcome_bias": "low", "measurement_bias": "high",
+   "reporting_bias": "some_concerns"},
+  {"study_id": "Jones 2019", "overall_rob": "low", "ref_number": null,
+   "randomization_bias": "low", "deviation_bias": "low",
+   "missing_outcome_bias": "low", "measurement_bias": "low",
+   "reporting_bias": "low"}
 ]
+
+If per-domain ratings are not available for a study, set the domain
+fields to null — but always include the overall_rob.
 
 If the review does not contain individual study-level RoB judgments,
 return an empty array [].
@@ -599,9 +620,29 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             else:
                 overall = rob
 
+            # Extract per-domain RoB ratings (may be null/missing)
+            domain_ratings = {}
+            for dfield in (
+                "randomization_bias", "deviation_bias",
+                "missing_outcome_bias", "measurement_bias",
+                "reporting_bias",
+            ):
+                raw = (s.get(dfield) or "").strip().lower()
+                if not raw or raw == "null":
+                    domain_ratings[dfield] = ""
+                elif "high" in raw:
+                    domain_ratings[dfield] = "high"
+                elif "low" in raw:
+                    domain_ratings[dfield] = "low"
+                elif "some" in raw or "unclear" in raw:
+                    domain_ratings[dfield] = "some_concerns"
+                else:
+                    domain_ratings[dfield] = ""
+
             assessments.append(RoBAssessment(
                 study_id=sid,
                 overall_rob=overall,
+                **domain_ratings,
             ))
 
         logger.info(
