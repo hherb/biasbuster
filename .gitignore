@@ -28,4 +28,11 @@ llama.cpp/*
 dataset/biasbuster.db
 dataset/biasbuster.db-shm
 dataset/biasbuster.db-wal
-dataset/biasbuster.db
+dataset/*.bak
+dataset/llm_rob_cache*.json
+dataset/llm_rob_cache*.bak
+dataset/cleanseed/annotated/
+
+# Scratch / logs
+log.txt
+annotation_evaluation.md

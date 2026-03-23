@@ -24,6 +24,12 @@ Usage:
 
     # Import from a custom directory into a specific DB
     uv run python seed_export.py import --dir dataset/cleanseed_v2 --db dataset/fresh.db
+
+    # Export full annotated dataset (papers + enrichments + annotations)
+    uv run python seed_export.py export-annotated
+
+    # Import annotated dataset
+    uv run python seed_export.py import-annotated
 """
 
 import argparse
@@ -42,11 +48,14 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SEED_DIR = Path("dataset/cleanseed")
 DEFAULT_DB_PATH = Path("dataset/biasbuster.db")
+DEFAULT_ANNOTATED_DIR = Path("dataset/cleanseed/annotated")
 
 # Tables to export (columns are auto-discovered from the DB schema)
-EXPORT_TABLES = ["papers", "enrichments"]
+SEED_TABLES = ["papers", "enrichments"]
 ANNOTATED_TABLES = ["papers", "enrichments", "annotations", "human_reviews"]
-DEFAULT_ANNOTATED_DIR = Path("dataset/cleanseed/annotated")
+
+# Commit batch size for imports
+IMPORT_COMMIT_INTERVAL = 500
 
 # Columns that store JSON strings in SQLite
 JSON_COLUMNS = {
@@ -83,127 +92,19 @@ def _encode_json_fields(row: dict) -> dict:
     return row
 
 
-def export_seed(db_path: Path, seed_dir: Path) -> None:
-    """Export papers and enrichments to JSONL files."""
-    seed_dir.mkdir(parents=True, exist_ok=True)
+def _export_tables(
+    tables: list[str],
+    db_path: Path,
+    seed_dir: Path,
+    snapshot_type: str = "seed",
+) -> None:
+    """Export the given tables from the DB to JSONL files.
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-
-    manifest = {
-        "exported_at": datetime.now(timezone.utc).isoformat(),
-        "source_db": str(db_path),
-        "tables": {},
-    }
-
-    for table in EXPORT_TABLES:
-        columns = _get_table_columns(conn, table)
-        out_path = seed_dir / f"{table}.jsonl"
-        col_list = ", ".join(columns)
-        cursor = conn.execute(f"SELECT {col_list} FROM {table} ORDER BY pmid")
-
-        count = 0
-        with open(out_path, "w") as f:
-            for row in cursor:
-                record = _decode_json_fields(dict(row))
-                f.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
-                count += 1
-
-        manifest["tables"][table] = count
-        logger.info(f"Exported {count} rows from {table} → {out_path}")
-
-    # Write manifest
-    manifest_path = seed_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    logger.info(f"Manifest written to {manifest_path}")
-
-    conn.close()
-
-    # Summary
-    total_size = sum(f.stat().st_size for f in seed_dir.iterdir())
-    logger.info(
-        f"Export complete: {total_size / 1024:.0f} KB in {seed_dir}/ "
-        f"({manifest['tables']})"
-    )
-
-
-def import_seed(seed_dir: Path, db_path: Path) -> None:
-    """Import papers and enrichments from JSONL into a database.
-
-    If the target DB exists, it is backed up before import.
-    """
-    manifest_path = seed_dir / "manifest.json"
-    if not manifest_path.exists():
-        raise FileNotFoundError(f"No manifest.json in {seed_dir}")
-
-    manifest = json.loads(manifest_path.read_text())
-    logger.info(
-        f"Importing seed data exported at {manifest['exported_at']}"
-    )
-
-    # Back up existing DB
-    if db_path.exists():
-        backup = db_path.with_suffix(
-            f".pre-import-{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
-        )
-        shutil.copy2(db_path, backup)
-        logger.info(f"Backed up existing DB to {backup}")
-
-    # Initialise schema
-    from database import Database
-    db = Database(str(db_path))
-    db.initialize()
-
-    # Import tables in order (papers first due to foreign keys)
-    for table in EXPORT_TABLES:
-        jsonl_path = seed_dir / f"{table}.jsonl"
-        if not jsonl_path.exists():
-            logger.warning(f"Missing {jsonl_path}, skipping")
-            continue
-
-        # Discover columns from the first JSONL record (matches what was exported)
-        with open(jsonl_path) as f:
-            first_line = f.readline().strip()
-        if not first_line:
-            logger.warning(f"Empty {jsonl_path}, skipping")
-            continue
-        columns = list(json.loads(first_line).keys())
-
-        placeholders = ", ".join("?" for _ in columns)
-        col_list = ", ".join(columns)
-        sql = f"INSERT OR REPLACE INTO {table} ({col_list}) VALUES ({placeholders})"
-
-        count = 0
-        with open(jsonl_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                record = _encode_json_fields(json.loads(line))
-                values = [record.get(col) for col in columns]
-                try:
-                    db.conn.execute(sql, values)
-                    count += 1
-                except sqlite3.Error as e:
-                    logger.warning(f"Failed to import {table} row: {e}")
-
-                # Commit every 500 rows for safety
-                if count % 500 == 0:
-                    db.conn.commit()
-
-        db.conn.commit()
-        expected = manifest["tables"].get(table, "?")
-        logger.info(f"Imported {count}/{expected} rows into {table}")
-
-    db.close()
-    logger.info(f"Import complete → {db_path}")
-
-
-def export_annotated(db_path: Path, seed_dir: Path) -> None:
-    """Export papers, enrichments, annotations, and human reviews to JSONL.
-
-    Like export_seed but includes annotation data for snapshotting the
-    full annotated dataset.
+    Args:
+        tables: Ordered list of table names to export.
+        db_path: Path to the SQLite database.
+        seed_dir: Output directory for JSONL files + manifest.
+        snapshot_type: Label for the manifest (e.g. "seed", "annotated").
     """
     seed_dir.mkdir(parents=True, exist_ok=True)
 
@@ -213,11 +114,11 @@ def export_annotated(db_path: Path, seed_dir: Path) -> None:
     manifest = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "source_db": str(db_path),
-        "snapshot_type": "annotated",
+        "snapshot_type": snapshot_type,
         "tables": {},
     }
 
-    for table in ANNOTATED_TABLES:
+    for table in tables:
         columns = _get_table_columns(conn, table)
         if not columns:
             logger.warning(f"Table {table} has no columns, skipping")
@@ -244,15 +145,25 @@ def export_annotated(db_path: Path, seed_dir: Path) -> None:
 
     total_size = sum(f.stat().st_size for f in seed_dir.iterdir())
     logger.info(
-        f"Annotated export complete: {total_size / 1024:.0f} KB in {seed_dir}/ "
+        f"Export complete: {total_size / 1024:.0f} KB in {seed_dir}/ "
         f"({manifest['tables']})"
     )
 
 
-def import_annotated(seed_dir: Path, db_path: Path) -> None:
-    """Import annotated snapshot (papers + enrichments + annotations + human_reviews).
+def _import_tables(
+    tables: list[str],
+    seed_dir: Path,
+    db_path: Path,
+) -> None:
+    """Import JSONL files into the given tables.
 
-    Backs up existing DB before import.
+    Backs up existing DB before import. Tables are imported in the order
+    given (respects foreign key dependencies).
+
+    Args:
+        tables: Ordered list of table names to import.
+        seed_dir: Directory containing JSONL files + manifest.
+        db_path: Path to the target SQLite database.
     """
     manifest_path = seed_dir / "manifest.json"
     if not manifest_path.exists():
@@ -260,7 +171,8 @@ def import_annotated(seed_dir: Path, db_path: Path) -> None:
 
     manifest = json.loads(manifest_path.read_text())
     logger.info(
-        f"Importing annotated snapshot from {manifest['exported_at']}"
+        f"Importing {manifest.get('snapshot_type', 'seed')} data "
+        f"exported at {manifest['exported_at']}"
     )
 
     if db_path.exists():
@@ -274,8 +186,7 @@ def import_annotated(seed_dir: Path, db_path: Path) -> None:
     db = Database(str(db_path))
     db.initialize()
 
-    # Import in FK order: papers → enrichments → annotations → human_reviews
-    for table in ANNOTATED_TABLES:
+    for table in tables:
         jsonl_path = seed_dir / f"{table}.jsonl"
         if not jsonl_path.exists():
             logger.info(f"No {jsonl_path}, skipping")
@@ -306,7 +217,7 @@ def import_annotated(seed_dir: Path, db_path: Path) -> None:
                 except sqlite3.Error as e:
                     logger.warning(f"Failed to import {table} row: {e}")
 
-                if count % 500 == 0:
+                if count % IMPORT_COMMIT_INTERVAL == 0:
                     db.conn.commit()
 
         db.conn.commit()
@@ -314,7 +225,27 @@ def import_annotated(seed_dir: Path, db_path: Path) -> None:
         logger.info(f"Imported {count}/{expected} rows into {table}")
 
     db.close()
-    logger.info(f"Annotated import complete → {db_path}")
+    logger.info(f"Import complete → {db_path}")
+
+
+def export_seed(db_path: Path, seed_dir: Path) -> None:
+    """Export papers and enrichments to JSONL files."""
+    _export_tables(SEED_TABLES, db_path, seed_dir, snapshot_type="seed")
+
+
+def import_seed(seed_dir: Path, db_path: Path) -> None:
+    """Import papers and enrichments from JSONL into a database."""
+    _import_tables(SEED_TABLES, seed_dir, db_path)
+
+
+def export_annotated(db_path: Path, seed_dir: Path) -> None:
+    """Export papers, enrichments, annotations, and human reviews to JSONL."""
+    _export_tables(ANNOTATED_TABLES, db_path, seed_dir, snapshot_type="annotated")
+
+
+def import_annotated(seed_dir: Path, db_path: Path) -> None:
+    """Import annotated snapshot from JSONL into a database."""
+    _import_tables(ANNOTATED_TABLES, seed_dir, db_path)
 
 
 def main() -> None:

@@ -142,6 +142,8 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         llm_api_base: str = "",
         llm_model: str = "",
         llm_max_tokens: int = 16000,
+        max_retries: int = 3,
+        llm_timeout: float = 180.0,
         cache_path: Optional[Path] = None,
     ) -> None:
         """Initialise the collector.
@@ -152,6 +154,8 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             llm_api_base: Base URL for the LLM API (e.g. https://api.deepseek.com).
             llm_model: Model ID (e.g. deepseek-reasoner).
             llm_max_tokens: Max output tokens for LLM extraction calls.
+            max_retries: Max retry attempts for LLM calls on transient failures.
+            llm_timeout: Timeout in seconds for each LLM API call.
             cache_path: Path for LLM extraction result cache.  Set to ``None``
                 to use the default (``dataset/llm_rob_cache.json``).
         """
@@ -160,6 +164,8 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         self.llm_api_base = llm_api_base.rstrip("/") if llm_api_base else ""
         self.llm_model = llm_model
         self.llm_max_tokens = llm_max_tokens
+        self.max_retries = max_retries
+        self.llm_timeout = llm_timeout
         self.client: Optional[httpx.AsyncClient] = None
         self._cache_path = cache_path if cache_path is not None else self.DEFAULT_CACHE_PATH
         self._llm_cache: dict[str, list[dict]] = self._load_cache()
@@ -656,8 +662,6 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         )
         return assessments
 
-    _LLM_EXTRACT_MAX_RETRIES = 3
-
     async def _llm_extract_chunk(
         self, text: str, label: str,
     ) -> list[dict]:
@@ -665,7 +669,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
 
         Returns a list of dicts with ``study_id`` and ``overall_rob`` keys,
         or an empty list on failure.  Retries on JSON parse errors and
-        timeouts up to ``_LLM_EXTRACT_MAX_RETRIES`` times.
+        timeouts up to ``self.max_retries`` times.
         """
         payload = {
             "model": self.llm_model,
@@ -678,7 +682,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         }
 
         last_error: str = ""
-        for attempt in range(self._LLM_EXTRACT_MAX_RETRIES):
+        for attempt in range(self.max_retries):
             try:
                 resp = await self.client.post(
                     f"{self.llm_api_base}/v1/chat/completions",
@@ -687,7 +691,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                         "Authorization": f"Bearer {self.llm_api_key}",
                         "Content-Type": "application/json",
                     },
-                    timeout=httpx.Timeout(180.0),
+                    timeout=httpx.Timeout(self.llm_timeout),
                 )
 
                 if resp.status_code == 429:
@@ -749,7 +753,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 last_error = f"invalid JSON: {e}"
                 logger.warning(
                     f"LLM returned invalid JSON for {label} "
-                    f"(attempt {attempt + 1}/{self._LLM_EXTRACT_MAX_RETRIES}): {e}"
+                    f"(attempt {attempt + 1}/{self.max_retries}): {e}"
                 )
                 await asyncio.sleep(2 ** attempt)
                 continue
@@ -757,7 +761,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 last_error = "timeout"
                 logger.warning(
                     f"LLM timeout for {label} "
-                    f"(attempt {attempt + 1}/{self._LLM_EXTRACT_MAX_RETRIES})"
+                    f"(attempt {attempt + 1}/{self.max_retries})"
                 )
                 continue
             except Exception as e:
@@ -765,7 +769,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 return []
 
         logger.warning(
-            f"All {self._LLM_EXTRACT_MAX_RETRIES} attempts failed for {label}: {last_error}"
+            f"All {self.max_retries} attempts failed for {label}: {last_error}"
         )
         return []
 
