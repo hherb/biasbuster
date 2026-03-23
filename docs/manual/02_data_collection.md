@@ -67,6 +67,18 @@ Resolution is done per-review (not batched at the end) so results can be saved i
 - `cochrane_rob_max` (default: 1000) -- maximum studies to extract
 - `cochrane_min_year` (default: 2015) -- earliest review year
 
+### Cochrane Data Persistence
+
+Cochrane RoB papers use `upsert_cochrane_paper()` instead of the standard `INSERT OR IGNORE`. This ensures that re-running collection always updates domain-level RoB ratings and review metadata, while preserving PubMed-fetched titles and abstracts that were populated by a later seed step. The conversion from `RoBAssessment` to paper dict is handled by a shared pure function (`rob_assessment_to_paper_dict()`) used across all scripts that save Cochrane data.
+
+To backfill per-domain RoB ratings (D1-D5) for papers that were collected before domain-level extraction was added:
+
+```bash
+uv run python backfill_cochrane_domains.py
+```
+
+This long-running script (~5-6 hours due to DeepSeek API calls) supports checkpoint/resume — interrupted runs can be restarted without re-processing already completed reviews.
+
 ## Post-Collection Cleanup (Seed)
 
 After collection, run the seed step to clean and enrich the raw data:
@@ -105,7 +117,14 @@ All papers are inserted into the `papers` table in SQLite with fields:
 | `source` | Which collector produced this record |
 | `retraction_reasons` | Why the paper was retracted (if applicable) |
 | `overall_rob` | Cochrane risk-of-bias judgment (if applicable) |
-| `cochrane_review_pmid` | Source Cochrane review (if applicable) |
+| `randomization_bias` | RoB 2 domain D1 rating (if applicable) |
+| `deviation_bias` | RoB 2 domain D2 rating (if applicable) |
+| `missing_outcome_bias` | RoB 2 domain D3 rating (if applicable) |
+| `measurement_bias` | RoB 2 domain D4 rating (if applicable) |
+| `reporting_bias` | RoB 2 domain D5 rating (if applicable) |
+| `cochrane_review_pmid` | Source Cochrane review PMID (if applicable) |
+| `cochrane_review_doi` | Source Cochrane review DOI (if applicable) |
+| `cochrane_review_title` | Source Cochrane review title (if applicable) |
 | `domain` | Medical domain (MeSH-based) |
 | `excluded` | Soft-delete flag for filtered records |
 

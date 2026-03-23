@@ -53,7 +53,8 @@ Each abstract is sent to the LLM with rich context:
 - Authors (first 5 with affiliations)
 - Funding/grants
 - Journal and MeSH terms
-- Retraction reasons (if applicable)
+- Retraction reasons and severity floor (if applicable — classified by `retraction_classifier`)
+- Cochrane RoB 2 expert judgments, including per-domain ratings D1-D5 (if applicable)
 - Heuristic pre-screen results from enrichment (reporting pattern, score, flags)
 
 ### Incremental Persistence

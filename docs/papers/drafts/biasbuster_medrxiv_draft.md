@@ -56,7 +56,9 @@ Critically, we distinguish between *retraction notices*---brief editorial statem
 
 #### Cochrane Risk of Bias Assessments (Expert Ground Truth)
 
-Cochrane systematic reviews represent the gold standard for bias assessment in clinical research. We search Europe PMC for Cochrane reviews and parse their full-text XML to extract included study references and corresponding RoB 2 domain ratings. For each included study, we retrieve the original abstract from PubMed and associate it with the Cochrane reviewers' assessments across five RoB 2 domains: randomization process, deviations from intended interventions, missing outcome data, outcome measurement, and selection of reported results. Each domain is rated as low risk, some concerns, or high risk, with an overall judgment.
+Cochrane systematic reviews represent the gold standard for bias assessment in clinical research. We search Europe PMC for Cochrane reviews and parse their full-text XML to extract included study references and corresponding RoB 2 domain ratings using regex-based extraction with LLM fallback (DeepSeek reasoner, chunk & map-reduce -- never truncation). For each included study, we retrieve the original abstract from PubMed and associate it with the Cochrane reviewers' assessments across five RoB 2 domains: randomization process (D1), deviations from intended interventions (D2), missing outcome data (D3), outcome measurement (D4), and selection of reported results (D5). Each domain is rated as low risk, some concerns, or high risk, with an overall judgment. Study identifiers are resolved to PubMed IDs via a five-layer strategy (bracket-reference lookup, author+year matching, surname-only matching, DOI→PMID conversion, and PubMed search). To date, 250 expert-assessed papers have been collected with per-domain ratings.
+
+All Cochrane data is persisted via a smart upsert (`upsert_cochrane_paper()`) that always updates domain ratings and review metadata while preserving PubMed-fetched titles and abstracts -- ensuring that expensively generated data is never silently discarded by `INSERT OR IGNORE` on re-runs. Review provenance (PMID, DOI, and title of the source Cochrane review) is stored for each study.
 
 This source provides expert-validated examples at both ends of the bias spectrum: studies judged as "low risk" across all domains serve as negative examples, while those rated "high risk" serve as positive examples with domain-specific explanations.
 
@@ -179,7 +181,7 @@ Per-dimension comparison identifies which model excels at which bias type, gener
 
 ### Pipeline Implementation
 
-The complete pipeline is implemented in approximately 8,000 lines of Python across 25 modules, organized into five packages (collectors, enrichers, annotators, evaluation, utilities). The system uses asynchronous I/O throughout the collection and annotation stages with configurable rate limiting and concurrency controls. All pipeline state is persisted in a single SQLite database with four tables (papers, enrichments, annotations, human_reviews) linked by PubMed ID.
+The complete pipeline is implemented in approximately 9,000 lines of Python across 30+ modules, organized into five packages (collectors, enrichers, annotators, evaluation, utilities) plus shared infrastructure (database, prompts, seed management, backfill scripts). The system uses asynchronous I/O throughout the collection and annotation stages with configurable rate limiting and concurrency controls. All pipeline state is persisted in a single SQLite database with five tables (papers, enrichments, annotations, human_reviews, eval_outputs) linked by PubMed ID, with schema migrations applied non-destructively via `ALTER TABLE ADD COLUMN` guards.
 
 ### Data Source Characteristics
 
@@ -190,7 +192,7 @@ Table 1 summarizes the characteristics and intended roles of each data source.
 | Source | API | Target Papers | Role | Expected Bias Signal |
 |--------|-----|---------------|------|---------------------|
 | Retraction Watch / Crossref | Crossref REST API | Up to 2,000 | Known positives | Confirmed research integrity failures |
-| Cochrane RoB 2 | Europe PMC | Up to 1,000 studies from 50 reviews | Expert ground truth | Domain-specific severity ratings |
+| Cochrane RoB 2 | Europe PMC | Up to 1,000 studies from 200 reviews | Expert ground truth | Per-domain (D1-D5) severity ratings |
 | PubMed RCTs | NCBI E-utilities | Up to 5,000 | General population | Full spectrum (enrichment-stratified) |
 | ClinicalTrials.gov | CT.gov v2 API | High-suspicion subset | Outcome switching enrichment | Registry--publication discrepancies |
 | CMS Open Payments / ORCID | CMS, ORCID APIs | Flagged authors | COI verification | Payment and affiliation data |
@@ -470,6 +472,8 @@ BiasBuster addresses several limitations of existing approaches to bias detectio
 
 **Reproducibility.** The pipeline is fully deterministic given the same configuration: collection parameters, annotation prompts, and data splits are version-controlled. The use of identical prompts across multiple LLM backends enables direct comparison and consensus labelling.
 
+**Data integrity by design.** All persistence paths follow a "never discard expensively generated data" principle. Cochrane papers use a smart upsert that updates domain ratings and review metadata on re-runs while preserving PubMed-fetched titles and abstracts via SQL CASE/COALESCE guards. Annotations are saved incrementally via `on_result` callbacks, surviving mid-batch crashes. Shared pure functions (`rob_assessment_to_paper_dict()`) eliminate divergent conversion logic across scripts. LLM extraction results are cached to avoid re-spending tokens, and backfill operations support checkpoint/resume for multi-hour runs.
+
 ### Training Data Quality Dominates Model Size and Hyperparameters
 
 The most significant finding across four runs is that training data quality---not model size or hyperparameter tuning---is the dominant factor in fine-tuned model performance. The jump from 706 old-format examples to 1,235 new-format examples (with all five domains always emitted, substantive NONE reasoning, and severity oversampling) produced a +0.120 F1 improvement (Run 2 → Run 4). By comparison, the hyperparameter revision between Runs 3 and 4 produced a +0.046 improvement in eval loss, and using a 32B model instead of 9B produced a +0.028 F1 advantage that the improved training data nearly eliminated.
@@ -674,28 +678,29 @@ The full annotation system prompt (~2,900 words) specifies the bias taxonomy, ou
 
 ```
 [Crossref/Retraction Watch] ──┐
-[PubMed E-utilities]          ├──→ [SQLite: papers] ──→ [Enrichment] ──→ [SQLite: enrichments]
-[Europe PMC / Cochrane]       │                                                    │
-[ClinicalTrials.gov]     ────┘                                                    ▼
-                                                                          [LLM Annotation]
-                                                                          (Claude / DeepSeek)
-                                                                                   │
-                                                                                   ▼
-                                                                          [SQLite: annotations]
-                                                                                   │
-                                                                                   ▼
-                                                                          [Human Review (NiceGUI)]
-                                                                                   │
-                                                                                   ▼
-                                                                          [SQLite: human_reviews]
-                                                                                   │
-                                                                      ┌────────────┼────────────┐
-                                                                      ▼            ▼            ▼
-                                                                  [Alpaca]    [ShareGPT]   [OpenAI]
-                                                                  + <think>    multi-turn    chat
-                                                                      │            │            │
-                                                                      └────────────┼────────────┘
-                                                                                   ▼
-                                                                          [80/10/10 splits]
-                                                                          train / val / test
+[PubMed E-utilities]          ├──→ [SQLite: papers] ──→ [Seed Cleanup] ──→ [Enrichment] ──→ [SQLite: enrichments]
+[Europe PMC / Cochrane]       │   (upsert for Cochrane)  (RW reasons,                              │
+[ClinicalTrials.gov]     ────┘                            fetch abstracts,                          │
+                                                          notice filter)                            ▼
+                                                                                           [LLM Annotation]
+                                                                                        (Claude / DeepSeek)
+                                                                                                │
+                                                                                                ▼
+                                                                                       [SQLite: annotations]
+                                                                                                │
+                                                                                                ▼
+                                                                                       [Human Review (NiceGUI)]
+                                                                                                │
+                                                                                                ▼
+                                                                                       [SQLite: human_reviews]
+                                                                                                │
+                                                                                   ┌────────────┼────────────┐
+                                                                                   ▼            ▼            ▼
+                                                                               [Alpaca]    [ShareGPT]   [OpenAI]
+                                                                               + <think>    multi-turn    chat
+                                                                                   │            │            │
+                                                                                   └────────────┼────────────┘
+                                                                                                ▼
+                                                                                       [80/10/10 splits]
+                                                                                       train / val / test
 ```
