@@ -55,7 +55,9 @@ async def stage_collect(config: Config, db: Database) -> None:
     - Cochrane RoB assessments -> expert-validated bias labels
     """
     from collectors.retraction_watch import RetractionWatchCollector
-    from collectors.cochrane_rob import CochraneRoBCollector
+    from collectors.cochrane_rob import (
+        CochraneRoBCollector, rob_assessment_to_paper_dict,
+    )
 
     # 1a. Retracted papers (high-confidence positive examples)
     logger.info("=== Collecting retracted papers ===")
@@ -80,6 +82,14 @@ async def stage_collect(config: Config, db: Database) -> None:
 
     # 1c. Cochrane Risk of Bias assessments (expert ground truth)
     logger.info("=== Collecting Cochrane RoB assessments ===")
+    cochrane_saved = 0
+
+    def save_cochrane(a) -> None:
+        nonlocal cochrane_saved
+        paper_dict = rob_assessment_to_paper_dict(a)
+        if db.upsert_cochrane_paper(paper_dict):
+            cochrane_saved += 1
+
     async with CochraneRoBCollector(
         ncbi_api_key=config.ncbi_api_key,
         llm_api_key=config.deepseek_api_key,
@@ -88,21 +98,13 @@ async def stage_collect(config: Config, db: Database) -> None:
         llm_max_tokens=config.deepseek_max_tokens,
         max_retries=config.max_retries,
     ) as collector:
-        assessments = await collector.collect_rob_dataset(
+        await collector.collect_rob_dataset(
             domains=config.focus_domains[:5],
             max_reviews=config.cochrane_max_reviews,
             max_studies=config.cochrane_rob_max,
+            on_result=save_cochrane,
         )
-        count = 0
-        for a in assessments:
-            paper_dict = asdict(a)
-            paper_dict["source"] = "cochrane_rob"
-            # Map Cochrane fields to paper schema
-            paper_dict["title"] = paper_dict.pop("study_title", "")
-            paper_dict["abstract"] = ""  # Cochrane entries may lack abstracts
-            if db.insert_paper(paper_dict):
-                count += 1
-        logger.info(f"Inserted {count} new Cochrane RoB papers")
+    logger.info(f"Saved {cochrane_saved} Cochrane RoB papers")
 
     stats = db.get_stats()
     logger.info(
@@ -120,7 +122,9 @@ async def stage_collect_rob(config: Config, db: Database) -> None:
     Usage:
         python pipeline.py --stage collect-rob
     """
-    from collectors.cochrane_rob import CochraneRoBCollector
+    from collectors.cochrane_rob import (
+        CochraneRoBCollector, rob_assessment_to_paper_dict,
+    )
 
     before = db.conn.execute(
         "SELECT COUNT(*) FROM papers WHERE source = 'cochrane_rob'"
@@ -130,20 +134,18 @@ async def stage_collect_rob(config: Config, db: Database) -> None:
     logger.info("=== Collecting RoB assessments (regex + LLM fallback) ===")
 
     # Incremental save callback — each assessment is persisted immediately
-    # so progress survives interruptions.
-    inserted_count = 0
+    # so progress survives interruptions.  Uses upsert so domain ratings
+    # and review metadata are updated for papers already in the DB.
+    saved_count = 0
 
     def save_assessment(a) -> None:
-        nonlocal inserted_count
-        paper_dict = asdict(a)
-        paper_dict["source"] = "cochrane_rob"
-        paper_dict["title"] = paper_dict.pop("study_title", "")
-        paper_dict["abstract"] = ""
-        if db.insert_paper(paper_dict):
-            inserted_count += 1
+        nonlocal saved_count
+        paper_dict = rob_assessment_to_paper_dict(a)
+        if db.upsert_cochrane_paper(paper_dict):
+            saved_count += 1
             logger.info(
                 f"  Saved PMID {a.pmid} (RoB={a.overall_rob}) — "
-                f"total inserted: {inserted_count}"
+                f"total saved: {saved_count}"
             )
 
     async with CochraneRoBCollector(
@@ -161,10 +163,10 @@ async def stage_collect_rob(config: Config, db: Database) -> None:
             on_result=save_assessment,
         )
 
-    logger.info(f"Inserted {inserted_count} new Cochrane RoB papers")
+    logger.info(f"Saved {saved_count} Cochrane RoB papers")
 
     # Fetch abstracts from PubMed for newly inserted papers
-    if inserted_count > 0:
+    if saved_count > 0:
         logger.info("Fetching abstracts for new Cochrane papers...")
         from seed_database import fetch_missing_abstracts
         await fetch_missing_abstracts(config, db)

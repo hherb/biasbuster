@@ -22,11 +22,9 @@ import asyncio
 import logging
 import re
 import sys
-from dataclasses import asdict
-
-import httpx
-
-from collectors.cochrane_rob import CochraneRoBCollector, RoBAssessment
+from collectors.cochrane_rob import (
+    CochraneRoBCollector, RoBAssessment, rob_assessment_to_paper_dict,
+)
 from config import Config
 from database import Database
 from utils.retry import fetch_with_retry
@@ -75,31 +73,16 @@ async def reprocess_reviews(
     4. Run multi-layer PMID resolution with the improved code
     5. Save newly resolved papers to the database
     """
-    # Pre-load existing PMIDs to avoid duplicates
-    existing_pmids: set[str] = set()
-    rows = db.conn.execute(
-        "SELECT pmid FROM papers WHERE source = 'cochrane_rob'"
-    ).fetchall()
-    for (pmid,) in rows:
-        existing_pmids.add(pmid)
-    logger.info(f"Existing Cochrane RoB papers: {len(existing_pmids)}")
-
-    inserted_count = 0
+    saved_count = 0
 
     def save_assessment(a: RoBAssessment) -> None:
-        nonlocal inserted_count
-        if a.pmid in existing_pmids:
-            return
-        paper_dict = asdict(a)
-        paper_dict["source"] = "cochrane_rob"
-        paper_dict["title"] = paper_dict.pop("study_title", "")
-        paper_dict["abstract"] = ""
-        if db.insert_paper(paper_dict):
-            inserted_count += 1
-            existing_pmids.add(a.pmid)
+        nonlocal saved_count
+        paper_dict = rob_assessment_to_paper_dict(a)
+        if db.upsert_cochrane_paper(paper_dict):
+            saved_count += 1
             logger.info(
                 f"  Saved PMID {a.pmid} (RoB={a.overall_rob}) — "
-                f"total inserted: {inserted_count}"
+                f"total saved: {saved_count}"
             )
 
     async with CochraneRoBCollector(
@@ -136,15 +119,34 @@ async def reprocess_reviews(
             # Extract references for PMID matching
             refs = await collector.extract_included_study_refs(pmcid)
 
-            # We don't have review metadata from search — use empty defaults
+            # We don't have review metadata from the Europe PMC search
+            # results (we're processing PMCIDs directly).  Try to resolve
+            # the review's PubMed ID from the PMCID via the ID converter.
+            review_pmid = ""
+            review_doi = ""
+            try:
+                assert collector.client is not None
+                id_resp = await fetch_with_retry(
+                    collector.client, "GET",
+                    f"{collector.EUROPMC_BASE}/search?query=PMCID:{pmcid}"
+                    "&format=json&resultType=lite&pageSize=1",
+                )
+                if id_resp.status_code == 200:
+                    hits = id_resp.json().get("resultList", {}).get("result", [])
+                    if hits:
+                        review_pmid = hits[0].get("pmid", "")
+                        review_doi = hits[0].get("doi", "")
+            except Exception:
+                pass  # best-effort — fields stay empty
+
             for a in assessments:
-                a.cochrane_review_pmid = ""
-                a.cochrane_review_doi = ""
-                a.cochrane_review_title = ""
+                a.cochrane_review_pmid = review_pmid
+                a.cochrane_review_doi = review_doi
+                a.cochrane_review_title = ""  # not available from lite search
 
             # Multi-layer PMID resolution
-            await collector._resolve_pmids_from_refs(assessments, refs)
-            await collector._resolve_pmids_via_doi(assessments)
+            await collector.resolve_pmids_from_refs(assessments, refs)
+            await collector.resolve_pmids_via_doi(assessments)
             unresolved = [a for a in assessments if not a.pmid]
             if unresolved:
                 await collector.resolve_study_pmids(assessments)
@@ -162,10 +164,10 @@ async def reprocess_reviews(
 
             await asyncio.sleep(0.5)
 
-    logger.info(f"Re-processing complete. Inserted {inserted_count} new papers.")
+    logger.info(f"Re-processing complete. Saved {saved_count} papers.")
 
-    # Fetch abstracts for newly inserted papers
-    if inserted_count > 0:
+    # Fetch abstracts for papers missing them
+    if saved_count > 0:
         logger.info("Fetching abstracts for new papers...")
         from seed_database import fetch_missing_abstracts
         await fetch_missing_abstracts(config, db)

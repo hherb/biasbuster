@@ -60,6 +60,28 @@ class RoBAssessment:
     domain: str = ""              # Clinical domain (e.g., "cardiovascular")
 
 
+def rob_assessment_to_paper_dict(assessment: RoBAssessment) -> dict:
+    """Convert a RoBAssessment to a paper dict matching the DB papers schema.
+
+    Pure function — no side effects.  All Cochrane save paths should use
+    this to avoid divergent field mapping.
+
+    Mapping:
+    - ``study_title`` → ``title``
+    - ``source`` set to ``"cochrane_rob"``
+    - ``abstract`` defaults to ``""`` (Cochrane entries lack abstracts;
+      PubMed fetch populates this later)
+    - ``study_id`` and ``rob_notes`` are dropped (no DB columns)
+    """
+    paper = asdict(assessment)
+    paper["source"] = "cochrane_rob"
+    paper["title"] = paper.pop("study_title", "")
+    paper.pop("rob_notes", None)
+    paper.pop("study_id", None)
+    paper.setdefault("abstract", "")
+    return paper
+
+
 @dataclass
 class CochraneReview:
     """A Cochrane review with its included studies and RoB assessments."""
@@ -170,6 +192,11 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         self._cache_path = cache_path if cache_path is not None else self.DEFAULT_CACHE_PATH
         self._llm_cache: dict[str, list[dict]] = self._load_cache()
         self._cache_dirty = 0  # number of unsaved entries
+
+    @property
+    def cached_pmcids(self) -> set[str]:
+        """Return the set of PMCIDs present in the LLM extraction cache."""
+        return set(self._llm_cache.keys())
 
     # Flush cache to disk every N new entries (avoids rewriting on every call)
     _CACHE_FLUSH_INTERVAL = 5
@@ -826,7 +853,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         logger.info(f"Resolved {resolved}/{len(assessments)} study IDs to PMIDs")
         return assessments
 
-    async def _resolve_pmids_from_refs(
+    async def resolve_pmids_from_refs(
         self,
         assessments: list[RoBAssessment],
         refs: list[dict],
@@ -904,7 +931,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         if matched:
             logger.info(f"Matched {matched} PMIDs from Cochrane reference list")
 
-    async def _resolve_pmids_via_doi(
+    async def resolve_pmids_via_doi(
         self, assessments: list[RoBAssessment],
     ) -> None:
         """Resolve PMIDs for assessments that have a DOI but no PMID.
@@ -949,6 +976,8 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
         max_reviews: int = 50,
         max_studies: int = 500,
         on_result: Optional[Callable[[RoBAssessment], None]] = None,
+        skip_pmids: Optional[set[str]] = None,
+        skip_pmcids: Optional[set[str]] = None,
     ) -> list[RoBAssessment]:
         """Full pipeline: search reviews, extract RoB, resolve PMIDs.
 
@@ -961,6 +990,11 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             max_studies: Stop after this many total assessments.
             on_result: Optional callback(RoBAssessment) called for each
                 resolved assessment.  Use this for incremental DB saves.
+            skip_pmids: PMIDs to treat as already processed — they are
+                added to the dedup set so they are never passed to
+                ``on_result`` and don't count toward ``max_studies``.
+            skip_pmcids: PMCIDs (review IDs) to skip entirely — no full
+                text fetch, LLM extraction, or PMID resolution.
 
         Resolution strategy (per review, not batched):
         1. Extract PMIDs/DOIs directly from Cochrane reference XML
@@ -974,8 +1008,8 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
             ]
 
         all_results: list[RoBAssessment] = []
-        seen_pmcids: set[str] = set()
-        seen_pmids: set[str] = set()
+        seen_pmcids: set[str] = set(skip_pmcids or ())
+        seen_pmids: set[str] = set(skip_pmids or ())
 
         # Per-domain + broad search
         search_passes: list[tuple[str, int]] = [
@@ -1028,9 +1062,9 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
 
                 # Resolve PMIDs per-review (not batched at end)
                 # Layer 1: reference list
-                await self._resolve_pmids_from_refs(assessments, refs)
+                await self.resolve_pmids_from_refs(assessments, refs)
                 # Layer 2: DOI lookup
-                await self._resolve_pmids_via_doi(assessments)
+                await self.resolve_pmids_via_doi(assessments)
                 # Layer 3: author+year search
                 unresolved = [a for a in assessments if not a.pmid]
                 if unresolved:

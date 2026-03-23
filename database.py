@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS papers (
 
     -- Cochrane RoB-specific
     cochrane_review_pmid TEXT,
+    cochrane_review_doi TEXT,
+    cochrane_review_title TEXT,
     overall_rob TEXT,
     randomization_bias TEXT,
     deviation_bias TEXT,
@@ -178,7 +180,7 @@ class Database:
     def initialize(self) -> None:
         """Create tables and indexes if they don't exist."""
         self.conn.executescript(SCHEMA_SQL)
-        # Migrate: add excluded columns if missing (for existing databases)
+        # Migrate: add columns if missing (non-destructive for existing databases)
         cols = {
             row[1]
             for row in self.conn.execute("PRAGMA table_info(papers)").fetchall()
@@ -190,6 +192,14 @@ class Database:
         if "excluded_reason" not in cols:
             self.conn.execute(
                 "ALTER TABLE papers ADD COLUMN excluded_reason TEXT"
+            )
+        if "cochrane_review_doi" not in cols:
+            self.conn.execute(
+                "ALTER TABLE papers ADD COLUMN cochrane_review_doi TEXT"
+            )
+        if "cochrane_review_title" not in cols:
+            self.conn.execute(
+                "ALTER TABLE papers ADD COLUMN cochrane_review_title TEXT"
             )
         self.conn.commit()
 
@@ -206,11 +216,12 @@ class Database:
                    (pmid, doi, title, abstract, journal, year,
                     authors, grants, mesh_terms, subjects, source,
                     retraction_doi, retraction_reasons, retraction_source,
-                    cochrane_review_pmid, overall_rob,
+                    cochrane_review_pmid, cochrane_review_doi,
+                    cochrane_review_title, overall_rob,
                     randomization_bias, deviation_bias,
                     missing_outcome_bias, measurement_bias,
                     reporting_bias, domain)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     pmid,
                     paper.get("doi"),
@@ -227,6 +238,8 @@ class Database:
                     _json_col(paper.get("retraction_reasons")),
                     paper.get("retraction_source"),
                     paper.get("cochrane_review_pmid"),
+                    paper.get("cochrane_review_doi"),
+                    paper.get("cochrane_review_title"),
                     paper.get("overall_rob"),
                     paper.get("randomization_bias"),
                     paper.get("deviation_bias"),
@@ -265,6 +278,8 @@ class Database:
                 _json_col(paper.get("retraction_reasons")),
                 paper.get("retraction_source"),
                 paper.get("cochrane_review_pmid"),
+                paper.get("cochrane_review_doi"),
+                paper.get("cochrane_review_title"),
                 paper.get("overall_rob"),
                 paper.get("randomization_bias"),
                 paper.get("deviation_bias"),
@@ -281,15 +296,110 @@ class Database:
                (pmid, doi, title, abstract, journal, year,
                 authors, grants, mesh_terms, subjects, source,
                 retraction_doi, retraction_reasons, retraction_source,
-                cochrane_review_pmid, overall_rob,
+                cochrane_review_pmid, cochrane_review_doi,
+                cochrane_review_title, overall_rob,
                 randomization_bias, deviation_bias,
                 missing_outcome_bias, measurement_bias,
                 reporting_bias, domain)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
         self.conn.commit()
         return self.conn.total_changes - changes_before
+
+    def upsert_cochrane_paper(
+        self, paper: dict, *, commit: bool = True
+    ) -> bool:
+        """Insert or update a Cochrane RoB paper, preserving expensive data.
+
+        On conflict (paper already exists):
+        - **Always updates** (Cochrane-authoritative): RoB domain ratings,
+          overall_rob, cochrane review metadata, domain, doi.
+        - **Preserves if non-empty** (PubMed-authoritative): title,
+          abstract, journal, year, authors, grants, mesh_terms, subjects.
+        - Review metadata uses COALESCE so an empty string from a re-run
+          cannot blank out a previously stored value.
+
+        Use ``collectors.cochrane_rob.rob_assessment_to_paper_dict()`` to
+        build the *paper* dict from a ``RoBAssessment`` dataclass.
+
+        Returns True if a row was inserted or updated.
+        """
+        pmid = str(paper.get("pmid", ""))
+        if not pmid:
+            return False
+        try:
+            cursor = self.conn.execute(
+                """INSERT INTO papers
+                   (pmid, doi, title, abstract, journal, year,
+                    authors, grants, mesh_terms, subjects, source,
+                    retraction_doi, retraction_reasons, retraction_source,
+                    cochrane_review_pmid, cochrane_review_doi,
+                    cochrane_review_title, overall_rob,
+                    randomization_bias, deviation_bias,
+                    missing_outcome_bias, measurement_bias,
+                    reporting_bias, domain)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(pmid) DO UPDATE SET
+                       -- Always update Cochrane-authoritative fields
+                       randomization_bias = excluded.randomization_bias,
+                       deviation_bias = excluded.deviation_bias,
+                       missing_outcome_bias = excluded.missing_outcome_bias,
+                       measurement_bias = excluded.measurement_bias,
+                       reporting_bias = excluded.reporting_bias,
+                       overall_rob = excluded.overall_rob,
+                       domain = COALESCE(NULLIF(excluded.domain, ''), papers.domain),
+                       doi = COALESCE(NULLIF(excluded.doi, ''), papers.doi),
+                       -- Update review metadata only if new value is non-empty
+                       cochrane_review_pmid = COALESCE(
+                           NULLIF(excluded.cochrane_review_pmid, ''),
+                           papers.cochrane_review_pmid),
+                       cochrane_review_doi = COALESCE(
+                           NULLIF(excluded.cochrane_review_doi, ''),
+                           papers.cochrane_review_doi),
+                       cochrane_review_title = COALESCE(
+                           NULLIF(excluded.cochrane_review_title, ''),
+                           papers.cochrane_review_title),
+                       -- Preserve PubMed-fetched data: only fill if currently empty
+                       title = CASE WHEN papers.title IS NULL OR papers.title = ''
+                                    THEN excluded.title ELSE papers.title END,
+                       abstract = CASE WHEN papers.abstract IS NULL
+                                           OR papers.abstract = ''
+                                       THEN excluded.abstract
+                                       ELSE papers.abstract END""",
+                (
+                    pmid,
+                    paper.get("doi"),
+                    paper.get("title", ""),
+                    paper.get("abstract", ""),
+                    paper.get("journal"),
+                    paper.get("year"),
+                    _json_col(paper.get("authors")),
+                    _json_col(paper.get("grants")),
+                    _json_col(paper.get("mesh_terms")),
+                    _json_col(paper.get("subjects")),
+                    paper.get("source", "cochrane_rob"),
+                    paper.get("retraction_doi"),
+                    _json_col(paper.get("retraction_reasons")),
+                    paper.get("retraction_source"),
+                    paper.get("cochrane_review_pmid"),
+                    paper.get("cochrane_review_doi"),
+                    paper.get("cochrane_review_title"),
+                    paper.get("overall_rob"),
+                    paper.get("randomization_bias"),
+                    paper.get("deviation_bias"),
+                    paper.get("missing_outcome_bias"),
+                    paper.get("measurement_bias"),
+                    paper.get("reporting_bias"),
+                    paper.get("domain"),
+                ),
+            )
+            if commit:
+                self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.warning(f"Failed to upsert Cochrane paper {pmid}: {e}")
+            return False
 
     def _row_to_paper(self, row: sqlite3.Row) -> dict:
         """Convert a papers table row to a dict with deserialized JSON columns."""

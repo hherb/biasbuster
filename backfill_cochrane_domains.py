@@ -1,28 +1,32 @@
 #!/usr/bin/env python
 """Backfill per-domain Cochrane RoB 2 ratings for existing papers.
 
-Clears the LLM extraction cache and re-runs the Cochrane collector with
-the updated prompt that requests per-domain ratings (D1-D5). For papers
-that already exist in the DB, UPDATEs the domain columns instead of
-skipping via INSERT OR IGNORE.
+Re-runs the Cochrane collector, leveraging the existing LLM cache where
+possible.  Papers that already have domain data are skipped entirely
+(both in the callback and at the collector level via skip_pmids).
+
+Uses the shared ``rob_assessment_to_paper_dict`` +
+``upsert_cochrane_paper`` path so domain ratings and review metadata are
+updated without overwriting PubMed-fetched titles/abstracts.
+
+Supports checkpoint/resume: on restart, papers already backfilled are
+skipped, and Cochrane reviews fully processed in a previous run are
+skipped via a PMCID checkpoint file.
 
 Usage:
     uv run python backfill_cochrane_domains.py
-
-This is a one-time migration script. After running, the 5 domain columns
-(randomization_bias, deviation_bias, missing_outcome_bias, measurement_bias,
-reporting_bias) will be populated for Cochrane RoB papers, enabling
-domain-level alignment analysis in expert_rob_alignment_of_annotations.py.
 """
 
 import asyncio
+import json
 import logging
-from dataclasses import asdict
 from pathlib import Path
 
 from config import Config
 from database import Database
-from collectors.cochrane_rob import CochraneRoBCollector
+from collectors.cochrane_rob import (
+    CochraneRoBCollector, rob_assessment_to_paper_dict,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,72 +34,85 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Checkpoint file: tracks PMCIDs fully processed in previous runs
+CHECKPOINT_PATH = Path("dataset/backfill_cochrane_checkpoint.json")
+
+
+def load_checkpoint() -> set[str]:
+    """Load set of fully-processed PMCIDs from checkpoint file."""
+    if CHECKPOINT_PATH.exists():
+        try:
+            data = json.loads(CHECKPOINT_PATH.read_text())
+            pmcids = set(data.get("processed_pmcids", []))
+            logger.info(f"Loaded checkpoint: {len(pmcids)} reviews already processed")
+            return pmcids
+        except (json.JSONDecodeError, KeyError):
+            logger.warning("Corrupt checkpoint file — starting fresh")
+    return set()
+
+
+def save_checkpoint(pmcids: set[str]) -> None:
+    """Persist set of fully-processed PMCIDs."""
+    CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CHECKPOINT_PATH.write_text(json.dumps({
+        "processed_pmcids": sorted(pmcids),
+    }, indent=1))
+
 
 async def main() -> None:
-    """Clear cache, re-extract with domain-aware prompt, update DB."""
+    """Re-run collector and update papers missing domain-level RoB data."""
     config = Config()
     db = Database(config.db_path)
+    db.initialize()  # ensure new columns exist
 
-    # Check current state
+    # Build set of PMIDs that already have domain data — skip these
+    already_done: set[str] = {
+        row[0]
+        for row in db.conn.execute("""
+            SELECT pmid FROM papers
+            WHERE source = 'cochrane_rob'
+              AND randomization_bias != '' AND randomization_bias IS NOT NULL
+        """).fetchall()
+    }
+
     total = db.conn.execute(
         "SELECT COUNT(*) FROM papers WHERE source = 'cochrane_rob'"
     ).fetchone()[0]
-    has_domains = db.conn.execute("""
-        SELECT COUNT(*) FROM papers
-        WHERE source = 'cochrane_rob'
-          AND randomization_bias != '' AND randomization_bias IS NOT NULL
-    """).fetchone()[0]
+    needs_backfill = total - len(already_done)
     logger.info(
-        f"Cochrane papers: {total} total, {has_domains} with domain data"
+        f"Cochrane papers: {total} total, {len(already_done)} with domain data, "
+        f"{needs_backfill} need backfill"
     )
 
-    # Clear LLM cache to force re-extraction with domain-aware prompt
-    cache_path = Path(CochraneRoBCollector.DEFAULT_CACHE_PATH)
-    if cache_path.exists():
-        cache_path.unlink()
-        logger.info("Cleared LLM cache (will re-extract with domain-aware prompt)")
-    else:
-        logger.info("No LLM cache found — will extract fresh")
+    if needs_backfill == 0:
+        logger.info("All Cochrane papers already have domain data — nothing to do.")
+        db.close()
+        return
 
-    # Track updates
-    updated = 0
-    inserted = 0
+    # Load checkpoint of fully-processed reviews
+    processed_pmcids = load_checkpoint()
+
+    # Track progress
+    saved = 0
+    skipped = 0
 
     def on_result(a) -> None:
-        """UPDATE existing papers with domain data, INSERT new ones."""
-        nonlocal updated, inserted
+        """Upsert paper with domain + review data, skip if already done."""
+        nonlocal saved, skipped
 
-        pmid = a.pmid
-        if not pmid:
+        if not a.pmid:
             return
 
-        # Check if paper already exists
-        existing = db.conn.execute(
-            "SELECT pmid FROM papers WHERE pmid = ?", (pmid,)
-        ).fetchone()
+        # Skip papers that already have domain data (belt-and-suspenders
+        # with skip_pmids passed to collector)
+        if a.pmid in already_done:
+            skipped += 1
+            return
 
-        if existing:
-            # UPDATE domain columns only
-            db.conn.execute("""
-                UPDATE papers SET
-                    randomization_bias = ?,
-                    deviation_bias = ?,
-                    missing_outcome_bias = ?,
-                    measurement_bias = ?,
-                    reporting_bias = ?,
-                    overall_rob = ?
-                WHERE pmid = ?
-            """, (
-                a.randomization_bias,
-                a.deviation_bias,
-                a.missing_outcome_bias,
-                a.measurement_bias,
-                a.reporting_bias,
-                a.overall_rob,
-                pmid,
-            ))
-            db.conn.commit()
-            updated += 1
+        paper_dict = rob_assessment_to_paper_dict(a)
+        if db.upsert_cochrane_paper(paper_dict):
+            saved += 1
+            already_done.add(a.pmid)
             domain_str = ", ".join(
                 f"{d}={getattr(a, d) or '?'}"
                 for d in (
@@ -106,19 +123,9 @@ async def main() -> None:
                 if getattr(a, d)
             )
             logger.info(
-                f"  Updated PMID {pmid} (RoB={a.overall_rob}): {domain_str or 'no domain data'}"
+                f"  Saved PMID {a.pmid} (RoB={a.overall_rob}, "
+                f"review={a.cochrane_review_pmid}): {domain_str or 'no domain data'}"
             )
-        else:
-            # New paper — insert normally
-            paper_dict = asdict(a)
-            paper_dict["source"] = "cochrane_rob"
-            paper_dict["title"] = paper_dict.pop("study_title", "")
-            paper_dict["abstract"] = ""
-            if db.insert_paper(paper_dict):
-                inserted += 1
-                logger.info(
-                    f"  Inserted new PMID {pmid} (RoB={a.overall_rob})"
-                )
 
     async with CochraneRoBCollector(
         ncbi_api_key=config.ncbi_api_key,
@@ -133,11 +140,18 @@ async def main() -> None:
             max_reviews=config.cochrane_max_reviews,
             max_studies=config.cochrane_rob_max,
             on_result=on_result,
+            skip_pmids=already_done,
+            skip_pmcids=processed_pmcids,
         )
 
-    # Fetch abstracts for any new papers
-    if inserted > 0:
-        logger.info(f"Fetching abstracts for {inserted} new papers...")
+        # Save checkpoint: all reviews in the LLM cache (which persists
+        # across runs) plus any previously checkpointed PMCIDs.
+        all_pmcids = collector.cached_pmcids | processed_pmcids
+        save_checkpoint(all_pmcids)
+
+    # Fetch abstracts for any papers missing them
+    if saved > 0:
+        logger.info("Fetching missing abstracts...")
         from seed_database import fetch_missing_abstracts
         await fetch_missing_abstracts(config, db)
 
@@ -152,7 +166,7 @@ async def main() -> None:
     ).fetchone()[0]
 
     logger.info(
-        f"Backfill complete: {updated} updated, {inserted} new. "
+        f"Backfill complete: {saved} saved, {skipped} skipped. "
         f"Papers with domain data: {has_domains_after}/{total_after}"
     )
 
