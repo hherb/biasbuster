@@ -157,6 +157,12 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
     # Default path for caching LLM extraction results (avoids re-spending tokens)
     DEFAULT_CACHE_PATH = Path("dataset/llm_rob_cache.json")
 
+    # Skip full-text documents larger than this.  A typical Cochrane review
+    # is 30-50 KB of XML; large papers with supplements can reach ~2 MB.
+    # Documents far beyond this (e.g. 184 MB books like PMC9429973) would
+    # waste enormous LLM tokens with no useful RoB data.
+    MAX_FULLTEXT_BYTES = 2_400_000  # 2.4 MB
+
     def __init__(
         self,
         ncbi_api_key: str = "",
@@ -587,6 +593,16 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                 f"Cache hit for {pmcid}: {len(all_studies)} raw study entries"
             )
         else:
+            # Guard against oversized documents (books, supplements)
+            ft_bytes = len(full_text.encode("utf-8"))
+            if ft_bytes > self.MAX_FULLTEXT_BYTES:
+                logger.warning(
+                    f"Skipping LLM extraction for {pmcid}: full text too large "
+                    f"({ft_bytes / 1_000_000:.1f} MB "
+                    f"> {self.MAX_FULLTEXT_BYTES / 1_000_000:.1f} MB limit)"
+                )
+                return []
+
             logger.info(f"Regex found 0 in {pmcid}, trying LLM extraction...")
 
             # Strip XML tags — keep just the text content
@@ -1041,6 +1057,15 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                         await asyncio.sleep(0.5)
                         continue
                     full_text = ft_resp.text
+                    ft_bytes = len(full_text.encode("utf-8"))
+                    if ft_bytes > self.MAX_FULLTEXT_BYTES:
+                        logger.warning(
+                            f"Skipping {pmcid}: full text too large "
+                            f"({ft_bytes / 1_000_000:.1f} MB "
+                            f"> {self.MAX_FULLTEXT_BYTES / 1_000_000:.1f} MB limit)"
+                        )
+                        await asyncio.sleep(0.5)
+                        continue
                 except Exception:
                     await asyncio.sleep(0.5)
                     continue

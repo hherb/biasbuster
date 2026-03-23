@@ -321,7 +321,7 @@ uv run python pipeline.py --stage all
 | Annotation prompt | No severity boundaries | Full severity boundaries from `prompts.py` |
 | Retraction reasons | Generic "Retraction" for all | Structured RW vocabulary (~111 categories) |
 | Retraction handling | Assess abstract content only | Severity floors based on retraction reason |
-| Cochrane data | 8 papers, no abstracts | 250 papers with abstracts, per-domain RoB ratings, expert RoB context |
+| Cochrane data | 8 papers, no abstracts | 260+ papers with abstracts, per-domain RoB ratings, expert RoB context |
 | Export oversampling | 5% minimum per severity class | Natural distribution (no oversampling) |
 | Export split | Random shuffle | Stratified by severity class |
 | Thinking chains | Formulaic templates | Evidence-grounded with concern counts |
@@ -402,6 +402,18 @@ public methods (no leading underscore) since they are called from
 - `skip_pmcids`: Fully-processed review PMCIDs (from checkpoint file
   `dataset/backfill_cochrane_checkpoint.json`) skip full text fetch,
   LLM extraction, and PMID resolution
+
+### 9h. Oversized document guard (`MAX_FULLTEXT_BYTES`)
+
+Some Europe PMC entries are entire books (e.g. PMC9429973 at 184 MB).
+Sending these through chunk & map-reduce LLM extraction would waste
+enormous DeepSeek tokens with no useful RoB data.  Added
+`MAX_FULLTEXT_BYTES = 2_400_000` (2.4 MB) to `CochraneRoBCollector`:
+documents exceeding this limit are logged and skipped.  The guard
+applies at both the `collect_rob_dataset` fetch point and inside
+`extract_rob_via_llm` (protecting all callers, including
+`reprocess_rob.py`).  Cached results for previously processed
+oversized documents are still honoured.
 
 **Reproduction**: Run the regular pipeline; all Cochrane data is now
 correctly upserted on every run.  For targeted backfill of domain-level

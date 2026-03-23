@@ -8,7 +8,7 @@ corruption without re-collecting from external APIs.
 
 ```
 dataset/cleanseed/
-├── papers.jsonl        # 4 255 papers (one JSON object per line)
+├── papers.jsonl        # 4 265 papers (one JSON object per line)
 ├── enrichments.jsonl   # 3 238 enrichment records
 └── manifest.json       # row counts, export timestamp
 ```
@@ -19,7 +19,7 @@ dataset/cleanseed/
 |--------|-------|-------------|
 | `retraction_watch` | 767 | Retracted papers with structured RW reason codes (~111 categories) |
 | `pubmed_rct` | 3 238 | PubMed RCTs across 7 medical domains |
-| `cochrane_rob` | 250 | Expert RoB 2 assessments (76 high, 92 some_concerns, 82 low) with per-domain ratings (D1-D5) |
+| `cochrane_rob` | 260 | Expert RoB 2 assessments (76 high, 99 some_concerns, 85 low) with per-domain ratings (D1-D5) |
 
 ### Cochrane RoB detail
 
@@ -92,9 +92,10 @@ LLMs for structured 5-domain bias assessment.  Key features:
 
 ### Current annotation state
 
-| Model | Annotations |
-|-------|------------|
-| `deepseek` | 893 |
+Previous DeepSeek annotations (893 records) were cleared because they
+used the pre-unified prompt without severity boundaries, retraction
+floors, or Cochrane RoB context.  Re-annotation with the unified prompt
+is pending.
 
 Annotations cover papers from all sources (retracted, PubMed RCTs,
 Cochrane RoB) proportionally, with configurable per-source caps in
@@ -142,7 +143,7 @@ uv run python pipeline.py --stage annotate
 **JSONL** (JSON Lines) — chosen over YAML, CSV, or binary formats because:
 
 - **Git-friendly**: one record per line produces clean line-level diffs
-- **Compact**: ~19 MB for 4 255 papers (no pretty-printing overhead)
+- **Compact**: ~19 MB for 4 265 papers (no pretty-printing overhead)
 - **Standard**: already used throughout the project's export pipeline
 - **Nested fields**: handles JSON columns (authors, mesh_terms) natively
 - **Fast**: streaming read/write, no need to load entire file into memory
