@@ -1057,7 +1057,7 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                         await asyncio.sleep(0.5)
                         continue
                     full_text = ft_resp.text
-                    ft_bytes = len(full_text.encode("utf-8"))
+                    ft_bytes = len(ft_resp.content)  # raw bytes, no re-encoding
                     if ft_bytes > self.MAX_FULLTEXT_BYTES:
                         logger.warning(
                             f"Skipping {pmcid}: full text too large "
