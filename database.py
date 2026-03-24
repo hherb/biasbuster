@@ -611,6 +611,23 @@ class Database:
             )
             return False
 
+    def has_annotation(self, pmid: str, model_name: str) -> bool:
+        """Check whether an annotation exists for a given PMID and model."""
+        row = self.conn.execute(
+            "SELECT 1 FROM annotations WHERE pmid = ? AND model_name = ?",
+            (pmid, model_name),
+        ).fetchone()
+        return row is not None
+
+    def delete_annotation(self, pmid: str, model_name: str) -> bool:
+        """Delete an annotation. Returns True if a row was deleted."""
+        cursor = self.conn.execute(
+            "DELETE FROM annotations WHERE pmid = ? AND model_name = ?",
+            (pmid, model_name),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
     def get_annotations(
         self,
         model_name: Optional[str] = None,

@@ -449,7 +449,7 @@ async def stage_annotate(
         )
 
     for model_name in models:
-        annotator = _create_annotator(config, model_name)
+        annotator = create_annotator(config, model_name)
         if annotator is None:
             continue
 
@@ -502,7 +502,7 @@ async def stage_annotate(
                 )
 
 
-def _create_annotator(
+def create_annotator(
     config: Config, model_name: str
 ) -> Optional[Union["LLMAnnotator", "OpenAICompatAnnotator"]]:
     """Factory: create an annotator instance by backend name.

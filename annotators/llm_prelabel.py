@@ -17,6 +17,7 @@ import os
 from typing import Optional
 
 import anthropic
+import httpx
 from tqdm import tqdm
 
 from . import (
@@ -123,15 +124,26 @@ class LLMAnnotator:
                 continue
 
             except anthropic.APIError as e:
-                last_error = str(e)
+                last_error = f"APIError: {e!r}"
                 logger.warning(
                     f"API error for PMID {pmid} "
-                    f"(attempt {attempt + 1}/{self.max_retries}): {e}"
+                    f"(attempt {attempt + 1}/{self.max_retries}): {last_error}"
+                )
+                await asyncio.sleep(2 ** attempt)
+                continue
+            except httpx.TransportError as e:
+                last_error = f"{type(e).__name__}: {e!r}"
+                logger.warning(
+                    f"Transient error for PMID {pmid} "
+                    f"(attempt {attempt + 1}/{self.max_retries}): {last_error}"
                 )
                 await asyncio.sleep(2 ** attempt)
                 continue
             except Exception as e:
-                logger.error(f"Annotation failed for PMID {pmid}: {e}")
+                logger.error(
+                    f"Annotation failed for PMID {pmid} "
+                    f"({type(e).__name__}): {e!r}"
+                )
                 return None
 
         logger.error(

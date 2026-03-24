@@ -9,6 +9,7 @@ DeepSeek API: https://api-docs.deepseek.com/
 """
 
 import asyncio
+import json
 import logging
 import os
 from typing import Optional
@@ -128,14 +129,27 @@ class OpenAICompatAnnotator:
                 )
                 await asyncio.sleep(2 ** attempt)
                 continue
-            except httpx.TimeoutException:
+            except httpx.TransportError as e:
+                last_error = f"{type(e).__name__}: {e!r}"
                 logger.warning(
-                    f"Timeout for PMID {pmid} (attempt {attempt + 1}/{self.max_retries})"
+                    f"Transient error for PMID {pmid} "
+                    f"(attempt {attempt + 1}/{self.max_retries}): {last_error}"
                 )
-                last_error = "timeout"
+                await asyncio.sleep(2 ** attempt)
+                continue
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                last_error = f"{type(e).__name__}: {e!r}"
+                logger.warning(
+                    f"Response parse error for PMID {pmid} "
+                    f"(attempt {attempt + 1}/{self.max_retries}): {last_error}"
+                )
+                await asyncio.sleep(2 ** attempt)
                 continue
             except Exception as e:
-                logger.error(f"Annotation failed for PMID {pmid}: {e}")
+                logger.error(
+                    f"Annotation failed for PMID {pmid} "
+                    f"({type(e).__name__}): {e!r}"
+                )
                 return None
 
         logger.error(
