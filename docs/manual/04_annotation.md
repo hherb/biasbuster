@@ -104,6 +104,39 @@ Annotations are stored in the `annotations` table:
 | `overall_bias_probability` | 0.0 to 1.0 probability estimate |
 | `confidence` | Model's self-assessed confidence (low/medium/high) |
 
+## Single-Paper Annotation
+
+To annotate an individual paper outside the batch pipeline — for example, to retry a failed annotation or add a paper you found interesting:
+
+```bash
+# By PMID (uses DeepSeek by default)
+uv run python annotate_single_paper.py --pmid 41271640
+
+# By DOI (resolves to PMID via NCBI ID Converter, then fetches from PubMed)
+uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001
+
+# Choose a different annotator backend
+uv run python annotate_single_paper.py --pmid 41271640 --model anthropic
+
+# Re-annotate (deletes existing annotation first)
+uv run python annotate_single_paper.py --pmid 41271640 --force
+
+# Tag newly imported papers with a source label
+uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001 --source cochrane_rob
+```
+
+The script handles the full lifecycle automatically:
+
+| Step | What happens | Skipped when... |
+|------|-------------|-----------------|
+| **Resolve** | DOI → PMID via NCBI ID Converter | `--pmid` was given |
+| **Fetch** | Download from PubMed and store in DB | Paper already in DB |
+| **Validate** | Reject bare retraction notices and missing abstracts | — |
+| **Enrich** | Run effect-size audit, store suspicion level | — |
+| **Annotate** | Send to LLM, store result | Already annotated (unless `--force`) |
+
+Newly imported papers are tagged with `--source` (default: `manual_import`) so they can be distinguished from batch-collected data.
+
 ## Verify Annotations
 
 ```bash

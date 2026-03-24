@@ -62,6 +62,7 @@ bias_dataset_builder/
 ├── seed_export.py             # Seed data export/import (disaster recovery)
 ├── backfill_cochrane_domains.py # Backfill per-domain RoB ratings (checkpoint/resume)
 ├── reprocess_rob.py           # Re-resolve failed Cochrane PMID resolutions
+├── annotate_single_paper.py   # Import & annotate one paper by PMID or DOI
 ├── migrate_jsonl_to_sqlite.py # Idempotent JSONL → SQLite migration script
 ├── config.py                  # Configuration and API keys
 ├── pipeline.py                # Orchestration pipeline
@@ -182,6 +183,40 @@ uv run python pipeline.py --stage annotate --models anthropic,deepseek  # multi-
 uv run python pipeline.py --stage export
 uv run python pipeline.py --stage compare       # compare models vs human labels
 ```
+
+### Single-Paper Import & Annotation
+
+For ad-hoc additions to the dataset (e.g. a paper you stumbled upon, or retrying
+a failed annotation), use the standalone single-paper tool:
+
+```bash
+# Import (if needed) and annotate by PMID — uses DeepSeek by default
+uv run python annotate_single_paper.py --pmid 41271640
+
+# Use Anthropic Claude instead
+uv run python annotate_single_paper.py --pmid 41271640 --model anthropic
+
+# Import by DOI — resolves to PMID via NCBI, then fetches from PubMed
+uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001
+
+# Tag the source for newly imported papers (default: manual_import)
+uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001 --source cochrane_rob
+
+# Re-annotate a paper that already has an annotation
+uv run python annotate_single_paper.py --pmid 41271640 --force
+```
+
+The script performs the full pipeline for a single paper:
+
+1. **Resolve** — If given `--doi`, converts to PMID via the NCBI ID Converter API
+2. **Fetch** — If the paper is not already in the database, fetches it from PubMed and stores it
+3. **Validate** — Rejects papers with no abstract or bare retraction notices
+4. **Enrich** — Runs the effect-size audit heuristic and stores the suspicion level
+5. **Annotate** — Sends to the chosen LLM backend and stores the result
+
+If the paper already exists in the database, steps 1-2 are skipped. If an
+annotation already exists for that model, the script skips unless `--force` is
+given (which deletes the old annotation first).
 
 ### Data Storage
 
