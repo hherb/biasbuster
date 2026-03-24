@@ -459,8 +459,9 @@ The workbench has four tabs:
 
 The `training/` module fine-tunes candidate base models using LoRA adapters.
 Training runs inside the NGC PyTorch container on DGX Spark (the only source of
-aarch64 + CUDA PyTorch). Both models use identical LoRA hyperparameters for a
-controlled comparison — only the base model differs.
+aarch64 + CUDA PyTorch). Your user must be in the `docker` group
+(`sudo usermod -aG docker $USER`, then re-login). Both models use identical LoRA
+hyperparameters for a controlled comparison — only the base model differs.
 
 ### Quick Start
 

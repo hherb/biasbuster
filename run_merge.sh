@@ -2,6 +2,8 @@
 # Merge a LoRA adapter into the base model inside the NGC container,
 # optionally quantize to GGUF and import into Ollama.
 #
+# Requires: user in the 'docker' group (sudo usermod -aG docker $USER)
+#
 # Usage:
 #   ./run_merge.sh qwen3.5-27b
 #   ./run_merge.sh olmo-3.1-32b --quantize q8_0
@@ -42,7 +44,7 @@ if echo "$MODEL" | grep -qi "gpt-oss"; then
     uv run python -m training.merge_adapter_surgical --model "$MODEL"
 else
     # Dense models (Qwen, OLMo): standard merge inside NGC container
-    sudo docker run --gpus all --rm -it \
+    docker run --gpus all --rm -it \
         --shm-size=16g \
         -v "$PROJECT_DIR":/workspace/biasbuster \
         -v "$HF_CACHE":/root/.cache/huggingface \

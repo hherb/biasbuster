@@ -25,6 +25,17 @@ Everything else — attention layers, router weights, layer norms, embeddings �
 
 **Harmony response format.** GPT-OSS doesn't use ChatML (`<|im_start|>` / `<|im_end|>`). It uses OpenAI's Harmony format with `<|start|>` / `<|end|>` tokens and multi-channel output. This matters more than you'd think (we'll get to that).
 
+## Before You Start
+
+Training runs inside an NGC Docker container. Make sure your user is in the `docker` group so `./run_training.sh` can launch containers without `sudo`:
+
+```bash
+groups                           # should list 'docker'
+sudo usermod -aG docker $USER   # if not, add yourself and re-login
+```
+
+You'll also need exported training data — see [Chapter 6: Exporting Training Data](../manual/06_export.md) or run `uv run python pipeline.py --stage export`.
+
 ## Step 1: Training Configuration
 
 ### What to Target with LoRA

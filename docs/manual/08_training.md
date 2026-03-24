@@ -8,6 +8,15 @@
 
 - Exported training data at `dataset/export/alpaca/{train,val,test}.jsonl`
 - Docker with GPU support (NVIDIA Container Toolkit)
+- Your user must be in the `docker` group (so `docker run` works without `sudo`):
+  ```bash
+  # Check: should list 'docker' among your groups
+  groups
+
+  # If not, add yourself and re-login:
+  sudo usermod -aG docker $USER
+  # Then log out and back in (or: newgrp docker)
+  ```
 - Sufficient GPU memory (tested on DGX Spark with 128 GB)
 - The NGC PyTorch container image: `nvcr.io/nvidia/pytorch:25.11-py3`
 

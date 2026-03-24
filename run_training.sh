@@ -6,6 +6,8 @@
 #   ./run_training.sh olmo-3.1-32b --resume    # resume from checkpoint
 #   ./run_training.sh qwen3.5-27b --max-steps 5  # smoke test (5 steps)
 #
+# Requires: user in the 'docker' group (sudo usermod -aG docker $USER)
+#
 # After training, merge the adapter and export to Ollama:
 #   ./run_merge.sh qwen3.5-27b
 #   bash training/export_to_ollama.sh training_output/qwen3.5-27b-merged qwen3.5-27b-biasbuster
@@ -25,7 +27,7 @@ echo "==> Extra args: $EXTRA_ARGS"
 echo "==> Container: $IMAGE"
 echo ""
 
-sudo docker run --gpus all --rm -it \
+docker run --gpus all --rm -it \
     --shm-size=16g \
     -v "$PROJECT_DIR":/workspace/biasbuster \
     -v "$HF_CACHE":/root/.cache/huggingface \

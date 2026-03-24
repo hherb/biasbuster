@@ -12,6 +12,21 @@ uv sync
 
 This creates a `.venv/` virtual environment and installs all Python dependencies.
 
+### Docker Group (NVIDIA GPU Training Only)
+
+Training on NVIDIA GPUs runs inside an NGC Docker container. Your user must be in the `docker` group so the training scripts can launch containers without `sudo`:
+
+```bash
+# Check if you're already in the docker group
+groups
+
+# If 'docker' is not listed, add yourself and re-login:
+sudo usermod -aG docker $USER
+# Then log out and back in (or: newgrp docker)
+```
+
+### Apple Silicon (MLX Training)
+
 For Apple Silicon (MLX training), also install the MLX group:
 
 ```bash
