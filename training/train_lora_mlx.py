@@ -68,6 +68,102 @@ def compute_total_iters(
     return iters_per_epoch * num_epochs
 
 
+def check_sequence_lengths_mlx(
+    cfg: MLXLoRAConfig,
+    train_path: Path,
+    val_path: Path | None = None,
+) -> None:
+    """Check if any chat-format examples exceed max_seq_length.
+
+    Loads the tokenizer, tokenizes each example, and prompts the user if
+    any would be truncated during training.
+
+    Args:
+        cfg: MLX training configuration (provides model name, max_seq_length).
+        train_path: Path to chat-format train.jsonl.
+        val_path: Path to chat-format valid.jsonl (may be None or missing).
+    """
+    logger.info(
+        "Pre-flight token length check (max_seq_length=%d)...",
+        cfg.max_seq_length,
+    )
+    _, tokenizer = load(cfg.model_name_or_path)
+
+    over_limit: list[tuple[str, int, int]] = []  # (split, index, length)
+    max_seen = 0
+
+    for split_name, path in [("train", train_path), ("val", val_path)]:
+        if path is None or not path.exists():
+            continue
+        with open(path) as f:
+            for i, line in enumerate(f):
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                messages = record.get("messages", [])
+                text = tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=False,
+                )
+                token_ids = tokenizer.encode(text)
+                n_tokens = len(token_ids)
+                if n_tokens > max_seen:
+                    max_seen = n_tokens
+                if n_tokens > cfg.max_seq_length:
+                    over_limit.append((split_name, i, n_tokens))
+
+    logger.info(
+        "  Longest sequence: %d tokens (limit: %d)", max_seen, cfg.max_seq_length
+    )
+
+    if not over_limit:
+        logger.info("  All examples fit within max_seq_length. No truncation needed.")
+        return
+
+    # --- Examples would be truncated — ask the user --------------------------
+    logger.warning(
+        "  %d example(s) exceed max_seq_length (%d tokens):",
+        len(over_limit), cfg.max_seq_length,
+    )
+    over_limit.sort(key=lambda x: x[2], reverse=True)
+    for split_name, idx, length in over_limit[:5]:
+        logger.warning("    %s[%d]: %d tokens", split_name, idx, length)
+    if len(over_limit) > 5:
+        logger.warning("    ... and %d more", len(over_limit) - 5)
+
+    suggested = ((max_seen // 256) + 1) * 256  # round up to next 256
+    print(
+        f"\n{'='*60}\n"
+        f"  {len(over_limit)} example(s) will be TRUNCATED.\n"
+        f"  Longest: {max_seen} tokens, current limit: {cfg.max_seq_length}\n"
+        f"\n"
+        f"  Options:\n"
+        f"    [i] Increase max_seq_length to {suggested} and continue\n"
+        f"    [t] Truncate (continue with current limit — data WILL be lost)\n"
+        f"    [a] Abort training\n"
+        f"{'='*60}"
+    )
+
+    while True:
+        choice = input("  Your choice [i/t/a]: ").strip().lower()
+        if choice == "i":
+            cfg.max_seq_length = suggested
+            logger.info("  max_seq_length increased to %d", suggested)
+            return
+        elif choice == "t":
+            logger.warning(
+                "  Continuing with truncation — %d examples will lose data "
+                "beyond token %d",
+                len(over_limit), cfg.max_seq_length,
+            )
+            return
+        elif choice == "a":
+            logger.info("  Aborted by user.")
+            sys.exit(0)
+        else:
+            print("  Please enter 'i', 't', or 'a'.")
+
+
 def build_lora_config(cfg: MLXLoRAConfig) -> dict:
     """Build the LoRA config dict expected by mlx_lm.tuner.utils.linear_to_lora_layers.
 
@@ -198,6 +294,9 @@ def main() -> int:
         "Total iterations: %d (%d epochs × %d iters/epoch)",
         total_iters, cfg.num_train_epochs, iters_per_epoch,
     )
+
+    # --- Pre-flight truncation check -----------------------------------------
+    check_sequence_lengths_mlx(cfg, chat_dir / "train.jsonl", chat_dir / "valid.jsonl")
 
     # --- Load model + tokenizer ----------------------------------------------
     logger.info("Loading model: %s", cfg.model_name_or_path)

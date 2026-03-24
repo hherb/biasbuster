@@ -74,6 +74,99 @@ def print_trainable_params(model) -> None:
     )
 
 
+def check_sequence_lengths(
+    cfg: LoRATrainingConfig,
+    train_dataset: Dataset,
+    val_dataset: Dataset | None,
+) -> None:
+    """Check if any examples exceed max_seq_length and prompt the user.
+
+    Tokenizes every example with the model's tokenizer using the same chat
+    template that SFTTrainer will apply.  If any exceed max_seq_length, the
+    user is asked whether to increase the limit, continue with truncation,
+    or abort.
+
+    Args:
+        cfg: Training configuration (provides model name, max_seq_length).
+        train_dataset: Training split.
+        val_dataset: Validation split (may be None).
+    """
+    logger.info(
+        f"Pre-flight token length check (max_seq_length={cfg.max_seq_length})..."
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        cfg.model_name_or_path, trust_remote_code=True
+    )
+    formatting_func = make_formatting_func(tokenizer)
+
+    over_limit: list[tuple[str, int, int]] = []  # (split, index, length)
+    max_seen = 0
+
+    for split_name, dataset in [("train", train_dataset), ("val", val_dataset)]:
+        if dataset is None:
+            continue
+        for i in range(len(dataset)):
+            text = formatting_func(dataset[i])
+            token_ids = tokenizer.encode(text)
+            n_tokens = len(token_ids)
+            if n_tokens > max_seen:
+                max_seen = n_tokens
+            if n_tokens > cfg.max_seq_length:
+                over_limit.append((split_name, i, n_tokens))
+
+    logger.info(
+        f"  Longest sequence: {max_seen} tokens "
+        f"(limit: {cfg.max_seq_length})"
+    )
+
+    if not over_limit:
+        logger.info("  All examples fit within max_seq_length. No truncation needed.")
+        return
+
+    # --- Examples would be truncated — ask the user --------------------------
+    logger.warning(
+        f"  {len(over_limit)} example(s) exceed max_seq_length "
+        f"({cfg.max_seq_length} tokens):"
+    )
+    # Show up to 5 worst offenders
+    over_limit.sort(key=lambda x: x[2], reverse=True)
+    for split_name, idx, length in over_limit[:5]:
+        logger.warning(f"    {split_name}[{idx}]: {length} tokens")
+    if len(over_limit) > 5:
+        logger.warning(f"    ... and {len(over_limit) - 5} more")
+
+    suggested = ((max_seen // 256) + 1) * 256  # round up to next 256
+    print(
+        f"\n{'='*60}\n"
+        f"  {len(over_limit)} example(s) will be TRUNCATED.\n"
+        f"  Longest: {max_seen} tokens, current limit: {cfg.max_seq_length}\n"
+        f"\n"
+        f"  Options:\n"
+        f"    [i] Increase max_seq_length to {suggested} and continue\n"
+        f"    [t] Truncate (continue with current limit — data WILL be lost)\n"
+        f"    [a] Abort training\n"
+        f"{'='*60}"
+    )
+
+    while True:
+        choice = input("  Your choice [i/t/a]: ").strip().lower()
+        if choice == "i":
+            cfg.max_seq_length = suggested
+            logger.info(f"  max_seq_length increased to {suggested}")
+            return
+        elif choice == "t":
+            logger.warning(
+                f"  Continuing with truncation — {len(over_limit)} examples "
+                f"will lose data beyond token {cfg.max_seq_length}"
+            )
+            return
+        elif choice == "a":
+            logger.info("  Aborted by user.")
+            sys.exit(0)
+        else:
+            print("  Please enter 'i', 't', or 'a'.")
+
+
 def build_trainer(
     cfg: LoRATrainingConfig,
     train_dataset: Dataset,
@@ -295,6 +388,9 @@ def main():
         logger.info(f"Loading validation data: {cfg.val_file}")
         val_dataset = load_alpaca_jsonl(cfg.val_file)
         logger.info(f"  {len(val_dataset)} validation examples")
+
+    # --- Pre-flight truncation check -----------------------------------------
+    check_sequence_lengths(cfg, train_dataset, val_dataset)
 
     # --- Build trainer -------------------------------------------------------
     trainer = build_trainer(cfg, train_dataset, val_dataset)
