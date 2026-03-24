@@ -69,6 +69,13 @@ uv run python pipeline.py --stage annotate --models anthropic,deepseek  # multi-
 uv run python pipeline.py --stage export
 uv run python pipeline.py --stage compare   # compare models vs human labels
 
+# Single-paper import & annotation (ad-hoc additions to the dataset)
+uv run python annotate_single_paper.py --pmid 41271640                 # by PMID (deepseek default)
+uv run python annotate_single_paper.py --pmid 41271640 --model anthropic
+uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001
+uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001 --source cochrane_rob
+uv run python annotate_single_paper.py --pmid 41271640 --force         # re-annotate existing
+
 # Individual module demos (each has __main__ block)
 uv run python -m collectors.spin_detector
 uv run python -m enrichers.effect_size_auditor
@@ -151,6 +158,7 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
   - **MLX** (Apple Silicon): `train_lora_mlx.py` using `mlx_lm.tuner`, `configs_mlx.py` for MLX-specific presets (Qwen 9B/27B in 4-bit/8-bit, GPT-OSS-20B in 4-bit/8-bit MoE), `callbacks_mlx.py` bridging to the same `metrics.jsonl` format, `merge_adapter_mlx.py` for adapter fusion via `mlx_lm.fuse`.
   - Shared: `data_utils.py` handles alpaca JSONL loading, chat template formatting, and alpaca→chat format conversion for MLX-lm.
 - **Training Monitor** (`utils/training_monitor.py`): NiceGUI web dashboard that reads `metrics.jsonl` and displays live loss curves, learning rate schedule, GPU memory, gradient norms, and hyperparameters. Run with `uv run python -m utils.training_monitor`.
+- **Single-Paper Tool** (`annotate_single_paper.py`): CLI for ad-hoc dataset additions. Accepts `--pmid` or `--doi` (mutually exclusive), resolves DOI→PMID via NCBI, fetches from PubMed if absent, enriches, validates (rejects bare retraction notices and missing abstracts), and annotates with the chosen `--model` backend (default: deepseek). `--force` deletes existing annotation before re-running. `--source` tags newly imported papers (default: `manual_import`). Reuses `pipeline.create_annotator()` for annotator instantiation and `Database.has_annotation()`/`delete_annotation()` for idempotent re-annotation.
 - **Fine-Tuning Workbench** (`gui/`): NiceGUI 4-tab GUI (`uv run python -m gui`) wrapping the entire fine-tuning workflow. `state.py` handles platform detection and settings persistence (`~/.biasbuster/gui_settings.json`). `process_runner.py` provides an async subprocess wrapper. Tab modules (`settings_tab.py`, `training_tab.py`, `evaluation_tab.py`, `export_tab.py`) each build their UI and launch operations as subprocesses. The training tab reuses `MetricsReader` from `utils/training_monitor.py` for live chart updates. Both training scripts (`train_lora.py`, `train_lora_mlx.py`) accept optional `--lr`, `--epochs`, `--lora-rank`, `--batch-size`, `--grad-accum`, `--max-seq-len` CLI args for GUI-driven hyperparameter overrides.
 
 ### Data Flow
@@ -187,6 +195,7 @@ export/alpaca/{train,val,test}.jsonl → training/ → training_output/<model>-l
 - **Shared annotator utilities**: `annotators/__init__.py` contains `build_user_message()`, `_ensure_parsed()`, `is_retraction_notice()`, `parse_llm_json()`, and `strip_markdown_fences()` — shared across all backends to eliminate duplication and ensure consistent behaviour.
 - **Shared Cochrane persistence**: `collectors/cochrane_rob.py` exports `rob_assessment_to_paper_dict()` (pure function for `RoBAssessment` → paper dict conversion) used by all Cochrane save paths. `database.py` provides `upsert_cochrane_paper()` with `INSERT ON CONFLICT DO UPDATE` that always updates Cochrane-authoritative fields (domain ratings, review metadata) while preserving PubMed-fetched data (title, abstract) via CASE/COALESCE guards. Empty strings cannot blank existing review metadata.
 - **Incremental annotation persistence**: `annotate_batch()` accepts an `on_result` callback; the pipeline passes a function that calls `db.insert_annotation()` per result, so annotations survive mid-batch crashes.
+- **Single-paper workflow**: `annotate_single_paper.py` handles the full lifecycle for one paper: resolve DOI→PMID (via NCBI ID Converter), fetch from PubMed if not in DB, run effect-size enrichment, filter retraction notices, and annotate. Uses `pipeline.create_annotator()` (shared factory). Supports `--force` to delete and re-annotate. New papers are tagged with `--source` (default: `manual_import`).
 
 ### External APIs Used
 
