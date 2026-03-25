@@ -23,7 +23,7 @@ Before touching any training code, it's worth understanding what makes GPT-OSS d
 
 Everything else — attention layers, router weights, layer norms, embeddings — is standard BF16.
 
-**Harmony response format.** GPT-OSS doesn't use ChatML (`<|im_start|>` / `<|im_end|>`). It uses OpenAI's Harmony format with `<|start|>` / `<|end|>` tokens and multi-channel output. This matters more than you'd think (we'll get to that).
+**Harmony response format.** GPT-OSS doesn't use ChatML (`<|im_start|>` / `<|im_end|>`). It uses OpenAI's Harmony format with `<|start|>` / `<|end|>` tokens and multi-channel output. Importantly, we found that **attention-only LoRA cannot teach the model to use Harmony's channel structure** (analysis vs final channels). The model falls back to producing literal `<think>` tags as text instead of using channel tokens. Training data must therefore use single-channel format with `<think>` as literal text in `content`.
 
 ## Before You Start
 
@@ -57,11 +57,11 @@ We learned these through trial and error:
 | Parameter | Value | Why |
 |-----------|-------|-----|
 | Learning rate | 5e-6 | 40x lower than the typical 2e-4. Higher rates cause the model to memorise training data within ~200 steps |
-| Epochs | 1 | The model converges within half an epoch on ~1,300 examples. More epochs = wasted compute |
+| Epochs | 2 | Loss still descending at 1 epoch; gradient collapse in Run 8 was from LR 8e-6, not epoch count |
 | LoRA dropout | 0.1 | Higher than the typical 0.05 to combat rapid memorisation |
 | Weight decay | 0.02 | Additional regularisation |
-| LoRA rank | 16 | Standard. Increasing it risks faster memorisation |
-| LoRA alpha | 32 | Alpha/rank = 2 (standard ratio) |
+| LoRA rank | 32 | Doubled from 16 — more capacity needed for Harmony dual-channel output |
+| LoRA alpha | 64 | Alpha/rank = 2 (standard ratio) |
 
 The key insight: **GPT-OSS needs less training, not more.** Its strong baseline performance (we measured F1 0.918 on our task with zero-shot prompting) means the model already knows most of what you're teaching it. Fine-tuning is about shaping its output format and adding domain-specific reasoning patterns, not teaching it new knowledge.
 
@@ -264,9 +264,41 @@ The surgical merge script referenced above is conceptually simple — the full
 implementation (about 250 lines of Python with no torch dependency) is
 available in the [BiasBuster repository](https://github.com/hherb/biasbuster/blob/main/training/merge_adapter_surgical.py).
 
+## Step 5: Evaluation (The Thinking Trap)
+
+You run the evaluation harness and get terrible scores. F1 drops from 0.92 to 0.65. Recall collapses. The model appears broken.
+
+**What happened?** The evaluation harness used the OpenAI-compatible API (`/v1/chat/completions`), which does not return the Harmony `thinking` field. Your fine-tuned model correctly puts reasoning in the `analysis` channel and the structured answer in the `final` channel — but the harness only sees the `final` channel. With a 4000-token budget, the model often exhausts all tokens on analysis-channel reasoning before producing any final-channel output. Empty output → scored as "no bias" → recall collapses.
+
+This is particularly insidious because:
+
+1. The **base model** (zero-shot) puts everything in one channel, so the harness works fine for baselines
+2. The **fine-tuned model** (correctly) uses two channels, but the harness can't see the second one
+3. The result looks like fine-tuning made the model worse, when it may have made it better
+
+**The fix:**
+
+1. Use the Ollama **native API** (`/api/chat`), which returns both `content` and `thinking` fields. The harness auto-detects Ollama endpoints on port 11434.
+
+2. Set `--max-tokens 8000` to prevent token budget exhaustion.
+
+3. **Always do a pre-flight sanity check** before evaluation:
+
+```bash
+curl -s http://localhost:11434/api/chat -d '{
+  "model": "my-gpt-oss-finetuned",
+  "messages": [{"role": "user", "content": "What is 2+2?"}],
+  "stream": false
+}' | python3 -m json.tool | grep -A2 '"thinking"'
+```
+
+If `thinking` is present, the model is working correctly and the harness will capture it.
+
+4. After evaluation, check `thinking_present_rate` in the results — should be >0% for fine-tuned Harmony models.
+
 ## What We'd Do Differently
 
-**Start with 1 epoch.** Our first run used 3 epochs and the model saturated in 200 steps out of 1,200. Two-thirds of the training compute was wasted on near-zero gradients.
+**Start with 2 epochs at low LR.** Our first run used 3 epochs and the model saturated in 200 steps out of 1,200. Two-thirds of the training compute was wasted on near-zero gradients.
 
 **Don't fight the MXFP4.** We spent considerable time trying to make `save_pretrained()` work, trying `device_map="auto"` with `max_memory`, trying to clear `quantization_config` — all dead ends caused by an unimplemented reverse transform in the transformers library. The surgical byte-level merge was the right approach from the start.
 
@@ -284,7 +316,10 @@ available in the [BiasBuster repository](https://github.com/hherb/biasbuster/blo
 | save_pretrained() | `NotImplementedError` | BF16→MXFP4 reverse transform missing | Surgical byte-level merge |
 | Ollama template | Incoherent output | Harmony template not auto-detected | Extract from base `gpt-oss:20b` model |
 | Ollama adapter | "unsupported architecture" | LoRA not implemented for GPT-OSS arch | Must merge before import |
-| Rapid saturation | Loss→0 in 200 steps | Model too capable for small dataset + high LR | 1 epoch, LR 5e-6, dropout 0.1 |
+| Rapid saturation | Loss→0 in 200 steps | Model too capable for small dataset + high LR | 2 epochs, LR 5e-6, dropout 0.1, rank 32 |
+| Harmony channel mismatch | Model produces prose, not JSON | Training split output into Harmony channels that attention-only LoRA can't learn | Keep everything in single `content` channel with literal `<think>` tags |
+| Evaluation shows terrible F1 | Recall collapses to ~50% | Harness uses OpenAI-compat API, misses `thinking` field | Use Ollama native API (auto-detected on port 11434) |
+| Token budget exhaustion | Empty final-channel output | Analysis channel consumes all 4000 tokens | Set `--max-tokens 8000` |
 
 The GPT-OSS 20B is a remarkable model — fast, capable, and genuinely open. Fine-tuning it just requires navigating a few landmines that aren't documented yet. Hopefully this guide helps you avoid them.
 

@@ -35,6 +35,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlparse
 
 import httpx
 from tqdm import tqdm
@@ -92,11 +93,19 @@ class ModelOutput:
     """Raw output from a model for a single test example."""
     pmid: str = ""
     model_id: str = ""
-    raw_output: str = ""
+    raw_output: str = ""       # Final-channel content only (no thinking)
+    thinking: str = ""         # Harmony analysis-channel reasoning (separate)
     latency_seconds: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
     error: Optional[str] = None
+
+    @property
+    def full_output(self) -> str:
+        """Combined thinking + content for scorers expecting ``<think>`` blocks."""
+        if self.thinking:
+            return f"<think>{self.thinking}</think>\n{self.raw_output}"
+        return self.raw_output
 
 
 @dataclass
@@ -107,7 +116,7 @@ class EvalConfig:
 
     # Generation parameters (identical across models for fairness)
     temperature: float = 0.1       # Low temperature for more deterministic output
-    max_tokens: int = 4000
+    max_tokens: int = 8000
     top_p: float = 0.95
 
     # Evaluation mode
@@ -244,10 +253,22 @@ class EvalHarness:
             system_prompt = ZERO_SHOT_SYSTEM_PROMPT
         user_message = build_user_message(example)
 
-        use_ollama_native = self.config.num_ctx is not None
+        # Use Ollama native API when num_ctx is set OR endpoint is on
+        # port 11434.  The native API returns the ``thinking`` field for
+        # Harmony-style models; the OpenAI-compat endpoint does not.
+        parsed_url = urlparse(endpoint)
+        is_ollama_endpoint = parsed_url.port == 11434
+        use_ollama_native = self.config.num_ctx is not None or is_ollama_endpoint
 
         if use_ollama_native:
-            # Ollama native /api/chat — reliably supports num_ctx via options
+            # Ollama native /api/chat — supports num_ctx and returns thinking
+            opts = {
+                "temperature": self.config.temperature,
+                "top_p": self.config.top_p,
+                "num_predict": self.config.max_tokens,
+            }
+            if self.config.num_ctx is not None:
+                opts["num_ctx"] = self.config.num_ctx
             payload = {
                 "model": model_id,
                 "messages": [
@@ -255,12 +276,7 @@ class EvalHarness:
                     {"role": "user", "content": user_message},
                 ],
                 "stream": False,
-                "options": {
-                    "temperature": self.config.temperature,
-                    "top_p": self.config.top_p,
-                    "num_ctx": self.config.num_ctx,
-                    "num_predict": self.config.max_tokens,
-                },
+                "options": opts,
             }
             if self.config.think is not None:
                 payload["think"] = self.config.think
@@ -317,7 +333,9 @@ class EvalHarness:
 
                 if use_ollama_native:
                     # Ollama native response format
-                    raw_output = data.get("message", {}).get("content", "")
+                    msg = data.get("message", {})
+                    raw_output = msg.get("content", "")
+                    thinking = msg.get("thinking", "")
                     usage = {
                         "prompt_tokens": data.get("prompt_eval_count", 0),
                         "completion_tokens": data.get("eval_count", 0),
@@ -326,12 +344,14 @@ class EvalHarness:
                     # OpenAI-compatible response format
                     choice = data.get("choices", [{}])[0]
                     raw_output = choice.get("message", {}).get("content", "")
+                    thinking = ""
                     usage = data.get("usage", {})
 
                 return ModelOutput(
                     pmid=example.pmid,
                     model_id=model_id,
                     raw_output=raw_output,
+                    thinking=thinking,
                     latency_seconds=time.monotonic() - start_time,
                     input_tokens=usage.get("prompt_tokens", 0),
                     output_tokens=usage.get("completion_tokens", 0),
@@ -462,6 +482,7 @@ class EvalHarness:
                         "pmid": o.pmid,
                         "model_id": o.model_id,
                         "raw_output": o.raw_output,
+                        "thinking": o.thinking,
                         "latency_seconds": o.latency_seconds,
                         "input_tokens": o.input_tokens,
                         "output_tokens": o.output_tokens,
@@ -476,5 +497,8 @@ def load_model_outputs(path: Path) -> list[ModelOutput]:
     with open(path) as f:
         for line in f:
             data = json.loads(line)
+            # Backward compat: older JSONL files lack 'thinking' field
+            if "thinking" not in data:
+                data["thinking"] = ""
             outputs.append(ModelOutput(**data))
     return outputs

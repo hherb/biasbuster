@@ -51,15 +51,17 @@ class MLXMetricsLoggerCallback(TrainingCallback):
         num_epochs: int,
         iters_per_epoch: int,
         extra_config: dict | None = None,
+        resume: bool = False,
     ):
         self.metrics_path = Path(output_dir) / "metrics.jsonl"
         self.iters_per_epoch = max(iters_per_epoch, 1)
+        self._resume = resume
         self._write_header(total_iters, num_epochs, extra_config or {})
 
-    def _append_line(self, data: dict) -> None:
-        """Append a single JSON line to the metrics file."""
+    def _write_line(self, data: dict, mode: str = "a") -> None:
+        """Write a single JSON line. Use mode='w' to truncate first."""
         self.metrics_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.metrics_path, "a") as f:
+        with open(self.metrics_path, mode) as f:
             f.write(json.dumps(data) + "\n")
             f.flush()
 
@@ -67,13 +69,17 @@ class MLXMetricsLoggerCallback(TrainingCallback):
         self, total_iters: int, num_epochs: int, extra_config: dict
     ) -> None:
         """Write the header record at the start of training."""
-        self._append_line({
+        # Fresh run: truncate + write header atomically (single open with 'w')
+        header_mode = "a" if self._resume else "w"
+        if header_mode == "w":
+            logger.info("Truncating stale metrics file for fresh run")
+        self._write_line({
             "type": "header",
             "total_steps": total_iters,
             "num_epochs": num_epochs,
             "config": extra_config,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        }, mode=header_mode)
         logger.info("MLX metrics logging to %s", self.metrics_path)
 
     def on_train_loss_report(self, info: dict) -> None:
@@ -101,7 +107,7 @@ class MLXMetricsLoggerCallback(TrainingCallback):
             if key in info:
                 entry[key] = info[key]
 
-        self._append_line(entry)
+        self._write_line(entry)
 
     def on_val_loss_report(self, info: dict) -> None:
         """Called by mlx_lm.tuner.train() every steps_per_eval iterations.
@@ -109,7 +115,7 @@ class MLXMetricsLoggerCallback(TrainingCallback):
         Expected info keys: iteration, val_loss, val_time.
         """
         step = info.get("iteration", 0)
-        self._append_line({
+        self._write_line({
             "type": "metrics",
             "step": step,
             "epoch": round(step / self.iters_per_epoch, 4),
@@ -119,7 +125,7 @@ class MLXMetricsLoggerCallback(TrainingCallback):
 
     def finalize(self, final_step: int) -> None:
         """Write the completion record after training ends."""
-        self._append_line({
+        self._write_line({
             "type": "completed",
             "step": final_step,
             "timestamp": datetime.now(timezone.utc).isoformat(),

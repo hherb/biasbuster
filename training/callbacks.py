@@ -30,13 +30,20 @@ logger = logging.getLogger(__name__)
 class MetricsLoggerCallback(TrainerCallback):
     """Appends training metrics to a JSONL file at each logging step."""
 
-    def __init__(self, output_dir: str, extra_config: dict | None = None):
+    def __init__(
+        self,
+        output_dir: str,
+        extra_config: dict | None = None,
+        resume: bool = False,
+    ):
         self.metrics_path = Path(output_dir) / "metrics.jsonl"
         self.extra_config = extra_config or {}
+        self._resume = resume
 
-    def _append_line(self, data: dict) -> None:
+    def _write_line(self, data: dict, mode: str = "a") -> None:
+        """Write a single JSON line. Use mode='w' to truncate first."""
         self.metrics_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.metrics_path, "a") as f:
+        with open(self.metrics_path, mode) as f:
             f.write(json.dumps(data) + "\n")
             f.flush()
 
@@ -56,13 +63,19 @@ class MetricsLoggerCallback(TrainerCallback):
             "eval_steps": args.eval_steps,
         }
         config.update(self.extra_config)
-        self._append_line({
+        # Fresh run: truncate + write header atomically (single open with 'w')
+        # to avoid a race where a separate truncate + append could
+        # interleave on multi-experiment machines.
+        header_mode = "a" if self._resume else "w"
+        if header_mode == "w":
+            logger.info("Truncating stale metrics file for fresh run")
+        self._write_line({
             "type": "header",
             "total_steps": total_steps,
             "num_epochs": args.num_train_epochs,
             "config": config,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        }, mode=header_mode)
         logger.info(f"Metrics logging to {self.metrics_path}")
 
     def on_log(self, args, state, control, logs=None, **kwargs):
@@ -92,10 +105,10 @@ class MetricsLoggerCallback(TrainerCallback):
         except ImportError:
             pass
 
-        self._append_line(entry)
+        self._write_line(entry)
 
     def on_train_end(self, args, state, control, **kwargs):
-        self._append_line({
+        self._write_line({
             "type": "completed",
             "step": state.global_step,
             "timestamp": datetime.now(timezone.utc).isoformat(),

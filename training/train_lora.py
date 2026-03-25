@@ -36,7 +36,11 @@ except ImportError:
 
 from training.callbacks import MetricsLoggerCallback
 from training.configs import LoRATrainingConfig, get_config
-from training.data_utils import load_alpaca_jsonl, make_formatting_func
+from training.data_utils import (
+    load_alpaca_jsonl,
+    make_formatting_func,
+    validate_harmony_channels,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -98,6 +102,10 @@ def check_sequence_lengths(
         cfg.model_name_or_path, trust_remote_code=True
     )
     formatting_func = make_formatting_func(tokenizer)
+
+    # Verify Harmony channel rendering if applicable (GPT-OSS)
+    validate_harmony_channels(tokenizer, train_dataset[0])
+    logger.info("  Harmony channel validation passed (or not applicable)")
 
     over_limit: list[tuple[str, int, int]] = []  # (split, index, length)
     max_seen = 0
@@ -171,6 +179,7 @@ def build_trainer(
     cfg: LoRATrainingConfig,
     train_dataset: Dataset,
     val_dataset: Dataset | None,
+    resume: bool = False,
 ) -> SFTTrainer:
     """Load model, apply LoRA, and return a configured SFTTrainer."""
 
@@ -283,6 +292,7 @@ def build_trainer(
     # --- Metrics callback ----------------------------------------------------
     metrics_callback = MetricsLoggerCallback(
         output_dir=cfg.output_dir,
+        resume=resume,
         extra_config={
             "model_name_or_path": cfg.model_name_or_path,
             "lora_r": cfg.lora_r,
@@ -393,7 +403,7 @@ def main():
     check_sequence_lengths(cfg, train_dataset, val_dataset)
 
     # --- Build trainer -------------------------------------------------------
-    trainer = build_trainer(cfg, train_dataset, val_dataset)
+    trainer = build_trainer(cfg, train_dataset, val_dataset, resume=args.resume)
 
     # --- Resume from checkpoint? ---------------------------------------------
     resume_from = None

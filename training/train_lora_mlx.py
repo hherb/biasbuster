@@ -361,6 +361,7 @@ def main() -> int:
         total_iters=total_iters,
         num_epochs=cfg.num_train_epochs,
         iters_per_epoch=iters_per_epoch,
+        resume=args.resume,
         extra_config={
             "model_name_or_path": cfg.model_name_or_path,
             "lora_rank": cfg.lora_rank,

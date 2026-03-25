@@ -36,6 +36,19 @@ class MetricsReader:
         """Read new lines since last poll. Returns True if new data found."""
         if not self.path.exists():
             return False
+        # Detect file truncation (new run replaced the file)
+        try:
+            file_size = self.path.stat().st_size
+        except OSError:
+            return False
+        if file_size < self._last_pos:
+            # File was truncated (new training run) — reset and re-read
+            logger.info("Metrics file truncated — resetting for new run")
+            self._last_pos = 0
+            self.header = None
+            self.metrics.clear()
+            self.completed = False
+            self._start_time = None
         new_data = False
         with open(self.path, "r") as f:
             f.seek(self._last_pos)
@@ -62,8 +75,10 @@ class MetricsReader:
                 continue
             entry_type = entry.get("type")
             if entry_type == "header":
-                # Only clear metrics if this is a genuinely new run
-                # (different model or config), not a resume of the current one.
+                # Primary defense: callbacks truncate the file on fresh runs,
+                # so we only see multiple headers in a genuine resume.
+                # Fallback: if reading an older un-truncated file, clear
+                # metrics when the model changes (different run, not resume).
                 prev_model = (
                     self.header.get("config", {}).get("model_name_or_path")
                     if self.header else None

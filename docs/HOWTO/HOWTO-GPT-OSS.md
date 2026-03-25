@@ -71,15 +71,30 @@ Reference: [OpenAI fine-tuning cookbook](https://developers.openai.com/cookbook/
 The script launches the NGC PyTorch container, installs TRL/PEFT, and runs
 `training/train_lora.py` with MoE-specific configuration automatically applied.
 
-### 1.4 Current Hyperparameters
+### 1.4 Output Format: Single-Channel with `<think>` Tags
 
-Set in `training/configs.py` `_MOE_OVERRIDES`, tuned after Run 6 analysis:
+GPT-OSS uses the Harmony multi-channel response format at the template level,
+but fine-tuning with attention-only LoRA **cannot teach the model to use
+Harmony channels** (analysis vs final). The model falls back to producing
+literal `<think>` tags in the `content` field instead of using channel tokens.
+
+Therefore, GPT-OSS training data keeps everything in a single channel:
+`<think>` reasoning blocks and JSON output are both in `content`. The
+`make_formatting_func()` in `data_utils.py` detects Harmony tokenizers
+and skips the channel split automatically.
+
+See `docs/ROUND_3.md` §4.5 for the Harmony channel experiment and
+`docs/MISTAKES_TO_ROUND_3.md` §5 for why it failed.
+
+### 1.5 Current Hyperparameters
+
+Set in `training/configs.py` `_MOE_OVERRIDES`, tuned through Runs 6-9:
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
 | learning_rate | 5e-6 | Halved from 1e-5 after Run 6 saturated in ~200 steps |
-| num_train_epochs | 1 | Model converges within half an epoch on 1,347 examples |
-| lora_r / alpha | 16 / 32 | Conservative; increasing rank risks faster memorisation |
+| num_train_epochs | 2 | Run 7 showed loss still descending at 1 epoch; gradient collapse in Run 8 was from 8e-6 LR, not epoch count |
+| lora_r / alpha | 32 / 64 | Doubled from 16/32 — more capacity for dual-channel output |
 | lora_dropout | 0.1 | Doubled from 0.05 to combat rapid memorisation |
 | weight_decay | 0.02 | Doubled from 0.01 for additional regularisation |
 | attn_implementation | eager | Required for GPT-OSS attention pattern (not SDPA) |
@@ -205,16 +220,74 @@ surgical merge, so MXFP4 is lost. The GGUF quantization compensates.
 
 ## 4. Evaluation
 
+**Important:** The evaluation harness must use the Ollama **native API**
+(`/api/chat`) for GPT-OSS models. The OpenAI-compatible endpoint
+(`/v1/chat/completions`) does not return the Harmony `thinking` field,
+causing all analysis-channel reasoning to be silently lost.
+
+The harness auto-detects Ollama endpoints on port 11434 and uses the native
+API automatically. If using a non-standard port, pass `--num-ctx` to force
+the native path.
+
 ```bash
-# Run the evaluation harness (from the Fine-Tuning Workbench or CLI)
-uv run python -m gui   # Evaluation tab
+# Single model evaluation (uses Ollama native API automatically)
+uv run python -m evaluation.run \
+    --test-set dataset/export/alpaca/test.jsonl \
+    --model-a gpt-oss-20b-biasbuster \
+    --endpoint-a http://localhost:11434 \
+    --mode fine-tuned \
+    --max-tokens 8000 \
+    --output eval_results/
+
+# Compare against baseline (sequential: one model at a time)
+uv run python -m evaluation.run \
+    --test-set dataset/export/alpaca/test.jsonl \
+    --model-a gpt-oss-20b-biasbuster \
+    --endpoint-a http://localhost:11434 \
+    --model-b gpt-oss:20b \
+    --endpoint-b http://localhost:11434 \
+    --mode fine-tuned \
+    --max-tokens 8000 \
+    --sequential \
+    --output eval_results/
 ```
 
-Key metrics to compare against the unfine-tuned baseline (FIFTH_RUN.md):
-- Binary F1 (baseline: 0.918)
-- Recall (baseline: 0.941)
-- Verification score (baseline: 0.591)
-- Thinking chain presence (baseline: 0%, fine-tuned target: ~100%)
+**Pre-flight sanity check** (do this before every eval run):
+
+```bash
+# Verify the model returns thinking + content fields
+curl -s http://localhost:11434/api/chat -d '{
+  "model": "gpt-oss-20b-biasbuster",
+  "messages": [{"role": "user", "content": "What is 2+2?"}],
+  "stream": false
+}' | python3 -m json.tool | grep -A2 '"thinking"'
+```
+
+If `thinking` is missing, the Harmony template was not applied correctly.
+See Troubleshooting below.
+
+Key metrics to compare against the unfine-tuned baseline:
+- Binary F1 (baseline: 0.925)
+- Recall (baseline: 87.5%)
+- Verification score (baseline: 0.460)
+- Thinking chain presence (baseline: 0%, fine-tuned target: >80%)
+
+### 4.1 Checkpoint/Resume
+
+Evaluation results are saved incrementally to the SQLite database. If the
+process is interrupted (e.g., server shutdown), restart without
+`--force-reevaluation` and it will skip already-evaluated examples:
+
+```bash
+# Resume (same command, no --force-reevaluation)
+uv run python -m evaluation.run \
+    --test-set dataset/export/alpaca/test.jsonl \
+    --model-a gpt-oss-20b-biasbuster \
+    --endpoint-a http://localhost:11434 \
+    --mode fine-tuned \
+    --max-tokens 8000 \
+    --output eval_results/
+```
 
 ## 5. Troubleshooting
 
@@ -278,14 +351,39 @@ first (see above).
 
 ### Training saturates too quickly (loss → 0 in ~200 steps)
 
-The model's strong baseline (F1 0.918 zero-shot) means it needs very
+The model's strong baseline (F1 0.925 zero-shot) means it needs very
 little adaptation. Current mitigations:
-- 1 epoch (down from 3)
+- 2 epochs (down from 3)
 - LR 5e-6 (down from 1e-5)
 - Dropout 0.1 (up from 0.05)
 - Weight decay 0.02 (up from 0.01)
 
 If still saturating, try LR 2e-6 or increase the training dataset.
+
+### Evaluation shows F1 near 0.65 or recall < 50%
+
+Almost certainly the evaluation harness is not capturing the Harmony
+`thinking` field. Check:
+
+1. Is the endpoint using the Ollama native API? (port 11434 auto-detects)
+2. Does `curl` to the model return a `thinking` field? (see §4 above)
+3. Is `--max-tokens` >= 8000? (analysis channel can exhaust smaller budgets)
+4. Check `thinking_present_rate` in the evaluation output — should be >0%
+
+See `docs/MISTAKES_TO_ROUND_3.md` for the full analysis.
+
+### Evaluation shows 0% thinking_present_rate
+
+The model is not producing analysis-channel output. Possible causes:
+
+1. **Template mismatch**: training data put everything in `content` instead
+   of splitting `<think>` into `thinking` field. Check `data_utils.py`
+   `_split_think_block()` and run `validate_harmony_channels()`.
+2. **Ollama template not applied**: `ollama show model --modelfile` should
+   NOT show `TEMPLATE {{ .Prompt }}`. Re-export with `export_to_ollama.sh`.
+3. **OpenAI-compat endpoint used**: the `/v1/chat/completions` path doesn't
+   return `thinking`. Use the native `/api/chat` path (auto-detected on
+   port 11434).
 
 ## 6. File Reference
 
@@ -301,6 +399,9 @@ If still saturating, try LR 2e-6 or increase the training dataset.
 | `run_merge.sh` | Auto-detects model type and calls surgical or standard merge |
 | `docs/papers/FIFTH_RUN.md` | Baseline evaluation of unfine-tuned gpt-oss:20b |
 | `docs/papers/SIXTH_RUN.md` | First fine-tuning run analysis and hyperparameter tuning |
+| `docs/ROUND_3.md` | Runs 7-9: hyperparameter tuning and Harmony template fix |
+| `docs/MISTAKES_TO_ROUND_3.md` | Evaluation harness issues that produced misleading results |
+| `docs/PREPARING_ROUND_4.md` | Decision tree and checklist for the next training round |
 
 ## 7. Architecture Notes
 

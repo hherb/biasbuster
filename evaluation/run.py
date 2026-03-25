@@ -170,7 +170,7 @@ def _outputs_to_dicts(all_outputs: dict) -> dict[str, list]:
             {
                 "pmid": o.pmid,
                 "model_id": o.model_id,
-                "raw_output": o.raw_output,
+                "raw_output": o.full_output,
                 "latency_seconds": o.latency_seconds,
                 "input_tokens": o.input_tokens,
                 "output_tokens": o.output_tokens,
@@ -225,7 +225,7 @@ def _make_on_result_callback(db, model_id: str, mode: str, gt_by_pmid: dict):
         # Build the output dict — always store raw output + latency,
         # even on error, so we have a record of the attempt.
         output_dict = {
-            "raw_output": output.raw_output,
+            "raw_output": output.full_output,
             "latency_seconds": output.latency_seconds,
             "input_tokens": output.input_tokens,
             "output_tokens": output.output_tokens,
@@ -238,7 +238,7 @@ def _make_on_result_callback(db, model_id: str, mode: str, gt_by_pmid: dict):
             return
 
         parsed = parse_model_output(
-            raw_output=output.raw_output,
+            raw_output=output.full_output,
             pmid=output.pmid,
             model_id=model_id,
         )
