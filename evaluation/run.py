@@ -290,6 +290,66 @@ def _wait_for_endpoint(
     return False
 
 
+def _verify_model_exists(endpoint: str, model_id: str) -> bool:
+    """Check that a model is actually available at the endpoint before evaluation.
+
+    Tries Ollama /api/tags first (exact and prefix match on model name),
+    then falls back to OpenAI-compatible /v1/models.
+    Returns True if the model is found, False otherwise.
+    """
+    import httpx
+
+    # Ollama: /api/tags lists all local models
+    try:
+        resp = httpx.get(
+            f"{endpoint.rstrip('/')}/api/tags",
+            timeout=ENDPOINT_HEALTH_CHECK_TIMEOUT_SECONDS,
+        )
+        if resp.status_code == 200:
+            models = resp.json().get("models", [])
+            names = [m.get("name", "") for m in models]
+            # Ollama names include tag (e.g. "mymodel:latest"), so check
+            # both exact match and prefix before the colon
+            for name in names:
+                if name == model_id or name.startswith(f"{model_id}:"):
+                    return True
+            available = ", ".join(names) if names else "(none)"
+            logger.error(
+                f"Model '{model_id}' not found at {endpoint}. "
+                f"Available models: {available}"
+            )
+            return False
+    except (httpx.ConnectError, httpx.TimeoutException):
+        pass
+
+    # OpenAI-compatible: /v1/models
+    try:
+        resp = httpx.get(
+            f"{endpoint.rstrip('/')}/v1/models",
+            timeout=ENDPOINT_HEALTH_CHECK_TIMEOUT_SECONDS,
+        )
+        if resp.status_code == 200:
+            data = resp.json().get("data", [])
+            ids = [m.get("id", "") for m in data]
+            if model_id in ids:
+                return True
+            available = ", ".join(ids) if ids else "(none)"
+            logger.error(
+                f"Model '{model_id}' not found at {endpoint}. "
+                f"Available models: {available}"
+            )
+            return False
+    except (httpx.ConnectError, httpx.TimeoutException):
+        pass
+
+    # Could not verify — let evaluation proceed (non-Ollama server, etc.)
+    logger.warning(
+        f"Could not verify model '{model_id}' exists at {endpoint} "
+        f"(endpoint does not support model listing). Proceeding anyway."
+    )
+    return True
+
+
 async def _run_single_model(
     model_id: str,
     endpoint: str,
@@ -410,6 +470,10 @@ async def _run_inference_inner(
                 )
                 sys.exit(1)
 
+            # Verify model actually exists at endpoint before evaluation
+            if not _verify_model_exists(endpoint, model_id):
+                sys.exit(1)
+
             on_result = _make_on_result_callback(db, model_id, mode, gt_by_pmid) if db else None
             outputs = await _run_single_model(
                 model_id, endpoint, examples, args, on_result=on_result,
@@ -463,6 +527,10 @@ async def _run_inference_inner(
             if not examples:
                 logger.info(f"All examples already evaluated for {model_id}, skipping")
                 continue
+
+            # Verify model actually exists at endpoint before evaluation
+            if not _verify_model_exists(endpoint, model_id):
+                sys.exit(1)
 
             logger.info(f"\n{'='*60}")
             logger.info(f"Evaluating: {model_id}")
