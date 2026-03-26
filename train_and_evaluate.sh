@@ -105,8 +105,7 @@ command -v docker >/dev/null 2>&1 || fail "docker not found (required for traini
 
 # Check Ollama is running and baseline model is available
 command -v ollama >/dev/null 2>&1 || fail "ollama not found"
-OLLAMA_MODELS="$(ollama list 2>/dev/null || true)"
-if ! echo "$OLLAMA_MODELS" | grep -qF "$BASELINE"; then
+if ! ollama show "$BASELINE" >/dev/null 2>&1; then
     fail "Baseline model '$BASELINE' not found in Ollama. Pull it first: ollama pull $BASELINE"
 fi
 
@@ -241,9 +240,8 @@ echo ""
 
 bash "$PROJECT_DIR/training/export_to_ollama.sh" "$MERGED_DIR" "$VERSIONED_NAME"
 
-# Validate Ollama model exists
-OLLAMA_MODELS_POST="$(ollama list 2>/dev/null || true)"
-if ! echo "$OLLAMA_MODELS_POST" | grep -qF "$VERSIONED_NAME"; then
+# Validate Ollama model exists (ollama show handles :latest tag automatically)
+if ! ollama show "$VERSIONED_NAME" >/dev/null 2>&1; then
     fail "Ollama export failed — model '$VERSIONED_NAME' not found in ollama list"
 fi
 
