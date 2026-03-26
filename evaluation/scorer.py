@@ -120,9 +120,33 @@ def parse_model_output(raw_output: str, pmid: str = "", model_id: str = "") -> P
         result = _parse_from_json(data, result)
         result.parse_success = True
     except (json.JSONDecodeError, ValueError):
-        # Fall back to heuristic parsing
-        result = _parse_from_text(raw_output, result)
-        result.parse_success = True  # May be partial
+        # JSON may have trailing text after the closing brace — try to
+        # extract just the JSON object (common when model appends prose).
+        json_extracted = False
+        if json_text.lstrip().startswith("{"):
+            brace_count = 0
+            for i, ch in enumerate(json_text):
+                if ch == "{":
+                    brace_count += 1
+                elif ch == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        try:
+                            data = json.loads(json_text[: i + 1])
+                            result = _parse_from_json(data, result)
+                            result.parse_success = True
+                            json_extracted = True
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+                        break
+        if not json_extracted:
+            # Fall back to heuristic parsing on post-think text only,
+            # so reasoning in <think> blocks doesn't pollute matches.
+            parse_text = raw_output
+            if think_match:
+                parse_text = raw_output[think_match.end():]
+            result = _parse_from_text(parse_text, result)
+            result.parse_success = True  # May be partial
 
     # Score verification source mentions
     result = _score_verification_mentions(result)
@@ -355,12 +379,13 @@ def _parse_from_text(text: str, result: ParsedAssessment) -> ParsedAssessment:
         )),
     }
 
-    # Overall severity
-    overall_match = re.search(
-        r'overall.*?\b(none|low|moderate|high|critical)\b', text_lower
-    )
-    if overall_match:
-        result.overall_severity = overall_match.group(1)
+    # Overall severity — use the LAST match to prefer the final assessment
+    # over incidental mentions earlier in the text (e.g., "overall population").
+    overall_matches = list(re.finditer(
+        r'overall[\s_].*?\b(none|low|moderate|high|critical)\b', text_lower
+    ))
+    if overall_matches:
+        result.overall_severity = overall_matches[-1].group(1)
 
     # Bias probability
     prob_match = re.search(r'(?:bias\s+)?probability[:\s]+(\d+(?:\.\d+)?)\s*%?', text_lower)

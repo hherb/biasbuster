@@ -196,6 +196,46 @@ The model naturally produces literal `<think>` tags and the scorer
 already handles them. Fighting the Harmony channel structure cost
 two training rounds. Lean into what works.
 
+### 4. Scorer must exclude `<think>` from heuristic parsing
+
+**Discovered during V7 evaluation (2026-03-26).** The text fallback
+parser (`_parse_from_text`) was receiving the full raw output including
+the `<think>` block. Reasoning text like "the overall population includes
+all grades" would match the regex `overall.*?(none|low|moderate|high|critical)`
+before the actual overall severity declaration, producing wrong results
+(e.g., PMID 15647576: parsed as "none" when model clearly output "moderate").
+
+Three fixes applied to `evaluation/scorer.py`:
+
+1. **JSON extraction with trailing text**: When JSON parsing fails on
+   the full post-`</think>` text (e.g., model appends prose after the
+   JSON object), the scorer now finds the first balanced `{...}` and
+   tries parsing just that. This recovers valid JSON that was previously
+   lost to the text fallback path.
+
+2. **Text fallback excludes `<think>` block**: When falling back to
+   regex heuristics, the parser now operates on post-`</think>` text
+   only, preventing reasoning fragments from polluting severity matches.
+
+3. **Overall severity uses last match**: Changed from `re.search` (first
+   match) to `re.finditer` (all matches, take last). Also tightened the
+   pattern from `overall.*?` to `overall[\s_].*?` to avoid matching
+   words like "overalls" or "overall" in unrelated compound phrases.
+   The last match is more reliable because the model's final assessment
+   typically appears after intermediate reasoning.
+
+### 5. Training prompt must include explicit JSON output instructions
+
+**Discovered during V7 evaluation (2026-03-26).** The model outputs
+narrative markdown instead of JSON after `</think>` because
+`TRAINING_SYSTEM_PROMPT` never included the JSON schema or format rules.
+The model learned reasoning quality from training data but not the output
+structure. Added `_TRAINING_JSON_OUTPUT_INSTRUCTIONS` to `prompts.py`
+with the full schema, `<think>` convention, probability anchors, and
+rules against markdown/comments in output. Requires V8 retrain.
+
+See `docs/ROUND_4.md` for full details.
+
 ---
 
 ## File Reference
@@ -204,8 +244,11 @@ two training rounds. Lean into what works.
 |------|---------|
 | `evaluation/harness.py` | Fixed: Harmony thinking capture, Ollama auto-detect, token budget |
 | `evaluation/run.py` | Fixed: uses `full_output` for scoring and DB persistence |
+| `evaluation/scorer.py` | Fixed: JSON extraction with trailing text, text fallback excludes `<think>`, last-match for overall severity, severity-to-probability fallback |
+| `prompts.py` | Added: `_TRAINING_JSON_OUTPUT_INSTRUCTIONS` with explicit JSON schema for V8 training |
 | `training/data_utils.py` | Harmony channel-aware formatting (unchanged from Round 3) |
 | `training/configs.py` | `_MOE_OVERRIDES` — hyperparameters for Round 4 |
 | `docs/ROUND_3.md` | Hyperparameter history and Harmony template fix details |
+| `docs/ROUND_4.md` | V7 evaluation findings, probability fallback, prompt format gap |
 | `docs/MISTAKES_ROUND_1_AND_FIXES.md` | Data quality issues from Round 1 |
 | `docs/MISTAKES_TO_ROUND_3.md` | Evaluation infrastructure issues (this round) |
