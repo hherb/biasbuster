@@ -236,6 +236,21 @@ rules against markdown/comments in output. Requires V8 retrain.
 
 See `docs/ROUND_4.md` for full details.
 
+### 6. Re-parse script for post-hoc scorer fixes
+
+When scorer bugs are fixed mid-evaluation, the running eval process still
+has the old code in memory. Rather than re-running inference (expensive),
+`fix_v7_parsing_bug_output.py` re-parses all stored `raw_output` values
+using the current scorer and updates the derived columns in place:
+
+```bash
+uv run python fix_v7_parsing_bug_output.py --dry-run        # preview
+uv run python fix_v7_parsing_bug_output.py                   # apply
+uv run python fix_v7_parsing_bug_output.py --model <other>   # reusable
+```
+
+Run this after the V7 evaluation completes.
+
 ---
 
 ## File Reference
@@ -252,3 +267,4 @@ See `docs/ROUND_4.md` for full details.
 | `docs/ROUND_4.md` | V7 evaluation findings, probability fallback, prompt format gap |
 | `docs/MISTAKES_ROUND_1_AND_FIXES.md` | Data quality issues from Round 1 |
 | `docs/MISTAKES_TO_ROUND_3.md` | Evaluation infrastructure issues (this round) |
+| `fix_v7_parsing_bug_output.py` | One-shot script to re-parse eval outputs after scorer fixes |
