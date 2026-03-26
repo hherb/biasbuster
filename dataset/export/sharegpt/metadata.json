@@ -1,9 +1,23 @@
 {
   "format": "sharegpt",
   "include_thinking": true,
-  "total_examples": 1557,
-  "train": 1347,
-  "val": 155,
-  "test": 157,
-  "seed": 42
+  "total_examples": 1181,
+  "train": 942,
+  "val": 116,
+  "test": 123,
+  "seed": 42,
+  "severity_distribution": {
+    "critical": 27,
+    "high": 232,
+    "low": 163,
+    "moderate": 718,
+    "none": 41
+  },
+  "train_severity_distribution": {
+    "critical": 21,
+    "high": 185,
+    "low": 130,
+    "moderate": 574,
+    "none": 32
+  }
 }
