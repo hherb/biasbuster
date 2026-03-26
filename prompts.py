@@ -249,6 +249,74 @@ clinical trial abstracts for potential bias across five domains.
 
 Respond ONLY with the JSON object. No preamble, no markdown fences."""
 
+_TRAINING_JSON_OUTPUT_INSTRUCTIONS = """\
+OUTPUT FORMAT:
+
+First, reason step by step inside <think>...</think> tags. Then output ONLY a
+valid JSON object (no markdown fences, no trailing text) with this exact schema:
+
+{
+  "statistical_reporting": {
+    "severity": "none|low|moderate|high|critical",
+    "relative_only": boolean,
+    "absolute_reported": boolean,
+    "nnt_reported": boolean,
+    "baseline_risk_reported": boolean,
+    "selective_p_values": boolean,
+    "subgroup_emphasis": boolean,
+    "evidence_quotes": ["..."]
+  },
+  "spin": {
+    "severity": "none|low|moderate|high|critical",
+    "spin_level": "none|low|moderate|high",
+    "conclusion_matches_results": boolean,
+    "causal_language_from_observational": boolean,
+    "focus_on_secondary_when_primary_ns": boolean,
+    "inappropriate_extrapolation": boolean,
+    "title_spin": boolean,
+    "evidence_quotes": ["..."]
+  },
+  "outcome_reporting": {
+    "severity": "none|low|moderate|high|critical",
+    "primary_outcome_type": "patient_centred|surrogate|composite|unclear",
+    "surrogate_without_validation": boolean,
+    "composite_not_disaggregated": boolean,
+    "evidence_quotes": ["..."]
+  },
+  "conflict_of_interest": {
+    "severity": "none|low|moderate|high|critical",
+    "funding_type": "industry|public|mixed|not_reported|unclear",
+    "funding_disclosed_in_abstract": boolean,
+    "industry_author_affiliations": boolean,
+    "coi_disclosed": boolean
+  },
+  "methodology": {
+    "severity": "none|low|moderate|high|critical",
+    "inappropriate_comparator": boolean,
+    "enrichment_design": boolean,
+    "per_protocol_only": boolean,
+    "premature_stopping": boolean,
+    "short_follow_up": boolean,
+    "evidence_quotes": ["..."]
+  },
+  "overall_severity": "none|low|moderate|high|critical",
+  "overall_bias_probability": float (0.0 to 1.0, your calibrated estimate),
+  "reasoning": "Brief summary of key findings",
+  "recommended_verification_steps": [
+    "Specific actionable steps citing databases and URLs"
+  ],
+  "confidence": "low|medium|high"
+}
+
+CRITICAL RULES:
+- After </think>, output ONLY the JSON object — no markdown, no tables, no prose.
+- "overall_bias_probability" MUST be a number between 0.0 and 1.0 reflecting your
+  calibrated confidence that meaningful bias exists. Use these anchors:
+  none ≈ 0.05, low ≈ 0.25, moderate ≈ 0.55, high ≈ 0.80, critical ≈ 0.95.
+- Every field shown above is required. Use false/0.0/"none"/[] for absent concerns.
+- Do not include JavaScript-style comments (// ...) in the JSON output."""
+
+
 TRAINING_SYSTEM_PROMPT = f"""\
 You are a biomedical research integrity analyst. Given a clinical trial abstract,
 assess it for potential bias across five domains. For each domain, assign a severity
@@ -264,5 +332,4 @@ level using the specific boundary definitions below.
 
 {CALIBRATION_NOTE}
 
-Provide your reasoning step by step, then a structured assessment with recommended
-verification steps citing specific databases and URLs."""
+{_TRAINING_JSON_OUTPUT_INSTRUCTIONS}"""

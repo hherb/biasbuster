@@ -132,6 +132,17 @@ def parse_model_output(raw_output: str, pmid: str = "", model_id: str = "") -> P
 
 _scorer_logger = logging.getLogger(__name__)
 
+# Fallback mapping: when the model produces a severity but no numeric
+# probability, infer a reasonable probability from the severity level.
+# See docs/ROUND_4.md for context.
+_SEVERITY_TO_PROBABILITY = {
+    "none": 0.05,
+    "low": 0.25,
+    "moderate": 0.55,
+    "high": 0.80,
+    "critical": 0.95,
+}
+
 
 def _safe_dict(val, default_severity="none"):
     """Ensure a dimension value is a dict; coerce strings/None to a stub."""
@@ -268,6 +279,12 @@ def _parse_from_json(data: dict, result: ParsedAssessment) -> ParsedAssessment:
     except (TypeError, ValueError):
         result.overall_bias_probability = 0.0
 
+    # Fallback: infer probability from severity when model omits the number
+    if result.overall_bias_probability == 0.0 and result.overall_severity != "none":
+        result.overall_bias_probability = _SEVERITY_TO_PROBABILITY.get(
+            result.overall_severity, 0.0
+        )
+
     # Verification steps
     vs = data.get("recommended_verification_steps", [])
     result.verification_steps_mentioned = vs if isinstance(vs, list) else []
@@ -350,6 +367,12 @@ def _parse_from_text(text: str, result: ParsedAssessment) -> ParsedAssessment:
     if prob_match:
         val = float(prob_match.group(1))
         result.overall_bias_probability = val / 100 if val > 1 else val
+
+    # Fallback: infer probability from severity when model omits the number
+    if result.overall_bias_probability == 0.0 and result.overall_severity != "none":
+        result.overall_bias_probability = _SEVERITY_TO_PROBABILITY.get(
+            result.overall_severity, 0.0
+        )
 
     return result
 
