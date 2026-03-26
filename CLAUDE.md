@@ -93,6 +93,12 @@ uv run python -m enrichers.funding_checker
 bash training/export_to_ollama.sh training_output/qwen3.5-27b-merged qwen3.5-27b-biasbuster
 bash training/export_to_ollama.sh training_output/gpt-oss-20b-merged gpt-oss-20b-biasbuster
 
+# End-to-end train → merge → Ollama export → evaluate (auto-versioned)
+./train_and_evaluate.sh gpt-oss-20b                          # full run (auto V8, V9, ...)
+./train_and_evaluate.sh gpt-oss-20b --datadir path/to/data   # custom training data
+./train_and_evaluate.sh gpt-oss-20b -- --max-steps 5         # smoke test
+./train_and_evaluate.sh qwen3.5-27b --baseline qwen3.5:27b   # explicit baseline model
+
 # Training monitor (run on host while training runs in Docker)
 uv run python -m utils.training_monitor --metrics-dir training_output/qwen3.5-27b-lora
 
@@ -160,6 +166,7 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
 - **Training Monitor** (`utils/training_monitor.py`): NiceGUI web dashboard that reads `metrics.jsonl` and displays live loss curves, learning rate schedule, GPU memory, gradient norms, and hyperparameters. Run with `uv run python -m utils.training_monitor`.
 - **Single-Paper Tool** (`annotate_single_paper.py`): CLI for ad-hoc dataset additions. Accepts `--pmid` or `--doi` (mutually exclusive), resolves DOI→PMID via NCBI, fetches from PubMed if absent, enriches, validates (rejects bare retraction notices and missing abstracts), and annotates with the chosen `--model` backend (default: deepseek). `--force` deletes existing annotation before re-running. `--source` tags newly imported papers (default: `manual_import`). Reuses `pipeline.create_annotator()` for annotator instantiation and `Database.has_annotation()`/`delete_annotation()` for idempotent re-annotation.
 - **Fine-Tuning Workbench** (`gui/`): NiceGUI 4-tab GUI (`uv run python -m gui`) wrapping the entire fine-tuning workflow. `state.py` handles platform detection and settings persistence (`~/.biasbuster/gui_settings.json`). `process_runner.py` provides an async subprocess wrapper. Tab modules (`settings_tab.py`, `training_tab.py`, `evaluation_tab.py`, `export_tab.py`) each build their UI and launch operations as subprocesses. The training tab reuses `MetricsReader` from `utils/training_monitor.py` for live chart updates. Both training scripts (`train_lora.py`, `train_lora_mlx.py`) accept optional `--lr`, `--epochs`, `--lora-rank`, `--batch-size`, `--grad-accum`, `--max-seq-len` CLI args for GUI-driven hyperparameter overrides.
+- **Train & Evaluate Orchestrator** (`train_and_evaluate.sh`): End-to-end bash script that chains LoRA training → adapter merge → Ollama export → evaluation in a single command. Auto-versions each run by querying the SQLite database for existing `{model}-biasbusterV{n}` entries and incrementing the version number. Accepts both preset keys (`gpt-oss-20b`) and Ollama names (`gpt-oss:20b`). Supports `--datadir` for custom training data and passes extra args (e.g. `--max-steps 5`) through to `train_lora.py`. Evaluation runs the fine-tuned model against the unmodified baseline via Ollama with `--sequential` mode (single GPU). Versioned output directories: `training_output/{model}-lora-V{n}/`, `training_output/{model}-merged-V{n}/`, `eval_results/{model}-biasbusterV{n}/`.
 
 ### Data Flow
 

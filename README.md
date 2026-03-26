@@ -67,6 +67,7 @@ bias_dataset_builder/
 ├── config.py                  # Configuration and API keys
 ├── pipeline.py                # Orchestration pipeline
 ├── export.py                  # Export to fine-tuning formats (Alpaca, ShareGPT)
+├── train_and_evaluate.sh      # End-to-end: train → merge → Ollama → evaluate (auto-versioned)
 ├── run_training.sh            # Launch LoRA training in NGC Docker
 ├── run_training_mlx.sh        # Launch LoRA training on Apple Silicon (MLX)
 ├── run_merge.sh               # Launch adapter merge in NGC Docker
@@ -488,6 +489,29 @@ uv run python -m evaluation.run \
     --model-b olmo-3.1-32b-biasbuster --endpoint-b http://localhost:11434 \
     --mode fine-tuned --sequential --num-ctx 4096 \
     --output eval_results/fine_tuned/
+```
+
+### One-Command Train & Evaluate
+
+`train_and_evaluate.sh` chains all four steps above into a single auto-versioned run.
+It queries the database for existing `{model}-biasbusterV{n}` entries and increments
+the version number automatically.
+
+```bash
+# Full run (auto-versions: V8, V9, ...)
+./train_and_evaluate.sh gpt-oss-20b
+
+# Accepts Ollama names too
+./train_and_evaluate.sh gpt-oss:20b
+
+# Custom training data directory
+./train_and_evaluate.sh gpt-oss-20b --datadir dataset_v2/export/alpaca
+
+# Smoke test (5 training steps, then merge + evaluate)
+./train_and_evaluate.sh gpt-oss-20b -- --max-steps 5
+
+# Explicit baseline model for evaluation
+./train_and_evaluate.sh qwen3.5-27b --baseline qwen3.5:27b
 ```
 
 ### Smoke Test

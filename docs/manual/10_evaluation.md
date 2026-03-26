@@ -131,26 +131,29 @@ If results are unsatisfactory:
 1. **Review failure cases** -- inspect raw outputs in the JSONL file for patterns (broken JSON, missing domains, wrong severity)
 2. **Augment training data** -- add more examples for weak dimensions (e.g., COI detection)
 3. **Adjust hyperparameters** -- try more epochs, different learning rate, or larger LoRA rank
-4. **Re-train and re-evaluate** -- the pipeline supports quick iteration:
+4. **Re-train and re-evaluate** -- use the auto-versioned orchestrator for quick iteration:
 
 ```bash
-# Train with adjusted settings
-./run_training.sh qwen3.5-27b
+# One command: train → merge → Ollama export → evaluate (auto-versioned)
+./train_and_evaluate.sh gpt-oss-20b
 
-# Merge and export to Ollama (one command)
-./lora2ollama.sh qwen3.5-27b --quantize q8_0
+# Smoke test (5 training steps)
+./train_and_evaluate.sh gpt-oss-20b -- --max-steps 5
 
-# Re-evaluate
-uv run python -m evaluation.run \
-    --test-set dataset/export/alpaca/test.jsonl \
-    --model-a qwen3.5-27b-biasbuster --endpoint-a http://localhost:11434 \
-    --mode fine-tuned \
-    --force-reevaluation \
-    --num-ctx 4096 \
-    --output eval_results/comparison/
+# Custom training data
+./train_and_evaluate.sh gpt-oss-20b --datadir dataset_v2/export/alpaca
+
+# Pass hyperparameter overrides to train_lora.py
+./train_and_evaluate.sh gpt-oss-20b -- --lr 1e-5 --epochs 3
 ```
 
-Use `--force-reevaluation` to re-run all examples even if previous results exist in the database.
+The script queries the database for existing `{model}-biasbusterV{n}` entries,
+increments the version number, and evaluates the new model against the unmodified
+baseline via Ollama with `--sequential` mode (single GPU). Accepts both preset
+keys (`gpt-oss-20b`) and Ollama names (`gpt-oss:20b`).
+
+For manual control over individual steps, see sections [8](08_training.md),
+[9](09_merge_and_deploy.md), and the evaluation commands above.
 
 ## Testing with the Verification Agent
 
