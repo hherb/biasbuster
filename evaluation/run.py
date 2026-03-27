@@ -114,7 +114,7 @@ def parse_args():
 
     # Generation parameters
     parser.add_argument("--temperature", type=float, default=0.1)
-    parser.add_argument("--max-tokens", type=int, default=4000)
+    parser.add_argument("--max-tokens", type=int, default=8000)
     parser.add_argument("--max-concurrent", type=int, default=2)
 
     # Ollama context window
