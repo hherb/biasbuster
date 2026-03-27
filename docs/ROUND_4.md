@@ -146,50 +146,127 @@ and retrain as V8. The instructions must be explicit about:
 
 ---
 
+## V8 Evaluation (with 8K token budget)
+
+V8 was trained with explicit JSON output instructions added to
+`TRAINING_SYSTEM_PROMPT`. First evaluation ran with the wrong `max_tokens`
+default (4000 instead of 8000 — see Issue 3 below), producing misleadingly
+bad results (F1=0.636). After fixing the CLI default and re-running:
+
+### V8 Results (2026-03-27, 8K tokens)
+
+| Metric | Baseline | V7 | V8 | Best |
+|--------|:---:|:---:|:---:|:---:|
+| Binary F1 | 0.929 | 0.949 | **0.966** | V8 |
+| Severity kappa | **0.098** | 0.095 | 0.097 | Baseline |
+| Calibration Error | 0.802 | **0.306** | 0.323 | V7 |
+| Verification Score | 0.460 | **0.517** | 0.513 | V7 |
+
+Per-dimension F1 / kappa:
+
+| Dimension | Baseline | V7 | V8 |
+|-----------|:---:|:---:|:---:|
+| Stat Reporting | **0.836** / **0.411** | 0.760 / 0.136 | 0.795 / 0.225 |
+| Spin | 0.610 / 0.164 | 0.752 / 0.208 | **0.767** / **0.254** |
+| Outcome | 0.708 / 0.156 | 0.798 / 0.261 | **0.800** / **0.270** |
+| COI | 0.643 / 0.073 | **0.894** / **0.100** | 0.880 / -0.031 |
+| Methodology | 0.563 / 0.114 | **0.636** / **0.212** | 0.590 / 0.108 |
+
+### V8 Analysis
+
+V8 is the **best binary detector** (F1=0.966) and has the best
+per-dimension kappa for spin (0.254) and outcome reporting (0.270).
+The JSON prompt instructions partially helped severity grading for
+those dimensions.
+
+However, V8's COI kappa is **-0.031** (worse than random) — it detects
+COI presence (F1=0.880) but grades severity inversely. The explicit
+JSON format instruction may have interfered with COI calibration.
+
+### Severity distribution mismatch (the persistent problem)
+
+| Severity | Ground Truth | Baseline | V7 | V8 |
+|----------|:---:|:---:|:---:|:---:|
+| none | 5 | 3 | 8 | — |
+| low | 17 | 20 | 1 | — |
+| moderate | 73 | 73 | 48 | — |
+| high | 24 | 23 | 65 | — |
+| critical | 4 | 4 | 1 | — |
+
+The baseline almost perfectly matches the ground truth distribution.
+V7 collapses `low` (17 GT → 1 predicted) and massively over-predicts
+`high` (24 GT → 65 predicted). This explains why overall kappa is stuck
+near 0.095-0.098 despite improving binary detection.
+
+**Root cause:** The training data is 61% moderate, 19.6% high. The model
+learns to over-call moderate-to-high. The fine-tuning is *degrading* the
+pre-trained model's natural calibration for severity, while improving its
+ability to detect bias presence.
+
+---
+
+## Issue 3: CLI `max_tokens` Default Was Not Updated
+
+### What happened
+
+V8's first evaluation produced F1=0.636 with 100% `overall_severity=none`.
+Investigation revealed 38/123 outputs hit exactly 4000 tokens — the model
+exhausted its budget on `<think>` reasoning before outputting JSON.
+
+### Root cause
+
+The `EvalConfig` dataclass in `harness.py` had the correct default (8000),
+but `run.py`'s argparse default was never updated from 4000. Since argparse
+always passes a value, it silently overrode the dataclass default.
+
+### Fix
+
+Changed `run.py` line 117: `default=4000` → `default=8000`.
+
+---
+
 ## Changes Made
 
 | File | Change |
 |------|--------|
-| `evaluation/scorer.py` | Added `_SEVERITY_TO_PROBABILITY` fallback mapping for when model omits numeric probability |
-| `prompts.py` | Added `_JSON_OUTPUT_INSTRUCTIONS` to `TRAINING_SYSTEM_PROMPT` with explicit JSON format requirements |
+| `evaluation/scorer.py` | Severity-to-probability fallback; JSON extraction with trailing text; text fallback excludes `<think>`; last-match for overall severity |
+| `evaluation/run.py` | Fixed `--max-tokens` CLI default from 4000 to 8000 |
+| `prompts.py` | Added `_JSON_OUTPUT_INSTRUCTIONS` to `TRAINING_SYSTEM_PROMPT` |
+| `fix_v7_parsing_bug_output.py` | One-shot re-parse script for eval outputs after scorer fixes |
 | `docs/ROUND_4.md` | This document |
+| `docs/PREPARING_ROUND_4.md` | Updated with scorer fix documentation |
 
 ---
 
-## V8 Training Requirements
+## Key Findings
 
-The prompt change means the current training data must be re-exported and
-the model retrained. V8 should:
+### 1. Binary detection is solved; severity calibration is not
 
-1. **Re-export training data** with updated `TRAINING_SYSTEM_PROMPT` that
-   includes JSON output format instructions
-2. **Keep all Round 4 hyperparameters** (2 epochs, single-channel, lr=5e-6)
-3. **Validate format compliance** on 10 training examples before full run:
-   check that exported examples end with valid JSON after `</think>`
-4. **Evaluation**: verify `overall_bias_probability > 0` for biased papers
-   and JSON parse success rate >= 95%
+Both V7 (F1=0.949) and V8 (F1=0.966) exceed the baseline (0.929) on
+binary bias detection. But severity kappa has never improved beyond the
+baseline's 0.098 across all fine-tuning rounds. The fine-tuning improves
+"is there bias?" while degrading "how much bias?"
 
----
+### 2. Format changes move kappa around but don't improve it
 
-## Lessons
+Adding JSON instructions (V7→V8) improved spin kappa (0.208→0.254)
+and outcome kappa (0.261→0.270) while destroying COI kappa (0.100→-0.031).
+The overall kappa remained unchanged. The bottleneck is the training data
+distribution, not the output format.
 
-### 1. Implicit format ≠ learned format
+### 3. The training data format is markdown, not JSON
 
-Training data contained JSON output but no explicit instruction to produce
-JSON. The model learned the reasoning quality but not the structural format.
-MoE attention-only LoRA (0.04% params) needs every bit of signal — implicit
-patterns in training data are not enough for format adherence.
+The `export.py` module produces training data in markdown format:
+`## Overall: MODERATE (bias probability: 40%)`. Adding JSON instructions
+to the system prompt creates a prompt-data mismatch: the prompt says
+"output JSON" but every training example shows markdown. The model either
+ignores the instruction (V7) or gets confused (V8 partial).
 
-### 2. Fallbacks should be documented, not silent
+### 4. Attention-only LoRA cannot learn new output formats
 
-The scorer's text fallback parser silently succeeds with `parse_success=True`
-even when it can only extract a subset of fields. The 0.0 probability was
-indistinguishable from "model assessed no bias" vs "model didn't output a
-number." The severity-to-probability fallback makes this explicit.
+Confirmed across Rounds 3-4: Harmony channels (failed), JSON format
+(partially failed), `<think>` convention (partially works because it's
+just text). With 0.04% trainable params in attention layers only, the
+model adapts reasoning patterns but not structural output changes.
 
-### 3. Validate the output contract, not just the metrics
-
-Each training round should include a "format compliance" check: does the
-model output match the expected schema? Severity metrics alone don't reveal
-structural issues — V7 would have scored well on severity F1 while being
-completely non-functional for downstream JSON consumers.
+See `docs/OPTIMISING_FOR_ROUND_5.md` for the strategy to address these.
