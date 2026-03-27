@@ -264,7 +264,7 @@ uv run python -m evaluation.run \
     --endpoint-b "$OLLAMA_ENDPOINT" \
     --mode fine-tuned \
     --sequential \
-    --num-ctx 4096 \
+    --num-ctx 9192 \
     --output "$EVAL_OUTPUT"
 
 echo ""

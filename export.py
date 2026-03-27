@@ -108,19 +108,25 @@ def _build_statistical_reasoning(parts: list[str], annotation: dict) -> None:
         parts.append(
             f"Severity: LOW — {len(issues)} minor concern(s). Per boundary "
             "definition: reader can still assess clinical significance "
-            "(e.g., both arm rates or raw counts available)."
+            "(e.g., both arm rates or raw counts available). "
+            "Not MODERATE because the reader does not need external data "
+            "to interpret the findings."
         )
     elif severity == "moderate":
         parts.append(
             f"Severity: MODERATE — {len(issues)} concern(s). Per boundary "
             "definition: reader cannot assess clinical significance without "
-            "external data (relative measures only or selective p-values)."
+            "external data (relative measures only or selective p-values). "
+            "Not HIGH because no evidence of multiple concerns suggesting "
+            "intentional obfuscation."
         )
     elif severity in ("high", "critical"):
         parts.append(
             f"Severity: {severity.upper()} — {len(issues)} concern(s). "
             "Per boundary definition: multiple reporting concerns together "
-            "suggest a pattern of selective or misleading presentation."
+            "suggest a pattern of selective or misleading presentation. "
+            "Exceeds MODERATE because more than one significant concern "
+            "is present."
         )
 
 
@@ -149,8 +155,18 @@ def _build_spin_reasoning(parts: list[str], annotation: dict) -> None:
         )
         if spin_level == "moderate":
             parts.append(
-                "MODERATE not HIGH because some uncertainty is expressed or "
-                "further trials recommended, but NS primary not acknowledged."
+                "Per boundary: MODERATE — some uncertainty OR further trials "
+                "recommended, but NS primary outcome not acknowledged. "
+                "Not HIGH because the authors do not recommend clinical use "
+                "despite weak evidence."
+            )
+        elif spin_level == "high":
+            parts.append(
+                "Per boundary: HIGH — no uncertainty expressed, no "
+                "recommendation for further trials, no acknowledgment of "
+                "NS primary outcome, or clinical use recommended despite "
+                "weak evidence. Exceeds MODERATE because none of the "
+                "mitigating factors (uncertainty, further trials) are present."
             )
     elif spin_level == "low":
         parts.append(
@@ -197,18 +213,24 @@ def _build_outcome_reasoning(parts: list[str], annotation: dict) -> None:
 
     if severity == "low":
         parts.append(
-            "Severity: LOW — patient-centred primary but secondary surrogate "
-            "given undue prominence, or well-validated surrogate used."
+            "Per boundary: LOW — patient-centred primary but secondary surrogate "
+            "given undue prominence, or well-validated surrogate used. "
+            "Not MODERATE because the primary outcome is patient-centred or "
+            "the surrogate is well-validated."
         )
     elif severity == "moderate":
         parts.append(
-            "Severity: MODERATE — primary is surrogate without patient-centred "
-            "validation, or composite not disaggregated."
+            "Per boundary: MODERATE — primary is surrogate without patient-centred "
+            "validation, or composite not disaggregated. "
+            "Not HIGH because no evidence of outcome switching from a "
+            "registered patient-centred endpoint."
         )
     elif severity in ("high", "critical"):
         parts.append(
-            f"Severity: {severity.upper()} — surrogate without validation AND "
-            "evidence of outcome switching from registered primary."
+            f"Per boundary: {severity.upper()} — surrogate without validation AND "
+            "evidence of outcome switching from registered primary. "
+            "Exceeds MODERATE because outcome switching compounds the "
+            "surrogate concern."
         )
 
 
@@ -259,22 +281,29 @@ def _build_coi_reasoning(parts: list[str], annotation: dict) -> None:
             "Search Europe PMC for full-text COI disclosure section."
         )
 
-    # Severity justification grounded in indicator count
+    # Severity justification grounded in indicator count + boundary definitions
     if severity == "low":
         parts.append(
-            f"Severity: LOW — {len(indicators)} indicator(s). Industry "
-            "involvement present but fully disclosed and transparent."
+            f"Per boundary: LOW — {len(indicators)} indicator(s). Industry "
+            "involvement present but fully disclosed and transparent. "
+            "Not MODERATE because COI is disclosed and transparency gaps "
+            "do not warrant verification."
         )
     elif severity == "moderate":
         parts.append(
-            f"Severity: MODERATE — {len(indicators)} indicator(s). Industry "
+            f"Per boundary: MODERATE — {len(indicators)} indicator(s). Industry "
             "funding or affiliations present but COI not fully disclosed. "
-            "Transparency gaps warrant verification."
+            "Transparency gaps warrant verification. "
+            "Not HIGH because undisclosed COI is not combined with "
+            "author-sponsor affiliations suggesting systematic non-disclosure."
         )
     elif severity in ("high", "critical"):
         parts.append(
-            f"Severity: {severity.upper()} — {len(indicators)} indicator(s). "
-            "Multiple undisclosed conflicts suggest systematic non-disclosure."
+            f"Per boundary: {severity.upper()} — {len(indicators)} indicator(s). "
+            "Industry funding with undisclosed COI AND author affiliations "
+            "with sponsor — multiple undisclosed conflicts suggest "
+            "systematic non-disclosure. Exceeds MODERATE because COI "
+            "non-disclosure is combined with author-sponsor affiliations."
         )
 
 
@@ -310,23 +339,30 @@ def _build_methodology_reasoning(parts: list[str], annotation: dict) -> None:
 
     if severity == "low":
         parts.append(
-            f"Severity: LOW — 1 minor concern that does not invalidate "
-            "the primary analysis."
+            "Per boundary: LOW — a single minor concern (e.g., slightly "
+            "short follow-up) that does not invalidate the primary analysis. "
+            "Not MODERATE because no significant concern that could "
+            "meaningfully affect interpretation."
         )
     elif severity == "moderate":
         if len(issues) >= 2:
             parts.append(
-                f"Severity: MODERATE — {len(issues)} minor concerns together."
+                f"Per boundary: MODERATE — {len(issues)} minor concerns "
+                "together. Not HIGH because no single concern likely "
+                "invalidates the primary analysis."
             )
         else:
             parts.append(
-                "Severity: MODERATE — 1 significant concern that could "
-                "meaningfully affect interpretation."
+                "Per boundary: MODERATE — one significant concern that "
+                "could meaningfully affect interpretation. Not HIGH because "
+                "only one significant concern, not multiple."
             )
     elif severity in ("high", "critical"):
         parts.append(
-            f"Severity: {severity.upper()} — {len(issues)} significant "
-            "concern(s) suggesting primary analysis may not be reliable."
+            f"Per boundary: {severity.upper()} — {len(issues)} significant "
+            "concern(s) that likely invalidate the primary analysis. "
+            "Exceeds MODERATE because multiple significant concerns are "
+            "present, or a single concern invalidates the primary analysis."
         )
 
 
@@ -580,6 +616,98 @@ def build_structured_response(annotation: dict) -> str:
     return "\n".join(parts)
 
 
+def build_json_response(annotation: dict) -> str:
+    """Build JSON-structured response from annotation dict.
+
+    Outputs the schema defined in prompts._JSON_SCHEMA, matching what the
+    evaluation scorer expects via _parse_from_json().  Used for V2+ training
+    data so the model learns to produce JSON instead of markdown.
+    """
+    stat = annotation.get("statistical_reporting", {})
+    spin = annotation.get("spin", {})
+    outcome = annotation.get("outcome_reporting", {})
+    coi = annotation.get("conflict_of_interest", {})
+    meth = annotation.get("methodology", {})
+
+    steps = _synthesize_verification_steps(annotation)
+
+    result = {
+        "statistical_reporting": {
+            "severity": stat.get("severity", "none"),
+            "relative_only": bool(stat.get("relative_only", False)),
+            "absolute_reported": bool(stat.get("absolute_reported", False)),
+            "nnt_reported": bool(stat.get("nnt_reported", False)),
+            "baseline_risk_reported": bool(stat.get("baseline_risk_reported", False)),
+            "selective_p_values": bool(stat.get("selective_p_values", False)),
+            "subgroup_emphasis": bool(stat.get("subgroup_emphasis", False)),
+            "evidence_quotes": list(stat.get("evidence_quotes", [])),
+        },
+        "spin": {
+            "severity": spin.get("severity", "none"),
+            "spin_level": spin.get("spin_level", spin.get("severity", "none")),
+            "conclusion_matches_results": bool(
+                spin.get("conclusion_matches_results", True)
+            ),
+            "causal_language_from_observational": bool(
+                spin.get("causal_language_from_observational", False)
+            ),
+            "focus_on_secondary_when_primary_ns": bool(
+                spin.get("focus_on_secondary_when_primary_ns", False)
+            ),
+            "inappropriate_extrapolation": bool(
+                spin.get("inappropriate_extrapolation", False)
+            ),
+            "title_spin": bool(spin.get("title_spin", False)),
+            "evidence_quotes": list(spin.get("evidence_quotes", [])),
+        },
+        "outcome_reporting": {
+            "severity": outcome.get("severity", "none"),
+            "primary_outcome_type": outcome.get(
+                "primary_outcome_type", "unclear"
+            ),
+            "surrogate_without_validation": bool(
+                outcome.get("surrogate_without_validation", False)
+            ),
+            "composite_not_disaggregated": bool(
+                outcome.get("composite_not_disaggregated", False)
+            ),
+            "evidence_quotes": list(outcome.get("evidence_quotes", [])),
+        },
+        "conflict_of_interest": {
+            "severity": coi.get("severity", "none"),
+            "funding_type": coi.get("funding_type", "not_reported"),
+            "funding_disclosed_in_abstract": bool(
+                coi.get("funding_disclosed_in_abstract",
+                         coi.get("funding_disclosed", False))
+            ),
+            "industry_author_affiliations": bool(
+                coi.get("industry_author_affiliations", False)
+            ),
+            "coi_disclosed": bool(coi.get("coi_disclosed", False)),
+        },
+        "methodology": {
+            "severity": meth.get("severity", "none"),
+            "inappropriate_comparator": bool(
+                meth.get("inappropriate_comparator", False)
+            ),
+            "enrichment_design": bool(meth.get("enrichment_design", False)),
+            "per_protocol_only": bool(meth.get("per_protocol_only", False)),
+            "premature_stopping": bool(meth.get("premature_stopping", False)),
+            "short_follow_up": bool(meth.get("short_follow_up", False)),
+            "evidence_quotes": list(meth.get("evidence_quotes", [])),
+        },
+        "overall_severity": annotation.get("overall_severity", "none"),
+        "overall_bias_probability": float(
+            annotation.get("overall_bias_probability", 0.0)
+        ),
+        "reasoning": annotation.get("reasoning", ""),
+        "recommended_verification_steps": steps,
+        "confidence": annotation.get("confidence", "medium"),
+    }
+
+    return json.dumps(result, indent=2)
+
+
 def to_alpaca_format(
     annotation: dict,
     include_thinking: bool = True,
@@ -597,9 +725,9 @@ def to_alpaca_format(
 
     if include_thinking:
         thinking = build_thinking_chain(annotation)
-        response = thinking + "\n\n" + build_structured_response(annotation)
+        response = thinking + "\n\n" + build_json_response(annotation)
     else:
-        response = build_structured_response(annotation)
+        response = build_json_response(annotation)
 
     return {
         "system": SYSTEM_PROMPT,
@@ -620,9 +748,9 @@ def to_sharegpt_format(annotation: dict, include_thinking: bool = True) -> dict:
 
     if include_thinking:
         thinking = build_thinking_chain(annotation)
-        assistant_msg = thinking + "\n\n" + build_structured_response(annotation)
+        assistant_msg = thinking + "\n\n" + build_json_response(annotation)
     else:
-        assistant_msg = build_structured_response(annotation)
+        assistant_msg = build_json_response(annotation)
 
     return {
         "conversations": [
@@ -644,9 +772,9 @@ def to_openai_chat_format(annotation: dict, include_thinking: bool = True) -> di
 
     if include_thinking:
         thinking = build_thinking_chain(annotation)
-        assistant_msg = thinking + "\n\n" + build_structured_response(annotation)
+        assistant_msg = thinking + "\n\n" + build_json_response(annotation)
     else:
-        assistant_msg = build_structured_response(annotation)
+        assistant_msg = build_json_response(annotation)
 
     return {
         "messages": [
@@ -671,6 +799,21 @@ def _extract_overall_severity(example: dict) -> str:
             if msg.get("from") == "gpt" or msg.get("role") == "assistant":
                 output = msg.get("value", msg.get("content", ""))
                 break
+
+    # Try JSON extraction first (V2+ format: JSON after </think>)
+    json_text = output
+    think_idx = output.find("</think>")
+    if think_idx >= 0:
+        json_text = output[think_idx + 8:].strip()
+    try:
+        data = json.loads(json_text)
+        sev = data.get("overall_severity", "").lower()
+        if sev in ("none", "low", "moderate", "high", "critical"):
+            return sev
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        pass
+
+    # Fall back to markdown regex (V1 format)
     match = _SEVERITY_RE.search(output)
     return match.group(1).lower() if match else "unknown"
 
@@ -800,6 +943,51 @@ def _stratified_split(
     return train, val, test
 
 
+def _validate_json_outputs(path: Path, include_thinking: bool) -> int:
+    """Validate that every exported example has valid JSON output.
+
+    For thinking-enabled exports, checks that valid JSON follows </think>.
+    Returns the number of validation errors found.
+    """
+    errors = 0
+    with open(path) as f:
+        for i, line in enumerate(f, 1):
+            example = json.loads(line)
+            # Extract the assistant/model output text
+            output = example.get("output", "")
+            if not output:
+                for msg in example.get("conversations",
+                                       example.get("messages", [])):
+                    if msg.get("from") == "gpt" or msg.get("role") == "assistant":
+                        output = msg.get("value", msg.get("content", ""))
+                        break
+
+            json_text = output
+            if include_thinking:
+                idx = output.find("</think>")
+                if idx < 0:
+                    logger.warning(f"Validation: line {i} in {path.name}: missing </think>")
+                    errors += 1
+                    continue
+                json_text = output[idx + 8:].strip()
+
+            try:
+                data = json.loads(json_text)
+                # Check required top-level fields
+                if "overall_severity" not in data:
+                    logger.warning(
+                        f"Validation: line {i} in {path.name}: "
+                        "missing overall_severity in JSON"
+                    )
+                    errors += 1
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"Validation: line {i} in {path.name}: invalid JSON: {e}"
+                )
+                errors += 1
+    return errors
+
+
 def export_dataset(
     annotations: list[dict],
     output_dir: Path,
@@ -851,7 +1039,8 @@ def export_dataset(
         f"{dict(sorted(train_dist.items()))}"
     )
 
-    # Write files
+    # Write files and validate JSON output
+    total_validation_errors = 0
     for split_name, split_data in [
         ("train", train_data),
         ("val", val_data),
@@ -862,6 +1051,16 @@ def export_dataset(
             for item in split_data:
                 f.write(json.dumps(item) + "\n")
         logger.info(f"Exported {len(split_data)} examples to {path}")
+        errs = _validate_json_outputs(path, include_thinking)
+        total_validation_errors += errs
+
+    if total_validation_errors > 0:
+        logger.warning(
+            f"JSON VALIDATION: {total_validation_errors} error(s) found — "
+            "inspect warnings above before training"
+        )
+    else:
+        logger.info("JSON validation: all outputs parse successfully")
 
     # Write metadata with severity distribution stats
     all_dist = Counter(_extract_overall_severity(ex) for ex in converted)

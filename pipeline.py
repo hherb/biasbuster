@@ -534,15 +534,20 @@ def create_annotator(
         return None
 
 
-async def stage_export(config: Config, db: Database) -> None:
+async def stage_export(
+    config: Config, db: Database, export_dir: str | None = None,
+) -> None:
     """Export validated annotations for fine-tuning.
 
     Reads annotations from the database and exports in training format
     with configurable train/val/test splits.
+
+    Args:
+        export_dir: Override export directory. If None, uses config.export_dir.
     """
     from export import export_dataset
 
-    output_dir = Path(config.export_dir)
+    output_dir = Path(export_dir) if export_dir else Path(config.export_dir)
 
     all_annotations = db.get_all_annotations_for_export()
 
@@ -720,6 +725,11 @@ def main() -> None:
         "--config", type=str, default=None,
         help="Path to config file (optional)",
     )
+    parser.add_argument(
+        "--export-dir", type=str, default=None,
+        help="Override export directory (default: config.export_dir). "
+             "Example: --export-dir dataset_V2/export",
+    )
     args = parser.parse_args()
 
     config = Config()
@@ -745,7 +755,7 @@ def main() -> None:
         "seed": lambda cfg: stage_seed(cfg, db),
         "enrich": lambda cfg: stage_enrich(cfg, db),
         "annotate": lambda cfg: stage_annotate(cfg, db, models=annotation_models),
-        "export": lambda cfg: stage_export(cfg, db),
+        "export": lambda cfg: stage_export(cfg, db, export_dir=args.export_dir),
         "compare": lambda cfg: stage_compare(cfg, db),
     }
 
