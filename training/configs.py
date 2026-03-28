@@ -32,7 +32,7 @@ _MOE_OVERRIDES: dict = {
     "lora_alpha": 64,                    # maintain alpha/r = 2
     "lora_dropout": 0.1,                 # combat rapid memorisation
     "gradient_accumulation_steps": 4,
-    "num_train_epochs": 2,               # 2 epochs; Run 8 collapse was due to 8e-6 LR, not epoch count
+    "num_train_epochs": 1,               # 1 epoch; V9 curves show epoch 2 is wasted (loss plateaus by step ~250)
     "warmup_ratio": 0.1,
     "save_total_limit": 3,
     "weight_decay": 0.02,                # additional regularisation
