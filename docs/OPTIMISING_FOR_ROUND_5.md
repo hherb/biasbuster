@@ -249,42 +249,49 @@ Based on documented mistakes across all rounds:
 
 ## Proposed Round 5 Plan
 
-### Phase A: Data format fix (Priority 1 + 2)
+### Phase A: Data format fix (Priority 1 + 2) — COMPLETED
 
-1. Modify `export.py`: `build_json_response()` replacing
-   `build_structured_response()`
-2. Update `build_thinking_chain()` with boundary-grounded reasoning
-3. Re-export dataset
-4. Validate: 100% JSON parse success, spot-check boundary reasoning
-5. Train as V9 with unchanged hyperparameters (LR=5e-6, rank=32, 2 epochs)
-6. Evaluate V9 vs V7 vs baseline
+1. ~~Modify `export.py`: `build_json_response()` replacing
+   `build_structured_response()`~~
+2. ~~Update `build_thinking_chain()` with boundary-grounded reasoning~~
+3. ~~Re-export dataset to `dataset_V2/export/`~~
+4. ~~Validate: 100% JSON parse success, spot-check boundary reasoning~~
+5. ~~Train as V9 (LR=5e-6, rank=32, 2 epochs, V2 JSON data)~~
+6. ~~Evaluate V9 vs baseline~~
 
-**Success criteria:** Overall kappa > 0.15, moderate→high errors < 30
-(down from 43).
+**Result:** Phase A **did not meet** the kappa target. Kappa 0.084 (worse
+than baseline 0.168). But calibration (0.178), verification (0.562), and
+3 significant dimension wins confirm the format change was beneficial for
+everything except severity grading. See `docs/ROUND_5.md` for full results.
 
-### Phase B: Ablation (Priority 4, only if Phase A kappa < 0.15)
+### Phase B: Next steps — label quality is the bottleneck
 
-7. Export no-think variant
-8. Train V9-nothink with same hyperparameters
-9. Compare kappa: if V9-nothink >> V9, the `<think>` design needs rework
-10. If V9-nothink ≈ V9, the bottleneck is elsewhere (ground truth quality)
+V9 confirms that severity kappa is a **ground truth label quality problem**,
+not a model/format/hyperparameter problem. The DeepSeek-generated severity
+labels have inconsistent boundary calibration. Fine-tuning faithfully learns
+these inconsistencies, overwriting the baseline's better native calibration.
 
-### Phase C: Fine-tuning (Priority 3 + 5, only if Phase A kappa > 0.15)
+Remaining options, in priority order:
 
-11. Mine contrastive pairs from moderate/high boundary
-12. Add label smoothing (0.05) as ablation
-13. Train V10 with contrastive examples + label smoothing
-14. Evaluate V10 vs V9
+1. **Human severity review** — audit the 50 most confused examples (where
+   model and GT disagree by 2+ levels). Highest impact, most effort.
+2. **Baseline-as-teacher** — use baseline severity predictions as soft labels
+   or calibration anchors, since baseline has better kappa (0.168).
+3. **Severity-contrastive mining** — find paper pairs with similar domains
+   but different severities, add explicit contrastive reasoning.
+4. **Accept the trade-off** — V9 is already a strong screening tool with
+   excellent recall (0.971), calibration (0.178), and verification (0.562).
 
-**Target metrics for Round 5 completion:**
+---
 
-| Metric | Current best | Target |
-|--------|:---:|:---:|
-| Binary F1 | 0.966 (V8) | >= 0.95 (maintain) |
-| Severity kappa | 0.098 (baseline) | >= 0.20 |
-| Calibration Error | 0.306 (V7) | <= 0.30 |
-| Verification Score | 0.517 (V7) | >= 0.50 (maintain) |
-| moderate→high errors | 43 (V7) | <= 25 |
+## Achieved vs Target Metrics
+
+| Metric | Pre-Round 5 best | Target | V9 actual | Met? |
+|--------|:---:|:---:|:---:|:---:|
+| Binary F1 | 0.966 (V8) | >= 0.95 | 0.922 | No |
+| Severity kappa | 0.098 (baseline V1) | >= 0.20 | 0.084 | No |
+| Calibration Error | 0.306 (V7) | <= 0.30 | **0.178** | **Yes** |
+| Verification Score | 0.517 (V7) | >= 0.50 | **0.562** | **Yes** |
 
 ---
 
@@ -292,10 +299,13 @@ Based on documented mistakes across all rounds:
 
 | File | Purpose |
 |------|---------|
-| `export.py` | Training data export — `build_structured_response()` is the key function to modify |
+| `export.py` | `build_json_response()` (V2 format), `build_structured_response()` (V1, preserved) |
 | `prompts.py` | Severity boundaries and JSON schema — single source of truth |
-| `training/configs.py` | `_MOE_OVERRIDES` — hyperparameters (stable, don't change) |
-| `evaluation/scorer.py` | Parser — already handles JSON via `_parse_from_json` |
-| `docs/ROUND_4.md` | V7/V8 results and analysis |
-| `docs/MISTAKES_ROUND_1_AND_FIXES.md` | Root causes still relevant to Round 5 |
-| `docs/ROUND_3.md` | Hyperparameter history — why current values were chosen |
+| `training/configs.py` | `_MOE_OVERRIDES` — 1 epoch (updated from 2 based on V9 curves) |
+| `evaluation/scorer.py` | Parser — handles both JSON and markdown formats |
+| `pipeline.py` | `--export-dir` flag for V2 dataset export |
+| `dataset_V2/export/` | V2 training data (JSON format, 1919 examples) |
+| `docs/ROUND_5.md` | V9 results and analysis |
+| `docs/ROUND_4.md` | V7/V8 results |
+| `docs/MISTAKES_ROUND_1_AND_FIXES.md` | Root causes still relevant |
+| `docs/ROUND_3.md` | Hyperparameter history |
