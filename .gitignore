@@ -32,6 +32,8 @@ dataset/*.bak
 dataset/llm_rob_cache*.json
 dataset/llm_rob_cache*.bak
 dataset/cleanseed/annotated/
+dataset_*/
+*,bak
 
 # Scratch / logs
 log.txt
