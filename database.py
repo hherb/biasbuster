@@ -122,7 +122,6 @@ CREATE INDEX IF NOT EXISTS idx_enrichments_suspicion ON enrichments(suspicion_le
 CREATE INDEX IF NOT EXISTS idx_annotations_model ON annotations(model_name);
 CREATE INDEX IF NOT EXISTS idx_annotations_severity ON annotations(overall_severity);
 CREATE INDEX IF NOT EXISTS idx_human_reviews_validated ON human_reviews(validated);
-CREATE INDEX IF NOT EXISTS idx_human_reviews_flagged ON human_reviews(flagged);
 CREATE INDEX IF NOT EXISTS idx_eval_outputs_model ON eval_outputs(model_id);
 """
 
@@ -224,6 +223,12 @@ class Database:
                 "UPDATE human_reviews SET flagged = 1 "
                 "WHERE notes LIKE '[AUTO-FLAGGED]%'"
             )
+        # Index on flagged (created here, not in SCHEMA_SQL, because the
+        # column may have just been added by the migration above)
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_human_reviews_flagged "
+            "ON human_reviews(flagged)"
+        )
         self.conn.commit()
 
     # ---- Papers ----
