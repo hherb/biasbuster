@@ -2,7 +2,10 @@
 NiceGUI-based Review Tool
 
 Web-based GUI for reviewing and validating bias annotations.
-Reads from and writes to the SQLite database.
+Presents the reviewer with the same prompt the model received (left panel)
+and a structured assessment form matching the LLM JSON schema (right panel).
+
+Supports filtering by flagged-for-review status.
 
 Usage:
     uv run python -m utils.review_gui --model anthropic
@@ -15,18 +18,28 @@ from pathlib import Path
 
 from nicegui import ui
 
-from database import Database
+from annotators import build_user_message
+from database import Database, _json_load
+from prompts import REVIEWER_REFERENCE_CARD
+from utils.review_form import (
+    SEVERITY_OPTIONS,
+    build_review_form,
+    collect_form_data,
+)
 
 logger = logging.getLogger(__name__)
 
-SEVERITY_OPTIONS = ["", "none", "low", "moderate", "high", "critical"]
+# Filter mode constants
+FILTER_ALL = "all"
+FILTER_FLAGGED = "flagged"
+FILTER_UNVALIDATED = "unvalidated"
 
 
 def load_annotations_for_review(
     db: Database, model_name: str
 ) -> list[dict]:
-    """Load annotations with human review data for the review grid."""
-    annotations = db.get_annotations(model_name=model_name)
+    """Load annotations with paper metadata and human review data."""
+    annotations = db.get_annotations_with_paper_data(model_name)
     reviews = {
         r["pmid"]: r for r in db.get_reviews(model_name=model_name)
     }
@@ -44,146 +57,131 @@ def load_annotations_for_review(
             "title": str(ann.get("title", "")),
             "overall_severity": ann.get("overall_severity", ""),
             "overall_bias_probability": ann.get("overall_bias_probability", ""),
-            "statistical_severity": stat.get("severity", "") if isinstance(stat, dict) else "",
-            "relative_only": stat.get("relative_only", "") if isinstance(stat, dict) else "",
-            "spin_level": spin.get("spin_level", "") if isinstance(spin, dict) else "",
-            "funding_type": coi.get("funding_type", "") if isinstance(coi, dict) else "",
+            "statistical_severity": (
+                stat.get("severity", "") if isinstance(stat, dict) else ""
+            ),
+            "relative_only": (
+                stat.get("relative_only", "") if isinstance(stat, dict) else ""
+            ),
+            "spin_level": (
+                spin.get("spin_level", "") if isinstance(spin, dict) else ""
+            ),
+            "funding_type": (
+                coi.get("funding_type", "") if isinstance(coi, dict) else ""
+            ),
             "confidence": ann.get("confidence", ""),
             "reasoning_summary": str(ann.get("reasoning", "")),
             "abstract_text": str(ann.get("abstract_text", "")),
             "HUMAN_VALIDATED": "True" if review.get("validated") else "",
             "HUMAN_OVERRIDE_SEVERITY": review.get("override_severity") or "",
             "HUMAN_NOTES": review.get("notes") or "",
+            "FLAGGED": bool(review.get("flagged")),
+            # Stash full data for the detail panel (not shown in grid)
+            "_ann": ann,
+            "_paper_metadata": ann.get("_paper_metadata", {}),
+            "_human_annotation": review.get("annotation"),
         })
     return rows
 
 
-def create_app(db: Database, model_name: str, all_models: list[str] | None = None) -> None:
+def _apply_filter(rows: list[dict], mode: str) -> list[dict]:
+    """Return rows matching the filter mode."""
+    if mode == FILTER_FLAGGED:
+        return [r for r in rows if r.get("FLAGGED")]
+    if mode == FILTER_UNVALIDATED:
+        return [r for r in rows if r.get("HUMAN_VALIDATED") != "True"]
+    return rows
+
+
+def create_app(
+    db: Database, model_name: str, all_models: list[str] | None = None
+) -> None:
     """Create the NiceGUI review application."""
     rows = load_annotations_for_review(db, model_name)
-    state = {"modified": False, "rows": rows, "model_name": model_name}
+    state = {
+        "modified": False,
+        "rows": rows,
+        "model_name": model_name,
+        "filter_mode": FILTER_ALL,
+        "form_refs": None,
+        "current_pmid": None,
+    }
     if all_models is None:
         all_models = [m for m in db.get_model_names() if m != "human"]
 
     # --- Column definitions for AG Grid ---
     column_defs = [
         {
-            "field": "pmid",
-            "headerName": "PMID",
-            "width": 110,
-            "sortable": True,
-            "filter": True,
-            "pinned": "left",
+            "field": "FLAGGED", "headerName": "F", "width": 50,
+            "sortable": True, "filter": True, "pinned": "left",
+            ":cellRenderer": """params =>
+                params.value
+                    ? '<i class="material-icons" style="color:#f44336;font-size:18px">flag</i>'
+                    : ''
+            """,
         },
         {
-            "field": "title",
-            "headerName": "Title",
-            "width": 300,
-            "sortable": True,
-            "filter": True,
-            "tooltipField": "title",
+            "field": "pmid", "headerName": "PMID", "width": 110,
+            "sortable": True, "filter": True, "pinned": "left",
         },
         {
-            "field": "overall_severity",
-            "headerName": "Severity",
-            "width": 110,
-            "sortable": True,
-            "filter": True,
+            "field": "title", "headerName": "Title", "width": 250,
+            "sortable": True, "filter": True, "tooltipField": "title",
         },
         {
-            "field": "overall_bias_probability",
-            "headerName": "Bias Prob",
-            "width": 100,
-            "sortable": True,
-            "filter": "agNumberColumnFilter",
+            "field": "overall_severity", "headerName": "Severity",
+            "width": 100, "sortable": True, "filter": True,
         },
         {
-            "field": "statistical_severity",
-            "headerName": "Stat Sev",
-            "width": 100,
-            "sortable": True,
-            "filter": True,
+            "field": "overall_bias_probability", "headerName": "Prob",
+            "width": 70, "sortable": True, "filter": "agNumberColumnFilter",
         },
         {
-            "field": "relative_only",
-            "headerName": "Rel Only",
-            "width": 90,
-            "sortable": True,
-            "filter": True,
+            "field": "statistical_severity", "headerName": "Stat",
+            "width": 80, "sortable": True, "filter": True,
         },
         {
-            "field": "spin_level",
-            "headerName": "Spin",
-            "width": 100,
-            "sortable": True,
-            "filter": True,
+            "field": "spin_level", "headerName": "Spin",
+            "width": 80, "sortable": True, "filter": True,
         },
         {
-            "field": "funding_type",
-            "headerName": "Funding",
-            "width": 110,
-            "sortable": True,
-            "filter": True,
+            "field": "funding_type", "headerName": "Fund",
+            "width": 90, "sortable": True, "filter": True,
         },
         {
-            "field": "confidence",
-            "headerName": "Conf",
-            "width": 80,
-            "sortable": True,
-            "filter": True,
+            "field": "confidence", "headerName": "Conf",
+            "width": 70, "sortable": True, "filter": True,
         },
         {
-            "field": "reasoning_summary",
-            "headerName": "Reasoning",
-            "width": 250,
-            "tooltipField": "reasoning_summary",
+            "field": "reasoning_summary", "headerName": "Reasoning",
+            "width": 150, "tooltipField": "reasoning_summary",
         },
-        # Editable human review columns
         {
-            "field": "HUMAN_VALIDATED",
-            "headerName": "Validated",
-            "width": 110,
+            "field": "HUMAN_VALIDATED", "headerName": "Valid",
+            "width": 80, "sortable": True, "filter": True,
             "editable": True,
-            "sortable": True,
-            "filter": True,
             "cellEditor": "agSelectCellEditor",
             "cellEditorParams": {"values": ["", "True", "False"]},
         },
         {
-            "field": "HUMAN_OVERRIDE_SEVERITY",
-            "headerName": "Override Sev",
-            "width": 130,
-            "editable": True,
-            "sortable": True,
-            "filter": True,
-            "cellEditor": "agSelectCellEditor",
-            "cellEditorParams": {"values": SEVERITY_OPTIONS},
-        },
-        {
-            "field": "HUMAN_NOTES",
-            "headerName": "Notes",
-            "width": 250,
-            "editable": True,
-            "cellEditor": "agLargeTextCellEditor",
-            "cellEditorPopup": True,
+            "field": "HUMAN_OVERRIDE_SEVERITY", "headerName": "Ovrd",
+            "width": 70, "sortable": True, "filter": True,
         },
     ]
 
+    filtered_rows = _apply_filter(rows, state["filter_mode"])
     grid_options = {
         "columnDefs": column_defs,
-        "rowData": rows,
-        "defaultColDef": {
-            "resizable": True,
-            "wrapHeaderText": True,
-        },
+        "rowData": filtered_rows,
+        "defaultColDef": {"resizable": True, "wrapHeaderText": True},
         "rowSelection": {"mode": "singleRow"},
         "enableCellTextSelection": True,
         "tooltipShowDelay": 300,
         ":getRowStyle": """params => {
             if (params.data.HUMAN_VALIDATED === 'True')
                 return {'background-color': '#e8f5e9'};
-            if (params.data.HUMAN_OVERRIDE_SEVERITY)
-                return {'background-color': '#fff8e1'};
+            if (params.data.FLAGGED && params.data.HUMAN_VALIDATED !== 'True')
+                return {'border-left': '4px solid #f44336'};
         }""",
     }
 
@@ -198,219 +196,206 @@ def create_app(db: Database, model_name: str, all_models: list[str] | None = Non
                 all_models,
                 value=model_name,
                 on_change=lambda e: switch_model(e.value),
-            ).props("dense outlined dark").classes("min-w-[200px]")
+            ).props("dense outlined dark").classes("min-w-[12rem]")
         with ui.row().classes("items-center gap-2"):
             status_label = ui.label("No changes").classes("text-caption")
-            save_btn = ui.button("Save", on_click=lambda: do_save())
-            save_btn.props("icon=save color=primary")
+            ui.button("Save", on_click=lambda: do_save()).props(
+                "icon=save color=primary"
+            )
 
     # Stats bar
-    with ui.row().classes("q-px-md q-py-sm items-center gap-4"):
+    with ui.row().classes("q-px-md q-py-xs items-center gap-4"):
         stats_label = ui.label()
 
-        def update_stats():
+        def update_stats() -> None:
             total = len(state["rows"])
             validated = sum(
-                1
-                for r in state["rows"]
+                1 for r in state["rows"]
                 if r.get("HUMAN_VALIDATED") == "True"
             )
-            overridden = sum(
-                1 for r in state["rows"] if r.get("HUMAN_OVERRIDE_SEVERITY")
-            )
+            flagged = sum(1 for r in state["rows"] if r.get("FLAGGED"))
             pct = validated / total * 100 if total > 0 else 0
+            showing = len(_apply_filter(state["rows"], state["filter_mode"]))
             stats_label.text = (
-                f"Total: {total} | "
+                f"Total: {total} | Showing: {showing} | "
                 f"Validated: {validated}/{total} ({pct:.0f}%) | "
-                f"Overridden: {overridden}"
+                f"Flagged: {flagged}"
             )
 
         update_stats()
 
     # Filter controls
-    with ui.row().classes("q-px-md q-py-sm items-center gap-2"):
+    with ui.row().classes("q-px-md q-py-xs items-center gap-2"):
         filter_input = ui.input(
             "Quick filter...",
             on_change=lambda e: grid.run_grid_method(
                 "setGridOption", "quickFilterText", e.value
             ),
-        ).classes("w-64")
-        ui.button(
-            "Clear",
-            on_click=lambda: (
-                filter_input.set_value(""),
-                grid.run_grid_method("setGridOption", "quickFilterText", ""),
-            ),
-        ).props("flat size=sm")
+        ).classes("w-48")
+        ui.button("Clear", on_click=lambda: (
+            filter_input.set_value(""),
+            grid.run_grid_method("setGridOption", "quickFilterText", ""),
+        )).props("flat size=sm")
 
         ui.separator().props("vertical")
 
-        async def toggle_unvalidated_filter():
-            current = filter_input.value
-            if current == "__unvalidated__":
-                filter_input.set_value("")
-                grid.run_grid_method("setGridOption", "quickFilterText", "")
-            else:
-                unvalidated = [
-                    r for r in state["rows"]
-                    if r.get("HUMAN_VALIDATED") != "True"
-                ]
-                grid.options["rowData"] = unvalidated
-                grid.update()
-                filter_input.set_value("__unvalidated__")
+        def set_filter(mode: str) -> None:
+            state["filter_mode"] = mode
+            filtered = _apply_filter(state["rows"], mode)
+            grid.options["rowData"] = filtered
+            grid.update()
+            filter_input.set_value("")
+            update_stats()
+
+        ui.button("All", on_click=lambda: set_filter(FILTER_ALL)).props(
+            "flat size=sm"
+        )
+        ui.button("Flagged", on_click=lambda: set_filter(FILTER_FLAGGED)).props(
+            "flat size=sm color=red"
+        )
+        ui.button("Unvalidated", on_click=lambda: set_filter(FILTER_UNVALIDATED)).props(
+            "flat size=sm color=orange"
+        )
+
+        ui.separator().props("vertical")
 
         ui.button(
-            "Show Unvalidated Only",
-            on_click=toggle_unvalidated_filter,
-        ).props("flat size=sm color=orange")
-
+            "Next Flagged", on_click=lambda: jump_to_next(flagged_only=True),
+        ).props("outline size=sm color=red")
         ui.button(
-            "Show All",
-            on_click=lambda: (
-                grid.options.update({"rowData": state["rows"]}),
-                grid.update(),
-                filter_input.set_value(""),
-            ),
-        ).props("flat size=sm")
-
-        ui.button(
-            "Next Unvalidated",
-            on_click=lambda: jump_to_next_unvalidated(),
+            "Next Unvalidated", on_click=lambda: jump_to_next(flagged_only=False),
         ).props("outline size=sm color=primary")
 
         ui.separator().props("vertical")
 
-        # CSV export button
-        async def export_csv():
-            output_path = Path(f"dataset/export/{state['model_name']}_review.csv")
+        async def export_csv() -> None:
+            output_path = Path(
+                f"dataset/export/{state['model_name']}_review.csv"
+            )
             db.export_review_csv(state["model_name"], output_path)
             ui.notify(f"CSV exported to {output_path}", type="positive")
 
-        ui.button(
-            "Export CSV",
-            on_click=export_csv,
-        ).props("flat size=sm color=secondary icon=download")
-
-    # AG Grid
-    grid = ui.aggrid(grid_options).classes("q-mx-md").style("height: 55vh;")
-
-    # Tabbed detail panel
-    with ui.card().classes("q-mx-md q-mt-sm").style("max-height: 40vh; overflow-y: auto;"):
-        detail_placeholder = ui.label("Click a row to view details").classes(
-            "text-grey"
+        ui.button("Export CSV", on_click=export_csv).props(
+            "flat size=sm color=secondary icon=download"
         )
-        detail_tabs = ui.tabs().props("dense").classes("w-full")
-        with detail_tabs:
-            tab_detail = ui.tab("Detail")
-            tab_abstract = ui.tab("Abstract")
-        detail_tabs.set_value("Detail")
-        detail_tabs.visible = False
-        detail_panels = ui.tab_panels(detail_tabs, value="Detail").classes("w-full")
-        with detail_panels:
-            with ui.tab_panel("Detail"):
-                detail_container = ui.column().classes("w-full")
-            with ui.tab_panel("Abstract"):
-                abstract_container = ui.column().classes("w-full")
-        detail_panels.visible = False
 
-    def switch_model(new_model: str):
-        """Reload grid data for a different model."""
-        if state["modified"]:
-            ui.notify("Save or discard changes before switching models", type="warning")
-            model_select.value = state["model_name"]
-            return
-        new_rows = load_annotations_for_review(db, new_model)
-        state["rows"] = new_rows
-        state["model_name"] = new_model
-        grid.options["rowData"] = new_rows
-        grid.update()
-        ui.page_title(f"Review: {new_model}")
-        # Reset filters
-        filter_input.set_value("")
-        grid.run_grid_method("setGridOption", "quickFilterText", "")
-        update_stats()
-        # Reset detail panel
-        detail_placeholder.visible = True
-        detail_tabs.visible = False
-        detail_panels.visible = False
-        ui.notify(f"Loaded {len(new_rows)} annotations for {new_model}", type="info")
+    # AG Grid (compact, top portion)
+    grid = ui.aggrid(grid_options).classes("q-mx-md").style("height: 30vh;")
+
+    # --- Detail: left/right split below grid ---
+    detail_placeholder = ui.label(
+        "Click a row above to review"
+    ).classes("q-px-md q-py-sm text-grey text-h6")
+
+    detail_splitter = ui.splitter(value=50).classes(
+        "q-mx-md flex-grow"
+    ).style("height: calc(100vh - 16rem);")
+    detail_splitter.visible = False
+
+    with detail_splitter:
+        # LEFT panel: prompt as model sees it
+        with detail_splitter.before:
+            with ui.tabs().props("dense") as left_tabs:
+                tab_prompt = ui.tab("Prompt (as model sees it)")
+                tab_abstract = ui.tab("Abstract only")
+                tab_guidelines = ui.tab("Guidelines")
+            left_panels = ui.tab_panels(left_tabs, value="Prompt (as model sees it)").classes(
+                "w-full"
+            ).style("height: calc(100vh - 19rem); overflow-y: auto;")
+            with left_panels:
+                with ui.tab_panel("Prompt (as model sees it)"):
+                    prompt_container = ui.column().classes("w-full")
+                with ui.tab_panel("Abstract only"):
+                    abstract_container = ui.column().classes("w-full")
+                with ui.tab_panel("Guidelines"):
+                    with ui.column().classes("w-full"):
+                        ui.html(
+                            '<pre style="white-space: pre-wrap;'
+                            " word-break: break-word;"
+                            " font-size: 0.85rem;"
+                            " user-select: text;"
+                            " font-family: inherit;"
+                            " margin: 0;"
+                            f'">{_escape_html(REVIEWER_REFERENCE_CARD)}</pre>'
+                        )
+
+        # RIGHT panel: structured assessment form
+        with detail_splitter.after:
+            with ui.column().classes("w-full").style(
+                "height: calc(100vh - 16rem); overflow-y: auto; padding: 0.5rem;"
+            ) as right_col:
+                # Review action bar at top of form
+                with ui.row().classes(
+                    "w-full items-center gap-2 q-pb-sm"
+                ).style("border-bottom: 1px solid #e0e0e0;"):
+                    form_validated = ui.select(
+                        ["", "True", "False"],
+                        value="",
+                        label="Validated",
+                    ).classes("min-w-[8rem]")
+                    form_notes = ui.input(
+                        "Notes",
+                    ).classes("flex-grow")
+                    ui.button(
+                        "Save this paper",
+                        on_click=lambda: save_current_paper(),
+                    ).props("color=primary size=sm icon=save")
+
+                form_container = ui.column().classes("w-full gap-1")
 
     # --- Event handlers ---
-    async def on_cell_changed(e):
-        data = e.args
-        if data is None:
-            return
-        row_data = data.get("data", {})
-        col = data.get("colId", "")
-        new_val = data.get("value", "")
-        row_index = data.get("rowIndex")
 
-        if row_index is not None and 0 <= row_index < len(state["rows"]):
-            state["rows"][row_index][col] = new_val
-        else:
-            pmid = row_data.get("pmid", "")
-            for row in state["rows"]:
-                if row.get("pmid") == pmid:
-                    row[col] = new_val
-                    break
-
-        state["modified"] = True
-        status_label.text = "Unsaved changes"
-        status_label.classes("text-red", remove="text-grey text-green")
-        update_stats()
-
-    grid.on("cellValueChanged", on_cell_changed)
-
-    def show_detail(row_data):
-        """Populate the detail and abstract tabs for the given row."""
+    def show_detail(row_data: dict) -> None:
+        """Populate left/right panels for the selected paper."""
+        pmid = row_data.get("pmid", "")
+        state["current_pmid"] = pmid
         detail_placeholder.visible = False
-        detail_tabs.visible = True
-        detail_panels.visible = True
+        detail_splitter.visible = True
 
-        # Detail tab
-        detail_container.clear()
-        with detail_container:
-            with ui.row().classes("gap-4 w-full"):
-                with ui.column().classes("w-1/2"):
-                    ui.label(f"PMID: {row_data.get('pmid', '')}").classes(
-                        "text-bold"
-                    )
-                    ui.label(
-                        f"Title: {row_data.get('title', '')}"
-                    ).classes("text-body2")
-                    ui.label(
-                        f"Severity: {row_data.get('overall_severity', '')} "
-                        f"(prob: {row_data.get('overall_bias_probability', '')})"
-                    )
-                    ui.label(
-                        f"Statistical: {row_data.get('statistical_severity', '')} "
-                        f"| Spin: {row_data.get('spin_level', '')} "
-                        f"| Funding: {row_data.get('funding_type', '')}"
-                    )
-                    ui.label(
-                        f"Confidence: {row_data.get('confidence', '')}"
-                    )
-                with ui.column().classes("w-1/2"):
-                    ui.label("Reasoning:").classes("text-bold")
-                    ui.label(
-                        row_data.get("reasoning_summary", "(none)")
-                    ).classes("text-body2").style(
-                        "white-space: pre-wrap; word-break: break-word;"
-                    )
+        ann = row_data.get("_ann", {})
+        meta = row_data.get("_paper_metadata", {})
 
-        # Abstract tab
+        # Build the prompt text the model received
+        prompt_text = build_user_message(
+            pmid=pmid,
+            title=row_data.get("title", ""),
+            abstract=row_data.get("abstract_text", ""),
+            metadata=meta,
+        )
+
+        # LEFT: prompt tab
+        prompt_container.clear()
+        with prompt_container:
+            ui.label(f"PMID: {pmid}").classes("text-bold")
+            ui.html(
+                f'<pre style="white-space: pre-wrap; word-break: break-word;'
+                f' font-size: 0.85rem; user-select: text;'
+                f' font-family: monospace;">{_escape_html(prompt_text)}</pre>'
+            )
+
+        # LEFT: abstract tab
         abstract_container.clear()
         with abstract_container:
-            ui.label(
-                f"{row_data.get('title', '')}"
-            ).classes("text-bold text-body1")
+            ui.label(row_data.get("title", "")).classes("text-bold text-body1")
             ui.label(
                 row_data.get("abstract_text", "(no abstract available)")
             ).classes("text-body2").style(
                 "white-space: pre-wrap; word-break: break-word;"
+                " user-select: text;"
             )
 
-    async def on_cell_clicked(e):
+        # RIGHT: populate form with human annotation if exists, else model's
+        human_ann = row_data.get("_human_annotation")
+        if human_ann and not isinstance(human_ann, dict):
+            human_ann = _json_load(human_ann)
+        form_ann = human_ann if isinstance(human_ann, dict) else ann
+        state["form_refs"] = build_review_form(form_ann, form_container)
+
+        # Populate validated / notes from row
+        form_validated.value = row_data.get("HUMAN_VALIDATED", "")
+        form_notes.value = row_data.get("HUMAN_NOTES", "")
+
+    async def on_cell_clicked(e) -> None:
         data = e.args
         if data is None:
             return
@@ -426,46 +411,157 @@ def create_app(db: Database, model_name: str, all_models: list[str] | None = Non
 
     grid.on("cellClicked", on_cell_clicked)
 
-    def do_save():
-        """Save review changes to the database."""
+    async def on_cell_changed(e) -> None:
+        """Handle inline grid edits (HUMAN_VALIDATED column)."""
+        data = e.args
+        if data is None:
+            return
+        row_data = data.get("data", {})
+        col = data.get("colId", "")
+        new_val = data.get("value", "")
+        pmid = row_data.get("pmid", "")
+        if not pmid:
+            return
+        for row in state["rows"]:
+            if row.get("pmid") == pmid:
+                row[col] = new_val
+                break
+        # For HUMAN_VALIDATED inline edits, save immediately
+        if col == "HUMAN_VALIDATED":
+            validated = new_val == "True"
+            existing_override = next(
+                (r.get("HUMAN_OVERRIDE_SEVERITY") for r in state["rows"]
+                 if r.get("pmid") == pmid), None
+            )
+            existing_notes = next(
+                (r.get("HUMAN_NOTES") for r in state["rows"]
+                 if r.get("pmid") == pmid), None
+            )
+            db.upsert_review(
+                pmid=pmid,
+                model_name=state["model_name"],
+                validated=validated,
+                override_severity=existing_override or None,
+                notes=existing_notes or None,
+            )
+            update_stats()
+            status_label.text = f"Saved PMID {pmid}"
+            status_label.classes("text-green", remove="text-red text-grey")
+        state["modified"] = True
+
+    grid.on("cellValueChanged", on_cell_changed)
+
+    def save_current_paper() -> None:
+        """Save the structured form data for the currently selected paper."""
+        pmid = state.get("current_pmid")
+        if not pmid:
+            ui.notify("No paper selected", type="warning")
+            return
+        if state["form_refs"] is None:
+            ui.notify("No form data to save", type="warning")
+            return
+
         try:
+            annotation = collect_form_data(state["form_refs"])
+            validated = form_validated.value == "True"
+            override_sev = annotation.get("overall_severity")
+            notes = form_notes.value or None
+
+            db.upsert_review(
+                pmid=pmid,
+                model_name=state["model_name"],
+                validated=validated,
+                override_severity=override_sev,
+                notes=notes,
+                annotation=annotation,
+            )
+
+            # Update the row in state
             for row in state["rows"]:
-                pmid = row.get("pmid", "")
-                validated_str = row.get("HUMAN_VALIDATED", "")
-                override = row.get("HUMAN_OVERRIDE_SEVERITY", "") or None
-                notes = row.get("HUMAN_NOTES", "") or None
+                if row.get("pmid") == pmid:
+                    row["HUMAN_VALIDATED"] = "True" if validated else ""
+                    row["HUMAN_OVERRIDE_SEVERITY"] = override_sev or ""
+                    row["HUMAN_NOTES"] = notes or ""
+                    row["_human_annotation"] = annotation
+                    break
 
-                if not pmid:
-                    continue
-                if not validated_str and not override and not notes:
-                    continue
-
-                validated = validated_str == "True"
-                db.upsert_review(
-                    pmid, state["model_name"], validated, override, notes
-                )
+            # Refresh grid display
+            filtered = _apply_filter(state["rows"], state["filter_mode"])
+            grid.options["rowData"] = filtered
+            grid.update()
+            update_stats()
 
             state["modified"] = False
-            status_label.text = "Saved successfully"
+            status_label.text = f"Saved PMID {pmid}"
             status_label.classes("text-green", remove="text-red text-grey")
-            ui.notify("Saved!", type="positive")
+            ui.notify(f"Saved review for PMID {pmid}", type="positive")
         except Exception as exc:
+            logger.exception("Save failed for PMID %s", pmid)
             ui.notify(f"Save failed: {exc}", type="negative")
 
-    async def jump_to_next_unvalidated():
-        for i, row in enumerate(state["rows"]):
-            if row.get("HUMAN_VALIDATED") != "True":
-                grid.run_grid_method("ensureIndexVisible", i, "middle")
-                show_detail(row)
-                return
-        ui.notify("All rows have been validated!", type="info")
+    def do_save() -> None:
+        """Save the current paper (header button delegates here)."""
+        save_current_paper()
+
+    def switch_model(new_model: str) -> None:
+        """Reload grid data for a different model."""
+        if state["modified"]:
+            ui.notify(
+                "You have unsaved form edits. Save or discard before switching.",
+                type="warning",
+            )
+            model_select.value = state["model_name"]
+            return
+        new_rows = load_annotations_for_review(db, new_model)
+        state["rows"] = new_rows
+        state["model_name"] = new_model
+        state["filter_mode"] = FILTER_ALL
+        state["current_pmid"] = None
+        state["form_refs"] = None
+        grid.options["rowData"] = new_rows
+        grid.update()
+        ui.page_title(f"Review: {new_model}")
+        filter_input.set_value("")
+        grid.run_grid_method("setGridOption", "quickFilterText", "")
+        update_stats()
+        detail_placeholder.visible = True
+        detail_splitter.visible = False
+        ui.notify(
+            f"Loaded {len(new_rows)} annotations for {new_model}",
+            type="info",
+        )
+
+    def jump_to_next(flagged_only: bool = False) -> None:
+        """Jump to the next unvalidated (or flagged+unvalidated) row."""
+        visible = _apply_filter(state["rows"], state["filter_mode"])
+        for i, row in enumerate(visible):
+            if row.get("HUMAN_VALIDATED") == "True":
+                continue
+            if flagged_only and not row.get("FLAGGED"):
+                continue
+            grid.run_grid_method("ensureIndexVisible", i, "middle")
+            show_detail(row)
+            return
+        label = "flagged" if flagged_only else "unvalidated"
+        ui.notify(f"No more {label} papers!", type="info")
 
     ui.label(
-        "Tip: Double-click Validated/Override/Notes cells to edit in-place"
+        "Click a row to review. Left panel shows the prompt as the model sees it. "
+        "Right panel is your structured assessment form."
     ).classes("q-px-md text-caption text-grey")
 
 
-def main():
+def _escape_html(text: str) -> str:
+    """Escape HTML special characters for safe display."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def main() -> None:
     """Entry point for the review GUI."""
     import argparse
 
@@ -476,14 +572,10 @@ def main():
         "--model", type=str, default=None, help="Model name to review"
     )
     parser.add_argument(
-        "--db-path",
-        default=None,
-        help="Path to SQLite database",
+        "--db-path", default=None, help="Path to SQLite database",
     )
     parser.add_argument(
-        "--port",
-        type=int,
-        default=8080,
+        "--port", type=int, default=8080,
         help="Port for the web server (default: 8080)",
     )
     args = parser.parse_args()

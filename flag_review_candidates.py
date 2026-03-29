@@ -158,6 +158,7 @@ def main() -> None:
                     model_name=args.model_a,
                     validated=False,
                     notes=f"[AUTO-FLAGGED] {f['note']}",
+                    flagged=True,
                 )
                 inserted += 1
             logger.info(
