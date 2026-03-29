@@ -19,7 +19,7 @@ from pathlib import Path
 from nicegui import ui
 
 from annotators import build_user_message
-from database import Database
+from database import Database, _json_load
 from prompts import REVIEWER_REFERENCE_CARD
 from utils.review_form import (
     SEVERITY_OPTIONS,
@@ -115,7 +115,9 @@ def create_app(
             "field": "FLAGGED", "headerName": "F", "width": 50,
             "sortable": True, "filter": True, "pinned": "left",
             ":cellRenderer": """params =>
-                params.value ? '<span style="color:#f44336">&#9873;</span>' : ''
+                params.value
+                    ? '<i class="material-icons" style="color:#f44336;font-size:18px">flag</i>'
+                    : ''
             """,
         },
         {
@@ -151,8 +153,15 @@ def create_app(
             "width": 70, "sortable": True, "filter": True,
         },
         {
+            "field": "reasoning_summary", "headerName": "Reasoning",
+            "width": 150, "tooltipField": "reasoning_summary",
+        },
+        {
             "field": "HUMAN_VALIDATED", "headerName": "Valid",
-            "width": 70, "sortable": True, "filter": True,
+            "width": 80, "sortable": True, "filter": True,
+            "editable": True,
+            "cellEditor": "agSelectCellEditor",
+            "cellEditorParams": {"values": ["", "True", "False"]},
         },
         {
             "field": "HUMAN_OVERRIDE_SEVERITY", "headerName": "Ovrd",
@@ -279,8 +288,8 @@ def create_app(
     ).classes("q-px-md q-py-sm text-grey text-h6")
 
     detail_splitter = ui.splitter(value=50).classes(
-        "q-mx-md"
-    ).style("height: 60vh;")
+        "q-mx-md flex-grow"
+    ).style("height: calc(100vh - 16rem);")
     detail_splitter.visible = False
 
     with detail_splitter:
@@ -292,7 +301,7 @@ def create_app(
                 tab_guidelines = ui.tab("Guidelines")
             left_panels = ui.tab_panels(left_tabs, value="Prompt (as model sees it)").classes(
                 "w-full"
-            ).style("height: calc(60vh - 3rem); overflow-y: auto;")
+            ).style("height: calc(100vh - 19rem); overflow-y: auto;")
             with left_panels:
                 with ui.tab_panel("Prompt (as model sees it)"):
                     prompt_container = ui.column().classes("w-full")
@@ -300,17 +309,20 @@ def create_app(
                     abstract_container = ui.column().classes("w-full")
                 with ui.tab_panel("Guidelines"):
                     with ui.column().classes("w-full"):
-                        ui.markdown(
-                            REVIEWER_REFERENCE_CARD.replace("\n", "  \n")
-                        ).style(
-                            "white-space: pre-wrap; font-size: 0.85rem;"
+                        ui.html(
+                            '<pre style="white-space: pre-wrap;'
+                            " word-break: break-word;"
+                            " font-size: 0.85rem;"
                             " user-select: text;"
+                            " font-family: inherit;"
+                            " margin: 0;"
+                            f'">{_escape_html(REVIEWER_REFERENCE_CARD)}</pre>'
                         )
 
         # RIGHT panel: structured assessment form
         with detail_splitter.after:
             with ui.column().classes("w-full").style(
-                "height: 60vh; overflow-y: auto; padding: 0.5rem;"
+                "height: calc(100vh - 16rem); overflow-y: auto; padding: 0.5rem;"
             ) as right_col:
                 # Review action bar at top of form
                 with ui.row().classes(
@@ -374,13 +386,8 @@ def create_app(
 
         # RIGHT: populate form with human annotation if exists, else model's
         human_ann = row_data.get("_human_annotation")
-        if human_ann:
-            if isinstance(human_ann, str):
-                import json as _json
-                try:
-                    human_ann = _json.loads(human_ann)
-                except (ValueError, TypeError):
-                    human_ann = None
+        if human_ann and not isinstance(human_ann, dict):
+            human_ann = _json_load(human_ann)
         form_ann = human_ann if isinstance(human_ann, dict) else ann
         state["form_refs"] = build_review_form(form_ann, form_container)
 
@@ -403,6 +410,46 @@ def create_app(
         show_detail(row_data)
 
     grid.on("cellClicked", on_cell_clicked)
+
+    async def on_cell_changed(e) -> None:
+        """Handle inline grid edits (HUMAN_VALIDATED column)."""
+        data = e.args
+        if data is None:
+            return
+        row_data = data.get("data", {})
+        col = data.get("colId", "")
+        new_val = data.get("value", "")
+        pmid = row_data.get("pmid", "")
+        if not pmid:
+            return
+        for row in state["rows"]:
+            if row.get("pmid") == pmid:
+                row[col] = new_val
+                break
+        # For HUMAN_VALIDATED inline edits, save immediately
+        if col == "HUMAN_VALIDATED":
+            validated = new_val == "True"
+            existing_override = next(
+                (r.get("HUMAN_OVERRIDE_SEVERITY") for r in state["rows"]
+                 if r.get("pmid") == pmid), None
+            )
+            existing_notes = next(
+                (r.get("HUMAN_NOTES") for r in state["rows"]
+                 if r.get("pmid") == pmid), None
+            )
+            db.upsert_review(
+                pmid=pmid,
+                model_name=state["model_name"],
+                validated=validated,
+                override_severity=existing_override or None,
+                notes=existing_notes or None,
+            )
+            update_stats()
+            status_label.text = f"Saved PMID {pmid}"
+            status_label.classes("text-green", remove="text-red text-grey")
+        state["modified"] = True
+
+    grid.on("cellValueChanged", on_cell_changed)
 
     def save_current_paper() -> None:
         """Save the structured form data for the currently selected paper."""
@@ -444,6 +491,7 @@ def create_app(
             grid.update()
             update_stats()
 
+            state["modified"] = False
             status_label.text = f"Saved PMID {pmid}"
             status_label.classes("text-green", remove="text-red text-grey")
             ui.notify(f"Saved review for PMID {pmid}", type="positive")
@@ -457,6 +505,13 @@ def create_app(
 
     def switch_model(new_model: str) -> None:
         """Reload grid data for a different model."""
+        if state["modified"]:
+            ui.notify(
+                "You have unsaved form edits. Save or discard before switching.",
+                type="warning",
+            )
+            model_select.value = state["model_name"]
+            return
         new_rows = load_annotations_for_review(db, new_model)
         state["rows"] = new_rows
         state["model_name"] = new_model
