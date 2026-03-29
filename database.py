@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS human_reviews (
     model_name TEXT NOT NULL,
     validated INTEGER DEFAULT 0,
     override_severity TEXT,
+    annotation JSON,
+    flagged INTEGER DEFAULT 0,
     notes TEXT,
     reviewed_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (pmid, model_name),
@@ -120,6 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_enrichments_suspicion ON enrichments(suspicion_le
 CREATE INDEX IF NOT EXISTS idx_annotations_model ON annotations(model_name);
 CREATE INDEX IF NOT EXISTS idx_annotations_severity ON annotations(overall_severity);
 CREATE INDEX IF NOT EXISTS idx_human_reviews_validated ON human_reviews(validated);
+CREATE INDEX IF NOT EXISTS idx_human_reviews_flagged ON human_reviews(flagged);
 CREATE INDEX IF NOT EXISTS idx_eval_outputs_model ON eval_outputs(model_id);
 """
 
@@ -200,6 +203,26 @@ class Database:
         if "cochrane_review_title" not in cols:
             self.conn.execute(
                 "ALTER TABLE papers ADD COLUMN cochrane_review_title TEXT"
+            )
+        # Migrate human_reviews: add annotation JSON, flagged columns if missing
+        hr_cols = {
+            row[1]
+            for row in self.conn.execute(
+                "PRAGMA table_info(human_reviews)"
+            ).fetchall()
+        }
+        if "annotation" not in hr_cols:
+            self.conn.execute(
+                "ALTER TABLE human_reviews ADD COLUMN annotation JSON"
+            )
+        if "flagged" not in hr_cols:
+            self.conn.execute(
+                "ALTER TABLE human_reviews ADD COLUMN flagged INTEGER DEFAULT 0"
+            )
+            # Backfill: mark existing auto-flagged rows
+            self.conn.execute(
+                "UPDATE human_reviews SET flagged = 1 "
+                "WHERE notes LIKE '[AUTO-FLAGGED]%'"
             )
         self.conn.commit()
 
@@ -734,18 +757,32 @@ class Database:
         validated: bool,
         override_severity: Optional[str] = None,
         notes: Optional[str] = None,
+        annotation: Optional[dict] = None,
+        flagged: Optional[bool] = None,
     ) -> None:
-        """Insert or update a human review."""
+        """Insert or update a human review.
+
+        Args:
+            annotation: Full structured annotation JSON (same schema as LLM output).
+            flagged: If True, mark this paper as flagged for review.
+                     If None, preserve existing flagged state on update.
+        """
+        annotation_json = _json_col(annotation) if annotation else None
+        flagged_int = int(flagged) if flagged is not None else None
         self.conn.execute(
             """INSERT INTO human_reviews
-               (pmid, model_name, validated, override_severity, notes)
-               VALUES (?, ?, ?, ?, ?)
+               (pmid, model_name, validated, override_severity, notes,
+                annotation, flagged)
+               VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, 0))
                ON CONFLICT(pmid, model_name) DO UPDATE SET
                    validated = excluded.validated,
                    override_severity = excluded.override_severity,
                    notes = excluded.notes,
+                   annotation = excluded.annotation,
+                   flagged = COALESCE(excluded.flagged, human_reviews.flagged),
                    reviewed_at = datetime('now')""",
-            (pmid, model_name, int(validated), override_severity, notes),
+            (pmid, model_name, int(validated), override_severity, notes,
+             annotation_json, flagged_int),
         )
         self.conn.commit()
 
@@ -763,6 +800,57 @@ class Database:
                 "SELECT * FROM human_reviews ORDER BY pmid"
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_annotations_with_paper_data(
+        self, model_name: str
+    ) -> list[dict]:
+        """Get annotations joined with paper metadata for the review UI.
+
+        Returns dicts with the full annotation JSON plus paper fields
+        (title, abstract, authors, grants, mesh_terms, journal,
+        retraction_reasons, Cochrane RoB fields, enrichment data).
+        """
+        rows = self.conn.execute("""
+            SELECT a.pmid, a.model_name, a.annotation,
+                   a.overall_severity, a.overall_bias_probability, a.confidence,
+                   p.title, p.abstract, p.authors, p.grants, p.mesh_terms,
+                   p.journal, p.retraction_reasons, p.source,
+                   p.overall_rob, p.randomization_bias, p.deviation_bias,
+                   p.missing_outcome_bias, p.measurement_bias, p.reporting_bias,
+                   e.effect_size_audit
+            FROM annotations a
+            JOIN papers p ON a.pmid = p.pmid
+            LEFT JOIN enrichments e ON a.pmid = e.pmid
+            WHERE a.model_name = ? AND p.excluded = 0
+            ORDER BY a.pmid
+        """, (model_name,)).fetchall()
+        results = []
+        for r in rows:
+            ann = _json_load(r["annotation"]) or {}
+            ann["pmid"] = r["pmid"]
+            ann["model_name"] = r["model_name"]
+            ann["overall_severity"] = r["overall_severity"]
+            ann["overall_bias_probability"] = r["overall_bias_probability"]
+            ann["confidence"] = r["confidence"]
+            ann["title"] = r["title"] or ""
+            ann["abstract_text"] = r["abstract"] or ""
+            # Paper metadata for build_user_message
+            ann["_paper_metadata"] = {
+                "authors": _json_load(r["authors"]),
+                "grants": _json_load(r["grants"]),
+                "mesh_terms": _json_load(r["mesh_terms"]),
+                "journal": r["journal"],
+                "retraction_reasons": _json_load(r["retraction_reasons"]),
+                "overall_rob": r["overall_rob"],
+                "randomization_bias": r["randomization_bias"],
+                "deviation_bias": r["deviation_bias"],
+                "missing_outcome_bias": r["missing_outcome_bias"],
+                "measurement_bias": r["measurement_bias"],
+                "reporting_bias": r["reporting_bias"],
+                "effect_size_audit": _json_load(r["effect_size_audit"]),
+            }
+            results.append(ann)
+        return results
 
     # ---- Cross-model queries ----
 

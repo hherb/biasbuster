@@ -317,6 +317,18 @@ CRITICAL RULES:
 - Do not include JavaScript-style comments (// ...) in the JSON output."""
 
 
+# ---------------------------------------------------------------------------
+# Human reviewer reference card (used by review_gui.py)
+# ---------------------------------------------------------------------------
+
+REVIEWER_REFERENCE_CARD = f"""\
+{SEVERITY_SCALE}
+
+{DOMAIN_CRITERIA}
+
+{CALIBRATION_NOTE}"""
+
+
 TRAINING_SYSTEM_PROMPT = f"""\
 You are a biomedical research integrity analyst. Given a clinical trial abstract,
 assess it for potential bias across five domains. For each domain, assign a severity
