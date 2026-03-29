@@ -171,11 +171,20 @@ class ProcessRunner:
     def _emit(self, line: str) -> None:
         """Store *line* and notify all registered callbacks."""
         self.output_lines.append(line)
-        for cb in self._callbacks:
+        dead: list[int] = []
+        for i, cb in enumerate(self._callbacks):
             try:
                 cb(line)
+            except RuntimeError as exc:
+                if "client" in str(exc).lower() and "deleted" in str(exc).lower():
+                    dead.append(i)
+                    logger.info("Removing callback for deleted client")
+                else:
+                    logger.exception("Output callback error")
             except Exception:
                 logger.exception("Output callback error")
+        for i in reversed(dead):
+            self._callbacks.pop(i)
 
     async def _stream_output(self) -> None:
         """Read stdout line-by-line until EOF, then finalise status."""
