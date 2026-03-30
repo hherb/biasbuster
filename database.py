@@ -162,10 +162,22 @@ class Database:
     def __init__(self, db_path: str | Path = "dataset/biasbuster.db") -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.db_path))
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA foreign_keys=ON")
+        self.conn = self._open_connection()
+
+    def _open_connection(self) -> sqlite3.Connection:
+        """Open a new SQLite connection with standard pragmas."""
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
+
+    def _ensure_connected(self) -> None:
+        """Reconnect if the database connection was closed."""
+        try:
+            self.conn.execute("SELECT 1")
+        except sqlite3.ProgrammingError:
+            self.conn = self._open_connection()
 
     def close(self) -> None:
         if self.conn:
@@ -772,6 +784,7 @@ class Database:
             flagged: If True, mark this paper as flagged for review.
                      If None, preserve existing flagged state on update.
         """
+        self._ensure_connected()
         annotation_json = _json_col(annotation) if annotation else None
         flagged_int = int(flagged) if flagged is not None else None
         self.conn.execute(
@@ -795,6 +808,7 @@ class Database:
         self, model_name: Optional[str] = None
     ) -> list[dict]:
         """Get human reviews, optionally filtered by model."""
+        self._ensure_connected()
         if model_name:
             rows = self.conn.execute(
                 "SELECT * FROM human_reviews WHERE model_name = ? ORDER BY pmid",
@@ -815,6 +829,7 @@ class Database:
         (title, abstract, authors, grants, mesh_terms, journal,
         retraction_reasons, Cochrane RoB fields, enrichment data).
         """
+        self._ensure_connected()
         rows = self.conn.execute("""
             SELECT a.pmid, a.model_name, a.annotation,
                    a.overall_severity, a.overall_bias_probability, a.confidence,
