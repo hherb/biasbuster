@@ -128,17 +128,17 @@ VERIFICATION DATABASES — recommend specific checks based on the study:
 # ---------------------------------------------------------------------------
 
 RETRACTION_SEVERITY_PRINCIPLE = """\
-RETRACTION SEVERITY FLOORS: When a paper was retracted for bias-relevant reasons, the
-overall severity cannot be lower than the indicated floor, regardless of how the abstract
-reads. Bias-relevant retraction reasons and their floors:
-- Data fabrication or falsification → severity floor: CRITICAL
-- Manipulation of results or images → severity floor: HIGH
-- Unreliable results or data concerns → severity floor: HIGH
-- Statistical errors or analytical mistakes → severity floor: MODERATE
-Non-bias retractions (authorship disputes, plagiarism, consent issues, duplicate
-publication, publisher error) do NOT impose a severity floor — assess the abstract
-content normally. The retraction classification and floor are provided in the user
-message when applicable."""
+RETRACTION AND ABSTRACT DETECTABILITY: Not all retraction reasons produce visible bias
+signals in the abstract text. The retraction classification in the user message indicates
+whether the reason is abstract-detectable or not, and what severity floor (if any) applies.
+
+When the retraction classification says the reason IS abstract-detectable, apply the
+indicated severity floor. When it says the reason is NOT abstract-detectable, assess the
+abstract on its own merits — rate only what the text actually shows, with no severity floor.
+Non-bias retractions also impose no severity floor — assess the abstract content normally.
+
+Always follow the specific classification and floor as indicated in the retraction
+classification provided in the user message."""
 
 # ---------------------------------------------------------------------------
 # Calibration note

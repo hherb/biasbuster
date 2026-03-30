@@ -17,7 +17,7 @@ dataset/cleanseed/
 
 | Source | Count | Description |
 |--------|-------|-------------|
-| `retraction_watch` | 767 | Retracted papers with structured RW reason codes (~111 categories) |
+| `retraction_watch` | 767 | Retracted papers with structured RW reason codes (~111 categories). Split into abstract-detectable and abstract-undetectable retractions for training — see below. |
 | `pubmed_rct` | 3 238 | PubMed RCTs across 7 medical domains |
 | `cochrane_rob` | 260 | Expert RoB 2 assessments (76 high, 99 some_concerns, 85 low) with per-domain ratings (D1-D5) |
 
@@ -62,6 +62,25 @@ annotation priority and sampling weight in export.
 Currently 3 238 enrichment records exist (all PubMed RCTs).  Retracted
 papers and Cochrane RoB papers are not enriched — they have ground truth
 from their source metadata.
+
+### Abstract-detectable vs abstract-undetectable retractions
+
+Retracted papers are classified by whether the retraction reason produces
+visible bias signals in the abstract text.  This distinction matters for
+training data quality:
+
+- **Abstract-undetectable** (fabrication, fraud, manipulation, etc.):
+  The abstract looks clean — fraud is invisible in the text.  These papers
+  are annotated WITHOUT retraction context so the LLM rates the abstract
+  on its own merits.  They are excellent test cases for the agent harness
+  (which should discover the retraction via Retraction Watch / Crossref).
+
+- **Abstract-detectable** (statistical errors, flawed analysis, COI):
+  Bias signals may be visible in the text.  These papers are annotated
+  WITH retraction context and severity floors.
+
+See `enrichers/retraction_classifier.py` for the full category mapping
+and [ANNOTATED_DATA_SET.md](ANNOTATED_DATA_SET.md) for the complete table.
 
 ## Annotation Stage
 

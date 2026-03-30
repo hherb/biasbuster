@@ -704,6 +704,77 @@ async def stage_compare(config: Config, db: Database) -> None:
         logger.warning("No models to compare.")
 
 
+def _reset_undetectable_annotations(db: "Database", dry_run: bool = False) -> None:
+    """Delete annotations for papers with abstract-undetectable retraction reasons.
+
+    These papers (fabrication, fraud, manipulation, etc.) need to be
+    re-annotated without retraction context so the LLM rates the abstract
+    on its own merits.
+    """
+    from enrichers.retraction_classifier import classify_retraction
+
+    retracted = db.get_retracted_paper_pmids_with_reasons()
+    if not retracted:
+        logger.info("No retracted papers found in database.")
+        return
+
+    undetectable_pmids = []
+    for paper in retracted:
+        reasons_raw = paper["retraction_reasons"]
+        if isinstance(reasons_raw, str):
+            try:
+                reasons = json.loads(reasons_raw)
+            except (json.JSONDecodeError, TypeError):
+                reasons = []
+        else:
+            reasons = reasons_raw or []
+
+        _floor, _category, detectable = classify_retraction(
+            reasons, title=paper.get("title") or "",
+        )
+        if not detectable:
+            undetectable_pmids.append(paper["pmid"])
+
+    if not undetectable_pmids:
+        logger.info("No abstract-undetectable retracted papers found.")
+        return
+
+    # Count existing annotations that would be deleted
+    placeholders = ",".join("?" * len(undetectable_pmids))
+    count = db.conn.execute(
+        f"SELECT COUNT(*) FROM annotations WHERE pmid IN ({placeholders})",
+        undetectable_pmids,
+    ).fetchone()[0]
+
+    if count == 0:
+        print(f"\n{len(undetectable_pmids)} abstract-undetectable papers found, "
+              "but none have annotations yet. Nothing to delete.")
+        return
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would delete {count} annotations for "
+              f"{len(undetectable_pmids)} abstract-undetectable retracted papers.")
+        print("Run without --dry-run to actually delete.")
+        return
+
+    print(f"\nAbout to delete {count} annotations for "
+          f"{len(undetectable_pmids)} abstract-undetectable retracted papers.")
+    response = input("Proceed? [y/N] ").strip().lower()
+    if response not in ("y", "yes"):
+        print("Aborted.")
+        return
+
+    deleted = db.delete_annotations_for_pmids(undetectable_pmids)
+    logger.info(
+        "Deleted %d annotations for %d abstract-undetectable retracted papers. "
+        "Run --stage annotate to re-annotate them without retraction context.",
+        deleted, len(undetectable_pmids),
+    )
+    print(f"Deleted {deleted} annotations.")
+    print("Run the following to re-annotate:")
+    print("  uv run python pipeline.py --stage annotate --models deepseek")
+
+
 def main() -> None:
     """CLI entry point for the pipeline orchestrator."""
     parser = argparse.ArgumentParser(description="Bias Detection Dataset Builder")
@@ -720,6 +791,18 @@ def main() -> None:
         default=None,
         help="Comma-separated list of annotator models (e.g. anthropic,deepseek). "
              "Only used with --stage annotate. Default: anthropic",
+    )
+    parser.add_argument(
+        "--reset-undetectable-annotations", action="store_true",
+        help="Delete annotations for papers with abstract-undetectable "
+             "retraction reasons (fabrication, fraud, etc.) so they can be "
+             "re-annotated without retraction context. Run --stage annotate "
+             "after this to re-annotate them.",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would be done without making changes. "
+             "Currently used with --reset-undetectable-annotations.",
     )
     parser.add_argument(
         "--config", type=str, default=None,
@@ -758,6 +841,12 @@ def main() -> None:
         "export": lambda cfg: stage_export(cfg, db, export_dir=args.export_dir),
         "compare": lambda cfg: stage_compare(cfg, db),
     }
+
+    # Handle --reset-undetectable-annotations before running stages
+    if args.reset_undetectable_annotations:
+        _reset_undetectable_annotations(db, dry_run=args.dry_run)
+        db.close()
+        return
 
     try:
         if args.stage == "all":

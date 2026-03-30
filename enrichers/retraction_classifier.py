@@ -20,6 +20,14 @@ Severity floor semantics:
     but the paper WAS retracted (something was wrong)
   - None: Non-bias retractions (authorship, plagiarism, consent, duplicate)
     — assess abstract content normally, no floor imposed
+
+Abstract detectability:
+  Each retraction reason is also classified as abstract-detectable or not.
+  Reasons like data fabrication produce clean-looking abstracts — the fraud
+  is invisible in the text.  For training a text-based bias detector, these
+  papers should be assessed on abstract merits only (no severity floor).
+  They remain valuable for testing the full agent harness that checks
+  external databases (Retraction Watch, Crossref).  See docs/ANNOTATED_DATA_SET.md.
 """
 
 import logging
@@ -39,61 +47,66 @@ logger = logging.getLogger(__name__)
 # Order matters: first match wins. More specific patterns come first.
 # ---------------------------------------------------------------------------
 
-_REASON_PATTERNS: list[tuple[re.Pattern, Optional[str], str]] = [
-    # --- Bias-relevant: CRITICAL floor ---
-    (re.compile(r"fabricat", re.I), "critical", "data_fabrication"),
-    (re.compile(r"falsif", re.I), "critical", "data_falsification"),
-    (re.compile(r"fraud", re.I), "critical", "fraud"),
-    (re.compile(r"fak(e|ed|ing)\s+(data|results|images?)", re.I), "critical", "data_fabrication"),
-    (re.compile(r"paper\s*mill", re.I), "critical", "paper_mill"),
-    (re.compile(r"misconduct", re.I), "critical", "misconduct"),
+# Each tuple: (pattern, severity_floor, category, abstract_detectable)
+# abstract_detectable=True means the retraction reason MAY produce visible
+# bias signals in the abstract text (e.g. statistical errors, flawed analysis).
+# abstract_detectable=False means fraud is invisible in the abstract — the paper
+# should be assessed on text merits only for training purposes.
+_REASON_PATTERNS: list[tuple[re.Pattern, Optional[str], str, bool]] = [
+    # --- Bias-relevant: CRITICAL floor (all undetectable from abstract) ---
+    (re.compile(r"fabricat", re.I), "critical", "data_fabrication", False),
+    (re.compile(r"falsif", re.I), "critical", "data_falsification", False),
+    (re.compile(r"fraud", re.I), "critical", "fraud", False),
+    (re.compile(r"fak(e|ed|ing)\s+(data|results|images?)", re.I), "critical", "data_fabrication", False),
+    (re.compile(r"paper\s*mill", re.I), "critical", "paper_mill", False),
+    (re.compile(r"misconduct", re.I), "critical", "misconduct", False),
 
     # --- Bias-relevant: HIGH floor ---
-    (re.compile(r"manipulat(e|ed|ion|ing)", re.I), "high", "manipulation"),
-    (re.compile(r"unreliable", re.I), "high", "unreliable_results"),
+    (re.compile(r"manipulat(e|ed|ion|ing)", re.I), "high", "manipulation", False),
+    (re.compile(r"unreliable", re.I), "high", "unreliable_results", False),
     (re.compile(r"concern.{0,30}(data|results|integrity|reliab|conclusions)", re.I),
-     "high", "data_concerns"),
-    (re.compile(r"(data|image|figure).{0,10}(manipulat|doctor|alter)", re.I), "high", "manipulation"),
-    (re.compile(r"misrepresent", re.I), "high", "misrepresentation"),
-    (re.compile(r"flawed\s*(data|analysis|methodology)", re.I), "high", "flawed_analysis"),
+     "high", "data_concerns", False),
+    (re.compile(r"(data|image|figure).{0,10}(manipulat|doctor|alter)", re.I), "high", "manipulation", False),
+    (re.compile(r"misrepresent", re.I), "high", "misrepresentation", False),
+    (re.compile(r"flawed\s*(data|analysis|methodology)", re.I), "high", "flawed_analysis", True),
     (re.compile(r"original\s*data.{0,20}not\s*(provided|available)", re.I),
-     "high", "data_not_available"),
-    (re.compile(r"computer.{0,10}(aided|generated)\s*content", re.I), "high", "ai_generated"),
+     "high", "data_not_available", False),
+    (re.compile(r"computer.{0,10}(aided|generated)\s*content", re.I), "high", "ai_generated", False),
 
     # --- Bias-relevant: MODERATE floor ---
     (re.compile(r"(statistic|analytic)al?\s*(error|mistake|flaw)", re.I),
-     "moderate", "statistical_errors"),
+     "moderate", "statistical_errors", True),
     (re.compile(r"error.{0,20}(data|analysis|result|method)", re.I),
-     "moderate", "analytical_errors"),
-    (re.compile(r"irreproduci", re.I), "moderate", "irreproducible"),
-    (re.compile(r"cannot\s*be\s*(reprod|replic)", re.I), "moderate", "irreproducible"),
-    (re.compile(r"conflict\s*of\s*interest", re.I), "moderate", "conflict_of_interest"),
-    (re.compile(r"concern.{0,30}image", re.I), "moderate", "image_concerns"),
-    (re.compile(r"concern.{0,30}peer\s*review", re.I), "moderate", "peer_review_concerns"),
-    (re.compile(r"compromised\s*peer\s*review", re.I), "moderate", "peer_review_concerns"),
-    (re.compile(r"lack\s*of\s*(IRB|IACUC|ethic)", re.I), "moderate", "ethics_violation"),
-    (re.compile(r"breach\s*of\s*policy", re.I), "moderate", "policy_breach"),
+     "moderate", "analytical_errors", True),
+    (re.compile(r"irreproduci", re.I), "moderate", "irreproducible", False),
+    (re.compile(r"cannot\s*be\s*(reprod|replic)", re.I), "moderate", "irreproducible", False),
+    (re.compile(r"conflict\s*of\s*interest", re.I), "moderate", "conflict_of_interest", True),
+    (re.compile(r"concern.{0,30}image", re.I), "moderate", "image_concerns", False),
+    (re.compile(r"concern.{0,30}peer\s*review", re.I), "moderate", "peer_review_concerns", False),
+    (re.compile(r"compromised\s*peer\s*review", re.I), "moderate", "peer_review_concerns", False),
+    (re.compile(r"lack\s*of\s*(IRB|IACUC|ethic)", re.I), "moderate", "ethics_violation", True),
+    (re.compile(r"breach\s*of\s*policy", re.I), "moderate", "policy_breach", True),
 
     # --- NOT bias-relevant: no severity floor ---
-    (re.compile(r"concern.{0,30}authorship", re.I), None, "authorship_dispute"),
-    (re.compile(r"authorship\s*(dispute|issue|concern)", re.I), None, "authorship_dispute"),
-    (re.compile(r"objections?\s*by\s*author", re.I), None, "author_objection"),
-    (re.compile(r"author\s*unresponsive", re.I), None, "author_unresponsive"),
-    (re.compile(r"plagiari", re.I), None, "plagiarism"),
-    (re.compile(r"duplicat", re.I), None, "duplication"),
-    (re.compile(r"euphemism.{0,10}duplicat", re.I), None, "duplication"),
-    (re.compile(r"copyright", re.I), None, "copyright"),
-    (re.compile(r"consent\s*(issue|violation|concern|not\s*obtained)", re.I), None, "consent_issues"),
-    (re.compile(r"publisher\s*error", re.I), None, "publisher_error"),
-    (re.compile(r"author\s*request", re.I), None, "author_request"),
-    (re.compile(r"withdraw(n|al)?\s*(at|by|per)\s*author", re.I), None, "author_request"),
-    (re.compile(r"overlap(ping)?\s*(with|article|publication)", re.I), None, "duplication"),
-    (re.compile(r"referenc", re.I), None, "referencing_issues"),
-    (re.compile(r"removed$", re.I), None, "removed"),
-    (re.compile(r"notice.{0,10}(limited|no)\s*information", re.I), None, "no_information"),
-    (re.compile(r"upgrade.{0,10}prior\s*notice", re.I), None, "notice_update"),
-    (re.compile(r"date.{0,20}unknown", re.I), None, "date_unknown"),
-    (re.compile(r"investigation\s*by", re.I), None, "under_investigation"),
+    (re.compile(r"concern.{0,30}authorship", re.I), None, "authorship_dispute", False),
+    (re.compile(r"authorship\s*(dispute|issue|concern)", re.I), None, "authorship_dispute", False),
+    (re.compile(r"objections?\s*by\s*author", re.I), None, "author_objection", False),
+    (re.compile(r"author\s*unresponsive", re.I), None, "author_unresponsive", False),
+    (re.compile(r"plagiari", re.I), None, "plagiarism", False),
+    (re.compile(r"duplicat", re.I), None, "duplication", False),
+    (re.compile(r"euphemism.{0,10}duplicat", re.I), None, "duplication", False),
+    (re.compile(r"copyright", re.I), None, "copyright", False),
+    (re.compile(r"consent\s*(issue|violation|concern|not\s*obtained)", re.I), None, "consent_issues", False),
+    (re.compile(r"publisher\s*error", re.I), None, "publisher_error", False),
+    (re.compile(r"author\s*request", re.I), None, "author_request", False),
+    (re.compile(r"withdraw(n|al)?\s*(at|by|per)\s*author", re.I), None, "author_request", False),
+    (re.compile(r"overlap(ping)?\s*(with|article|publication)", re.I), None, "duplication", False),
+    (re.compile(r"referenc", re.I), None, "referencing_issues", False),
+    (re.compile(r"removed$", re.I), None, "removed", False),
+    (re.compile(r"notice.{0,10}(limited|no)\s*information", re.I), None, "no_information", False),
+    (re.compile(r"upgrade.{0,10}prior\s*notice", re.I), None, "notice_update", False),
+    (re.compile(r"date.{0,20}unknown", re.I), None, "date_unknown", False),
+    (re.compile(r"investigation\s*by", re.I), None, "under_investigation", False),
 ]
 
 
@@ -101,7 +114,7 @@ def classify_retraction(
     reasons: list[str],
     title: str = "",
     abstract: str = "",
-) -> tuple[Optional[str], str]:
+) -> tuple[Optional[str], str, bool]:
     """Classify a retraction and determine the severity floor.
 
     Searches through the retraction reasons, title, and abstract text for
@@ -115,11 +128,14 @@ def classify_retraction(
             abstract — this is the notice explaining why it was retracted).
 
     Returns:
-        Tuple of ``(severity_floor, category)``:
+        Tuple of ``(severity_floor, category, abstract_detectable)``:
         - ``severity_floor``: ``"critical"`` / ``"high"`` / ``"moderate"`` /
           ``None``. ``None`` means no floor — assess normally.
         - ``category``: Human-readable reason category (e.g.
           ``"data_fabrication"``, ``"authorship_dispute"``, ``"unknown"``).
+        - ``abstract_detectable``: Whether the retraction reason could
+          produce visible bias signals in the abstract text.  When False,
+          the paper should be assessed on abstract merits only for training.
     """
     # Build the text corpus to search
     search_texts = [r.strip() for r in reasons if r.strip()]
@@ -131,39 +147,47 @@ def classify_retraction(
     combined = " ".join(search_texts)
 
     # Try each pattern
-    for pattern, floor, category in _REASON_PATTERNS:
+    for pattern, floor, category, detectable in _REASON_PATTERNS:
         if pattern.search(combined):
             logger.debug(
-                "Retraction classified as %s (floor=%s) from pattern: %s",
-                category, floor, pattern.pattern,
+                "Retraction classified as %s (floor=%s, detectable=%s) "
+                "from pattern: %s",
+                category, floor, detectable, pattern.pattern,
             )
-            return floor, category
+            return floor, category, detectable
 
     # No specific pattern matched. If the paper IS retracted (we know it is
     # if this function was called), apply a default MODERATE floor — the paper
     # was retracted for *some* reason, we just can't determine what.
+    # Unknown retractions are treated as undetectable (conservative for training).
     if reasons or "retract" in combined.lower():
-        return "moderate", "unknown_retraction"
+        return "moderate", "unknown_retraction", False
 
-    return None, "not_retracted"
+    return None, "not_retracted", False
 
 
 def format_retraction_context(
     severity_floor: Optional[str],
     category: str,
+    abstract_detectable: bool = True,
 ) -> str:
     """Format retraction classification as context text for the annotator.
+
+    Args:
+        severity_floor: The severity floor, or None for non-bias retractions.
+        category: The retraction reason category.
+        abstract_detectable: Whether the reason produces visible bias signals
+            in the abstract.  When False, no severity floor is communicated
+            to the annotator — the abstract should be assessed on its merits.
 
     Returns a string to append to the user message, or empty string if
     no retraction context applies.
     """
-    if severity_floor is None and category in ("not_retracted", "authorship_dispute",
-                                                "plagiarism", "duplicate_publication",
-                                                "copyright", "consent_issues",
-                                                "ethics_violation", "publisher_error",
-                                                "author_request"):
-        if category == "not_retracted":
-            return ""
+    if category == "not_retracted":
+        return ""
+
+    # Non-bias retractions (authorship, plagiarism, etc.) — no floor
+    if severity_floor is None:
         return (
             f"RETRACTION CLASSIFICATION: This paper was retracted for "
             f"{category.replace('_', ' ')}. This is NOT a bias-relevant "
@@ -171,7 +195,18 @@ def format_retraction_context(
             f"severity floor."
         )
 
-    floor_label = (severity_floor or "none").upper()
+    # Abstract-undetectable retractions — assess on text merits only
+    if not abstract_detectable:
+        return (
+            f"RETRACTION CLASSIFICATION: This paper was retracted "
+            f"({category.replace('_', ' ')}). This retraction reason is "
+            f"NOT expected to be detectable from the abstract text alone. "
+            f"Assess the abstract on its own merits — do NOT apply a "
+            f"severity floor. Rate only what the text actually shows."
+        )
+
+    # Abstract-detectable retractions — enforce severity floor
+    floor_label = severity_floor.upper()
     return (
         f"RETRACTION CLASSIFICATION: This paper was retracted. "
         f"Reason category: {category.replace('_', ' ')}. "
@@ -239,10 +274,10 @@ if __name__ == "__main__":
     ]
 
     for reasons, title, abstract in test_cases:
-        floor, category = classify_retraction(reasons, title, abstract)
-        context = format_retraction_context(floor, category)
+        floor, category, detectable = classify_retraction(reasons, title, abstract)
+        context = format_retraction_context(floor, category, detectable)
         print(f"  reasons={reasons}, title={title[:50]!r}")
-        print(f"  → floor={floor}, category={category}")
+        print(f"  → floor={floor}, category={category}, abstract_detectable={detectable}")
         if context:
-            print(f"  → {context[:100]}...")
+            print(f"  → {context[:120]}...")
         print()

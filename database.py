@@ -668,6 +668,50 @@ class Database:
         self.conn.commit()
         return cursor.rowcount > 0
 
+    def get_retracted_paper_pmids_with_reasons(self) -> list[dict]:
+        """Get all non-excluded retracted papers with their retraction reasons.
+
+        Returns list of dicts with 'pmid', 'title', 'retraction_reasons'.
+        """
+        rows = self.conn.execute("""
+            SELECT pmid, title, retraction_reasons
+            FROM papers
+            WHERE retraction_reasons IS NOT NULL
+              AND retraction_reasons != '[]'
+              AND excluded = 0
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_annotations_for_pmids(
+        self, pmids: list[str], model_name: str | None = None,
+    ) -> int:
+        """Delete annotations for a list of PMIDs.
+
+        Args:
+            pmids: List of PMIDs to delete annotations for.
+            model_name: If provided, only delete for this model.
+                If None, delete all models' annotations.
+
+        Returns:
+            Number of annotations deleted.
+        """
+        if not pmids:
+            return 0
+        placeholders = ",".join("?" * len(pmids))
+        if model_name:
+            cursor = self.conn.execute(
+                f"DELETE FROM annotations WHERE pmid IN ({placeholders}) "
+                f"AND model_name = ?",
+                (*pmids, model_name),
+            )
+        else:
+            cursor = self.conn.execute(
+                f"DELETE FROM annotations WHERE pmid IN ({placeholders})",
+                pmids,
+            )
+        self.conn.commit()
+        return cursor.rowcount
+
     def get_annotations(
         self,
         model_name: Optional[str] = None,
@@ -950,7 +994,7 @@ class Database:
         """
         rows = self.conn.execute("""
             SELECT a.pmid, a.model_name, a.annotation,
-                   p.title, p.abstract
+                   p.title, p.abstract, p.retraction_reasons
             FROM annotations a
             JOIN papers p ON a.pmid = p.pmid
             WHERE p.excluded = 0
@@ -963,6 +1007,7 @@ class Database:
             ann["title"] = r["title"]
             ann["abstract_text"] = r["abstract"]
             ann["_annotation_model"] = r["model_name"]
+            ann["retraction_reasons"] = r["retraction_reasons"]
             results.append(ann)
         return results
 

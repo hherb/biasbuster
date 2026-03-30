@@ -402,22 +402,29 @@ def _build_calibration_summary(parts: list[str], annotation: dict) -> None:
 
 
 def _build_retraction_reasoning(parts: list[str], annotation: dict) -> None:
-    """Add retraction-specific severity floor reasoning if applicable."""
+    """Add retraction-specific reasoning to the thinking chain."""
     reasons = _ensure_parsed(annotation.get("retraction_reasons"))
     if not reasons:
         return
 
     from enrichers.retraction_classifier import classify_retraction
-    floor, category = classify_retraction(
+    floor, category, detectable = classify_retraction(
         reasons, title=annotation.get("title", ""),
     )
 
-    if floor is not None:
+    if not detectable:
+        # Abstract-undetectable: note that severity reflects text only
+        parts.append(
+            f"RETRACTION NOTE: This paper was retracted ({category.replace('_', ' ')}). "
+            f"This retraction reason is not detectable from the abstract text. "
+            f"The severity rating reflects only what is visible in the abstract."
+        )
+    elif floor is not None:
+        # Abstract-detectable with floor: enforce floor in reasoning
         parts.append(
             f"RETRACTION NOTE: This paper was retracted ({category.replace('_', ' ')}). "
             f"Severity floor: {floor.upper()}. The overall severity must be at least "
-            f"{floor.upper()} regardless of abstract content, because the retraction "
-            f"indicates {category.replace('_', ' ')} that may not be visible in the text."
+            f"{floor.upper()} because this type of issue may be visible in the text."
         )
     else:
         parts.append(
@@ -884,22 +891,35 @@ def _apply_retraction_floors(annotations: list[dict]) -> list[dict]:
 
     result = []
     floors_applied = 0
+    floors_skipped = 0
     for ann in annotations:
         reasons = _ensure_parsed(ann.get("retraction_reasons"))
         if reasons:
-            floor, category = classify_retraction(
+            floor, category, detectable = classify_retraction(
                 reasons, title=ann.get("title", ""),
             )
-            adjusted = enforce_severity_floor(ann, floor)
-            if adjusted is not ann:
-                floors_applied += 1
-            result.append(adjusted)
+            if not detectable:
+                # Abstract-undetectable retraction: do NOT enforce floor.
+                # Let the annotation's own severity stand — it reflects
+                # what the text actually shows.
+                floors_skipped += 1
+                result.append(ann)
+            else:
+                adjusted = enforce_severity_floor(ann, floor)
+                if adjusted is not ann:
+                    floors_applied += 1
+                result.append(adjusted)
         else:
             result.append(ann)
 
     if floors_applied:
         logger.info(
-            f"Retraction severity floors applied to {floors_applied} annotations"
+            "Retraction severity floors applied to %d annotations", floors_applied,
+        )
+    if floors_skipped:
+        logger.info(
+            "Retraction floors skipped for %d abstract-undetectable papers",
+            floors_skipped,
         )
     return result
 

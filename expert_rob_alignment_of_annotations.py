@@ -462,7 +462,7 @@ def load_retraction_floor_compliance(db: Database) -> RetractionFloorResult:
         except (json.JSONDecodeError, TypeError):
             reasons = []
 
-        floor, category = classify_retraction(reasons, title=title or "")
+        floor, category, _detectable = classify_retraction(reasons, title=title or "")
 
         ann_ord = SEVERITY_ORDER.get(ann_sev.lower().strip() if ann_sev else "", -1)
 

@@ -145,23 +145,35 @@ def build_user_message(
 
         reasons = _ensure_parsed(metadata.get("retraction_reasons"))
         if reasons:
-            user_parts.append(
-                f"NOTE: This paper has been RETRACTED. "
-                f"Reasons: {', '.join(reasons)}"
-            )
-            # Add retraction classification with severity floor guidance
+            # Classify the retraction to determine detectability
             from enrichers.retraction_classifier import (
                 classify_retraction,
                 format_retraction_context,
             )
-            floor, category = classify_retraction(
+            floor, category, detectable = classify_retraction(
                 reasons,
                 title=title,
                 abstract="",  # Don't pass the original abstract as notice text
             )
-            retraction_context = format_retraction_context(floor, category)
-            if retraction_context:
-                user_parts.append(retraction_context)
+
+            if not detectable:
+                # Abstract-undetectable retraction (fabrication, fraud, etc.)
+                # Do NOT tell the LLM about the retraction — assess abstract
+                # on its own merits for training purposes.  We intentionally
+                # skip format_retraction_context() here so no retraction info
+                # leaks into the prompt at all.
+                pass
+            else:
+                # Abstract-detectable retraction — include context and floor
+                user_parts.append(
+                    f"NOTE: This paper has been RETRACTED. "
+                    f"Reasons: {', '.join(reasons)}"
+                )
+                retraction_context = format_retraction_context(
+                    floor, category, detectable,
+                )
+                if retraction_context:
+                    user_parts.append(retraction_context)
 
         # Cochrane Risk of Bias 2 expert judgments (when available)
         overall_rob = metadata.get("overall_rob")

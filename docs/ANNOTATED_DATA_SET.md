@@ -147,10 +147,36 @@ for efficient querying.
 3. **Checkpoint/resume** — The pipeline queries `already_done` PMIDs per
    model before starting, so re-runs skip completed work.
 
-4. **Retraction severity floors** — Papers retracted for data
-   fabrication, manipulation, or unreliable results have minimum severity
-   floors enforced via the prompt (critical, high, or moderate depending
-   on retraction category).
+4. **Retraction severity floors (detectable retractions only)** —
+   Papers retracted for reasons that ARE detectable from abstract text
+   (e.g., statistical errors, flawed analysis, COI) have minimum
+   severity floors enforced via the prompt.  Papers retracted for
+   reasons NOT detectable from the abstract (e.g., data fabrication,
+   fraud, manipulation) are annotated on the abstract's own merits
+   with no floor — see below.
+
+### Abstract-detectable vs abstract-undetectable retractions
+
+Not all retraction reasons produce visible bias signals in the abstract
+text.  Data fabrication, for example, produces clean-looking abstracts
+— the fraud is invisible.  Training a text-based bias detector on these
+papers with forced HIGH/CRITICAL severity creates wrong training signal:
+the model learns "clean abstract = high bias."
+
+The retraction classifier (`enrichers/retraction_classifier.py`)
+classifies each retraction reason as **abstract-detectable** or
+**abstract-undetectable**:
+
+| Detectable from abstract | Categories | Training handling |
+|--------------------------|-----------|-------------------|
+| **No** | fabrication, falsification, fraud, paper mill, misconduct, manipulation, unreliable results, data concerns, data not available, misrepresentation, irreproducible, image concerns, peer review concerns, ai generated, unknown retraction | Annotated WITHOUT retraction context; no severity floor; LLM rates abstract on its own merits |
+| **Yes** | statistical errors, analytical errors, flawed analysis, conflict of interest, ethics violation, policy breach | Annotated WITH retraction context and severity floor enforcement |
+
+**For evaluation/harness testing**: abstract-undetectable papers are
+excellent test cases.  The agent harness should discover the retraction
+via external database checks (Retraction Watch, Crossref) and flag it
+accordingly — this tests the full verification pipeline, not just
+abstract-level detection.
 
 ## Checking alignment with expert assessments
 

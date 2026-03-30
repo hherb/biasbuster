@@ -69,6 +69,12 @@ uv run python pipeline.py --stage annotate --models anthropic,deepseek  # multi-
 uv run python pipeline.py --stage export
 uv run python pipeline.py --stage compare   # compare models vs human labels
 
+# Reset annotations for abstract-undetectable retracted papers (fabrication, fraud, etc.)
+# These need re-annotation without retraction context so LLM rates abstract on its merits
+uv run python pipeline.py --reset-undetectable-annotations --dry-run  # preview only
+uv run python pipeline.py --reset-undetectable-annotations              # interactive confirm
+uv run python pipeline.py --stage annotate --models deepseek             # then re-annotate
+
 # Single-paper import & annotation (ad-hoc additions to the dataset)
 uv run python annotate_single_paper.py --pmid 41271640                 # by PMID (deepseek default)
 uv run python annotate_single_paper.py --pmid 41271640 --model anthropic
@@ -150,7 +156,7 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
 ### Module Pattern
 
 - **Collectors** (`collectors/`): Async classes using `httpx.AsyncClient` with rate limiting. Each fetches from a specific source (Crossref, PubMed, ClinicalTrials.gov, Europe PMC). Return typed dataclasses. PubMed XML parsing functions (`parse_pubmed_xml`, `parse_pubmed_xml_batch`) are standalone module-level functions in `retraction_watch.py`. `cochrane_rob.py` exports `rob_assessment_to_paper_dict()` (shared pure function) and `collect_rob_dataset()` supports `skip_pmids`/`skip_pmcids` for efficient re-runs. Full-text documents exceeding `MAX_FULLTEXT_BYTES` (2.4 MB) are skipped to avoid wasting LLM tokens on non-review content (e.g. entire books indexed in PMC).
-- **Enrichers** (`enrichers/`): Mostly synchronous regex/heuristic processors. `effect_size_auditor` scores reporting bias 0-1. `funding_checker` classifies funding sources. `author_coi` is async (queries ORCID, Europe PMC, CMS Open Payments). `retraction_classifier` classifies retraction reasons and assigns severity floors (see `docs/MISTAKES_ROUND_1_AND_FIXES.md`).
+- **Enrichers** (`enrichers/`): Mostly synchronous regex/heuristic processors. `effect_size_auditor` scores reporting bias 0-1. `funding_checker` classifies funding sources. `author_coi` is async (queries ORCID, Europe PMC, CMS Open Payments). `retraction_classifier` classifies retraction reasons, assigns severity floors, and determines abstract detectability — whether the retraction reason could produce visible bias signals in the abstract text (see `docs/ANNOTATED_DATA_SET.md`).
 - **Annotators** (`annotators/`): Two backends sharing prompt, user-message construction, and output utilities via `annotators/__init__.py`:
   - `LLMAnnotator` (`llm_prelabel.py`) — Anthropic Claude via the `anthropic` async SDK
   - `OpenAICompatAnnotator` (`openai_compat.py`) — any OpenAI-compatible API (DeepSeek, vLLM, SGLang, etc.) via `httpx`
@@ -194,7 +200,7 @@ export/alpaca/{train,val,test}.jsonl → training/ → training_output/<model>-l
 ### Key Design Decisions
 
 - **Verification-focused training**: The export format includes `<think>` reasoning chains and verification steps citing specific databases (CMS Open Payments, ClinicalTrials.gov, ORCID, etc.). This teaches the model WHERE to look, not just what to flag.
-- **Multi-source ground truth**: Retracted papers (known positives), Cochrane RoB (expert assessments), and heuristic-mined PubMed RCTs provide diverse training signal.
+- **Multi-source ground truth**: Retracted papers, Cochrane RoB (expert assessments), and heuristic-mined PubMed RCTs provide diverse training signal. Retracted papers are split by abstract detectability: papers retracted for reasons invisible in the abstract (fabrication, fraud) are annotated without retraction context so training reflects what the text actually shows; papers with text-detectable issues (statistical errors, flawed analysis) retain severity floors.
 - **Boutron spin classification**: Spin detection uses the established Boutron taxonomy (none/low/moderate/high).
 - **Config is a dataclass** (`config.py`): Contains all API endpoints, collection limits, MeSH focus domains, and `db_path`. `config.py` is gitignored — copy `config.example.py` to get started.
 - **SQLite as single source of truth**: `database.py` provides the `Database` class with schema-enforced PMID uniqueness, atomic upserts, WAL mode for concurrent reads, and foreign key constraints. All pipeline stages read/write via `Database` methods instead of file I/O.
