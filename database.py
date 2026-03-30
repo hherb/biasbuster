@@ -661,6 +661,11 @@ class Database:
 
     def delete_annotation(self, pmid: str, model_name: str) -> bool:
         """Delete an annotation. Returns True if a row was deleted."""
+        # Delete dependent human_reviews first (FK constraint)
+        self.conn.execute(
+            "DELETE FROM human_reviews WHERE pmid = ? AND model_name = ?",
+            (pmid, model_name),
+        )
         cursor = self.conn.execute(
             "DELETE FROM annotations WHERE pmid = ? AND model_name = ?",
             (pmid, model_name),
@@ -699,12 +704,23 @@ class Database:
             return 0
         placeholders = ",".join("?" * len(pmids))
         if model_name:
+            # Delete dependent human_reviews first (FK constraint)
+            self.conn.execute(
+                f"DELETE FROM human_reviews WHERE pmid IN ({placeholders}) "
+                f"AND model_name = ?",
+                (*pmids, model_name),
+            )
             cursor = self.conn.execute(
                 f"DELETE FROM annotations WHERE pmid IN ({placeholders}) "
                 f"AND model_name = ?",
                 (*pmids, model_name),
             )
         else:
+            # Delete dependent human_reviews first (FK constraint)
+            self.conn.execute(
+                f"DELETE FROM human_reviews WHERE pmid IN ({placeholders})",
+                pmids,
+            )
             cursor = self.conn.execute(
                 f"DELETE FROM annotations WHERE pmid IN ({placeholders})",
                 pmids,
