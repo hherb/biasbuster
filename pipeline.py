@@ -535,7 +535,10 @@ def create_annotator(
 
 
 async def stage_export(
-    config: Config, db: Database, export_dir: str | None = None,
+    config: Config,
+    db: Database,
+    export_dir: str | None = None,
+    export_model: str | None = None,
 ) -> None:
     """Export validated annotations for fine-tuning.
 
@@ -544,12 +547,17 @@ async def stage_export(
 
     Args:
         export_dir: Override export directory. If None, uses config.export_dir.
+        export_model: If provided, only export this model's annotations.
+            If None, exports all models.
     """
     from export import export_dataset
 
     output_dir = Path(export_dir) if export_dir else Path(config.export_dir)
 
-    all_annotations = db.get_all_annotations_for_export()
+    all_annotations = db.get_all_annotations_for_export(model_name=export_model)
+
+    if export_model:
+        logger.info(f"Filtering export to model: {export_model}")
 
     if not all_annotations:
         logger.warning("No annotations found. Run --stage annotate first.")
@@ -771,8 +779,9 @@ def _reset_undetectable_annotations(db: "Database", dry_run: bool = False) -> No
         deleted, len(undetectable_pmids),
     )
     print(f"Deleted {deleted} annotations.")
-    print("Run the following to re-annotate:")
-    print("  uv run python pipeline.py --stage annotate --models deepseek")
+    print("Run the following to re-annotate with both models and compare:")
+    print("  uv run python pipeline.py --stage annotate --models anthropic,deepseek")
+    print("  uv run python pipeline.py --stage compare")
 
 
 def main() -> None:
@@ -790,7 +799,9 @@ def main() -> None:
         type=str,
         default=None,
         help="Comma-separated list of annotator models (e.g. anthropic,deepseek). "
-             "Only used with --stage annotate. Default: anthropic",
+             "Used with --stage annotate (runs annotation with each model) and "
+             "--stage export (filters to a single model's annotations). "
+             "Default for annotate: anthropic. Default for export: all models.",
     )
     parser.add_argument(
         "--reset-undetectable-annotations", action="store_true",
@@ -817,10 +828,14 @@ def main() -> None:
 
     config = Config()
 
-    # Parse model list for annotation stage
+    # Parse model list for annotation/export stages
     annotation_models = None
+    export_model = None
     if args.models:
         annotation_models = [m.strip() for m in args.models.split(",")]
+        # For export, use a single model if exactly one is specified
+        if len(annotation_models) == 1:
+            export_model = annotation_models[0]
 
     # Initialize database
     db = Database(config.db_path)
@@ -838,7 +853,7 @@ def main() -> None:
         "seed": lambda cfg: stage_seed(cfg, db),
         "enrich": lambda cfg: stage_enrich(cfg, db),
         "annotate": lambda cfg: stage_annotate(cfg, db, models=annotation_models),
-        "export": lambda cfg: stage_export(cfg, db, export_dir=args.export_dir),
+        "export": lambda cfg: stage_export(cfg, db, export_dir=args.export_dir, export_model=export_model),
         "compare": lambda cfg: stage_compare(cfg, db),
     }
 

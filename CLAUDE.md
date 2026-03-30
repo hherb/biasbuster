@@ -66,14 +66,17 @@ uv run python seed_database.py --step clean       # just retraction notice clean
 uv run python pipeline.py --stage enrich
 uv run python pipeline.py --stage annotate
 uv run python pipeline.py --stage annotate --models anthropic,deepseek  # multi-model
-uv run python pipeline.py --stage export
+uv run python pipeline.py --stage export                                # export all models
+uv run python pipeline.py --stage export --models anthropic             # export single model
 uv run python pipeline.py --stage compare   # compare models vs human labels
 
 # Reset annotations for abstract-undetectable retracted papers (fabrication, fraud, etc.)
 # These need re-annotation without retraction context so LLM rates abstract on its merits
 uv run python pipeline.py --reset-undetectable-annotations --dry-run  # preview only
 uv run python pipeline.py --reset-undetectable-annotations              # interactive confirm
-uv run python pipeline.py --stage annotate --models deepseek             # then re-annotate
+uv run python pipeline.py --stage annotate --models anthropic,deepseek  # re-annotate both
+uv run python pipeline.py --stage compare                               # inter-model agreement
+uv run python pipeline.py --stage export --models anthropic             # training data from anthropic
 
 # Single-paper import & annotation (ad-hoc additions to the dataset)
 uv run python annotate_single_paper.py --pmid 41271640                 # by PMID (deepseek default)

@@ -1003,19 +1003,35 @@ class Database:
 
     # ---- Export helpers ----
 
-    def get_all_annotations_for_export(self) -> list[dict]:
+    def get_all_annotations_for_export(
+        self, model_name: str | None = None,
+    ) -> list[dict]:
         """Get all annotations with paper data merged in, for export.
+
+        Args:
+            model_name: If provided, only export annotations from this model.
+                If None, exports all models' annotations.
 
         Excludes soft-deleted papers (excluded=1).
         """
-        rows = self.conn.execute("""
-            SELECT a.pmid, a.model_name, a.annotation,
-                   p.title, p.abstract, p.retraction_reasons
-            FROM annotations a
-            JOIN papers p ON a.pmid = p.pmid
-            WHERE p.excluded = 0
-            ORDER BY a.pmid
-        """).fetchall()
+        if model_name:
+            rows = self.conn.execute("""
+                SELECT a.pmid, a.model_name, a.annotation,
+                       p.title, p.abstract, p.retraction_reasons
+                FROM annotations a
+                JOIN papers p ON a.pmid = p.pmid
+                WHERE p.excluded = 0 AND a.model_name = ?
+                ORDER BY a.pmid
+            """, (model_name,)).fetchall()
+        else:
+            rows = self.conn.execute("""
+                SELECT a.pmid, a.model_name, a.annotation,
+                       p.title, p.abstract, p.retraction_reasons
+                FROM annotations a
+                JOIN papers p ON a.pmid = p.pmid
+                WHERE p.excluded = 0
+                ORDER BY a.pmid
+            """).fetchall()
         results = []
         for r in rows:
             ann = _json_load(r["annotation"]) or {}
