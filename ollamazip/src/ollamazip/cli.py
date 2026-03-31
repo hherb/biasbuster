@@ -1,16 +1,10 @@
-#!/usr/bin/env python3
 """
 ollamazip — Bundle an Ollama model into a single portable archive, or unpack one.
 
 Usage:
-    # Pack a model into a .ollamazip file
-    python ollamazip.py pack <model>[:<tag>] [-o output.ollamazip]
-
-    # Unpack a .ollamazip file into the local Ollama model store
-    python ollamazip.py unpack <file.ollamazip> [--name <model>:<tag>]
-
-    # List contents of an archive without unpacking
-    python ollamazip.py list <file.ollamazip>
+    ollamazip pack <model>[:<tag>] [-o output.ollamazip]
+    ollamazip unpack <file.ollamazip> [--name <model>:<tag>]
+    ollamazip list <file.ollamazip>
 
 Archive format:
     A tar archive (optionally gzip/zstd compressed) containing:
@@ -18,7 +12,7 @@ Archive format:
         blobs/sha256-<hex>     — all referenced layer blobs
         metadata.json          — archive metadata (source model, creation date, etc.)
 
-The default compression is zstd if the `zstandard` library is available, otherwise gzip.
+The default compression is zstd if the ``zstandard`` library is available, otherwise gzip.
 Use --compress={zstd,gzip,none} to override.
 """
 
@@ -30,11 +24,9 @@ import io
 import json
 import os
 import platform
-import struct
 import sys
 import tarfile
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
