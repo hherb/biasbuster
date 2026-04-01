@@ -144,7 +144,7 @@ def _json_col(value) -> Optional[str]:
     return json.dumps(value)
 
 
-def _json_load(value) -> Optional[list | dict]:
+def json_load(value) -> Optional[list | dict]:
     """Deserialize a JSON column, returning None if empty."""
     if value is None:
         return None
@@ -154,6 +154,10 @@ def _json_load(value) -> Optional[list | dict]:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+# Keep backward-compatible alias for internal uses
+_json_load = json_load
 
 
 class Database:

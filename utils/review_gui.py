@@ -19,10 +19,9 @@ from pathlib import Path
 from nicegui import ui
 
 from annotators import build_user_message
-from database import Database, _json_load
+from database import Database, json_load
 from prompts import REVIEWER_REFERENCE_CARD
 from utils.review_form import (
-    SEVERITY_OPTIONS,
     build_review_form,
     collect_form_data,
 )
@@ -37,14 +36,21 @@ FILTER_UNVALIDATED = "unvalidated"
 
 def load_annotations_for_review(
     db: Database, model_name: str
-) -> list[dict]:
-    """Load annotations with paper metadata and human review data."""
+) -> tuple[list[dict], dict[str, dict]]:
+    """Load annotations with paper metadata and human review data.
+
+    Returns:
+        A tuple of (grid_rows, detail_lookup) where detail_lookup is keyed
+        by PMID and contains the full annotation, paper metadata, and human
+        annotation for lazy-loading in the detail panel.
+    """
     annotations = db.get_annotations_with_paper_data(model_name)
     reviews = {
         r["pmid"]: r for r in db.get_reviews(model_name=model_name)
     }
 
     rows = []
+    detail_lookup: dict[str, dict] = {}
     for ann in annotations:
         pmid = ann.get("pmid", "")
         stat = ann.get("statistical_reporting", {})
@@ -76,12 +82,14 @@ def load_annotations_for_review(
             "HUMAN_OVERRIDE_SEVERITY": review.get("override_severity") or "",
             "HUMAN_NOTES": review.get("notes") or "",
             "FLAGGED": bool(review.get("flagged")),
-            # Stash full data for the detail panel (not shown in grid)
-            "_ann": ann,
-            "_paper_metadata": ann.get("_paper_metadata", {}),
-            "_human_annotation": review.get("annotation"),
         })
-    return rows
+        # Keep full detail data in a separate lookup (not sent to AG Grid)
+        detail_lookup[pmid] = {
+            "ann": ann,
+            "paper_metadata": ann.get("_paper_metadata", {}),
+            "human_annotation": review.get("annotation"),
+        }
+    return rows, detail_lookup
 
 
 def _apply_filter(rows: list[dict], mode: str) -> list[dict]:
@@ -97,14 +105,17 @@ def create_app(
     db: Database, model_name: str, all_models: list[str] | None = None
 ) -> None:
     """Create the NiceGUI review application."""
-    rows = load_annotations_for_review(db, model_name)
-    state = {
+    rows, detail_lookup = load_annotations_for_review(db, model_name)
+    state: dict = {
         "modified": False,
         "rows": rows,
+        "detail_lookup": detail_lookup,
         "model_name": model_name,
         "filter_mode": FILTER_ALL,
         "form_refs": None,
         "current_pmid": None,
+        "form_validated": None,  # set once UI is built
+        "form_notes": None,     # set once UI is built
     }
     if all_models is None:
         all_models = [m for m in db.get_model_names() if m != "human"]
@@ -114,6 +125,7 @@ def create_app(
         {
             "field": "FLAGGED", "headerName": "F", "width": 50,
             "sortable": True, "filter": True, "pinned": "left",
+            # Safe: params.value is always a boolean, never user-controlled text
             ":cellRenderer": """params =>
                 params.value
                     ? '<i class="material-icons" style="color:#f44336;font-size:18px">flag</i>'
@@ -328,12 +340,12 @@ def create_app(
                 with ui.row().classes(
                     "w-full items-center gap-2 q-pb-sm"
                 ).style("border-bottom: 1px solid #e0e0e0;"):
-                    form_validated = ui.select(
+                    state["form_validated"] = ui.select(
                         ["", "True", "False"],
                         value="",
                         label="Validated",
                     ).classes("min-w-[8rem]")
-                    form_notes = ui.input(
+                    state["form_notes"] = ui.input(
                         "Notes",
                     ).classes("flex-grow")
                     ui.button(
@@ -348,12 +360,22 @@ def create_app(
     def show_detail(row_data: dict) -> None:
         """Populate left/right panels for the selected paper."""
         pmid = row_data.get("pmid", "")
+
+        # Guard: warn if current form has unsaved edits
+        if state["modified"] and state["current_pmid"] and state["current_pmid"] != pmid:
+            ui.notify(
+                "You have unsaved changes. Save or discard before switching papers.",
+                type="warning",
+            )
+            return
+
         state["current_pmid"] = pmid
         detail_placeholder.visible = False
         detail_splitter.visible = True
 
-        ann = row_data.get("_ann", {})
-        meta = row_data.get("_paper_metadata", {})
+        detail = state["detail_lookup"].get(pmid, {})
+        ann = detail.get("ann", {})
+        meta = detail.get("paper_metadata", {})
 
         # Build the prompt text the model received
         prompt_text = build_user_message(
@@ -385,15 +407,15 @@ def create_app(
             )
 
         # RIGHT: populate form with human annotation if exists, else model's
-        human_ann = row_data.get("_human_annotation")
+        human_ann = detail.get("human_annotation")
         if human_ann and not isinstance(human_ann, dict):
-            human_ann = _json_load(human_ann)
+            human_ann = json_load(human_ann)
         form_ann = human_ann if isinstance(human_ann, dict) else ann
         state["form_refs"] = build_review_form(form_ann, form_container)
 
         # Populate validated / notes from row
-        form_validated.value = row_data.get("HUMAN_VALIDATED", "")
-        form_notes.value = row_data.get("HUMAN_NOTES", "")
+        state["form_validated"].value = row_data.get("HUMAN_VALIDATED", "")
+        state["form_notes"].value = row_data.get("HUMAN_NOTES", "")
 
     async def on_cell_clicked(e) -> None:
         data = e.args
@@ -463,9 +485,9 @@ def create_app(
 
         try:
             annotation = collect_form_data(state["form_refs"])
-            validated = form_validated.value == "True"
+            validated = state["form_validated"].value == "True"
             override_sev = annotation.get("overall_severity")
-            notes = form_notes.value or None
+            notes = state["form_notes"].value or None
 
             db.upsert_review(
                 pmid=pmid,
@@ -482,8 +504,11 @@ def create_app(
                     row["HUMAN_VALIDATED"] = "True" if validated else ""
                     row["HUMAN_OVERRIDE_SEVERITY"] = override_sev or ""
                     row["HUMAN_NOTES"] = notes or ""
-                    row["_human_annotation"] = annotation
                     break
+
+            # Update detail lookup so re-opening this paper shows saved data
+            if pmid in state["detail_lookup"]:
+                state["detail_lookup"][pmid]["human_annotation"] = annotation
 
             # Refresh grid display
             filtered = _apply_filter(state["rows"], state["filter_mode"])
@@ -512,8 +537,9 @@ def create_app(
             )
             model_select.value = state["model_name"]
             return
-        new_rows = load_annotations_for_review(db, new_model)
+        new_rows, new_detail = load_annotations_for_review(db, new_model)
         state["rows"] = new_rows
+        state["detail_lookup"] = new_detail
         state["model_name"] = new_model
         state["filter_mode"] = FILTER_ALL
         state["current_pmid"] = None
