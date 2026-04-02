@@ -473,25 +473,33 @@ def _build_verification_summary(parts: list[str], annotation: dict) -> None:
 
 def _synthesize_verification_steps(annotation: dict) -> list[str]:
     """
-    Generate verification steps from annotation flags.
+    Generate verification steps programmatically from annotation flags.
 
-    Ensures every training example has comprehensive verification database
-    citations, filling gaps where the original annotation lacks them.
+    Verification recommendations are deterministic logic — they don't require
+    LLM judgment. This function is the sole source of verification steps;
+    the LLM prompt no longer asks the model to generate them. This frees
+    ~20% of prompt token budget for the core bias detection task.
+
+    Rules:
+    - ClinicalTrials.gov: always (every RCT should be registry-checked)
+    - CMS Open Payments: when any COI concern exists
+    - ORCID: when COI concerns or industry involvement detected
+    - Europe PMC: always (full-text access for disclosure verification)
+    - Retraction Watch: always (post-publication notice check)
     """
-    steps = list(annotation.get("recommended_verification_steps", []))
-    existing_lower = " ".join(steps).lower()
-
+    steps: list[str] = []
     coi = annotation.get("conflict_of_interest", {})
-
-    # CMS Open Payments — for any COI concern, not just industry-funded studies.
-    # Authors may have personal consulting/speaker relationships even when the
-    # study itself is publicly funded.
     coi_severity = coi.get("severity", "none")
-    if ("open payments" not in existing_lower
-            and "openpaymentsdata" not in existing_lower
-            and (coi.get("funding_type") == "industry"
-                 or coi.get("industry_author_affiliations")
-                 or coi_severity not in ("none",))):
+
+    # ClinicalTrials.gov — always relevant for RCTs
+    steps.append(
+        "Verify registered primary outcomes and sponsor on ClinicalTrials.gov."
+    )
+
+    # CMS Open Payments — for any COI concern
+    if (coi.get("funding_type") == "industry"
+            or coi.get("industry_author_affiliations")
+            or coi_severity != "none"):
         steps.append(
             "Check CMS Open Payments (openpaymentsdata.cms.gov) for "
             "author payment records — authors may have consulting or "
@@ -499,37 +507,26 @@ def _synthesize_verification_steps(annotation: dict) -> list[str]:
             "not industry-funded."
         )
 
-    # ClinicalTrials.gov — always relevant
-    if ("clinicaltrials.gov" not in existing_lower
-            and "trial registry" not in existing_lower):
-        steps.append(
-            "Verify registered primary outcomes and sponsor on ClinicalTrials.gov."
-        )
-
-    # ORCID — for COI concerns
-    if ("orcid" not in existing_lower
-            and (coi.get("industry_author_affiliations")
-                 or not coi.get("coi_disclosed")
-                 or coi.get("funding_type") == "industry")):
+    # ORCID — for COI concerns or industry involvement
+    if (coi.get("industry_author_affiliations")
+            or not coi.get("coi_disclosed")
+            or coi.get("funding_type") == "industry"):
         steps.append(
             "Check ORCID profiles for author affiliation histories "
             "and undisclosed industry ties."
         )
 
-    # Europe PMC — for full-text access
-    if ("europe pmc" not in existing_lower
-            and "europepmc" not in existing_lower):
-        steps.append(
-            "Search Europe PMC (europepmc.org) for full-text funding "
-            "and COI disclosures."
-        )
+    # Europe PMC — always useful for full-text verification
+    steps.append(
+        "Search Europe PMC (europepmc.org) for full-text funding "
+        "and COI disclosures."
+    )
 
     # Retraction Watch — always relevant
-    if ("retraction" not in existing_lower):
-        steps.append(
-            "Check Retraction Watch database for post-publication notices "
-            "or corrections."
-        )
+    steps.append(
+        "Check Retraction Watch database for post-publication notices "
+        "or corrections."
+    )
 
     return steps
 

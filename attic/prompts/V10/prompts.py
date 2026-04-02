@@ -204,6 +204,9 @@ For each abstract, provide a structured assessment in JSON format with the follo
   "overall_severity": "none|low|moderate|high|critical",
   "overall_bias_probability": float,  // 0.0 to 1.0
   "reasoning": "Step-by-step reasoning explaining the assessment",
+  "recommended_verification_steps": [
+    "Specific actionable verification steps, citing databases and URLs"
+  ],
   "confidence": "low|medium|high"  // Your confidence in this assessment
 }"""
 
@@ -235,6 +238,8 @@ clinical trial abstracts for potential bias across five domains.
 {SEVERITY_SCALE}
 
 {DOMAIN_CRITERIA}
+
+{VERIFICATION_DATABASES}
 
 {RETRACTION_SEVERITY_PRINCIPLE}
 
@@ -297,6 +302,9 @@ valid JSON object (no markdown fences, no trailing text) with this exact schema:
   "overall_severity": "none|low|moderate|high|critical",
   "overall_bias_probability": float (0.0 to 1.0, your calibrated estimate),
   "reasoning": "Brief summary of key findings",
+  "recommended_verification_steps": [
+    "Specific actionable steps citing databases and URLs"
+  ],
   "confidence": "low|medium|high"
 }
 
@@ -329,6 +337,8 @@ level using the specific boundary definitions below.
 {SEVERITY_SCALE}
 
 {DOMAIN_CRITERIA}
+
+{VERIFICATION_DATABASES}
 
 {RETRACTION_SEVERITY_PRINCIPLE}
 

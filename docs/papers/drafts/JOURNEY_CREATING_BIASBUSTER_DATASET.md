@@ -136,11 +136,79 @@ Looking back across five rounds, the lessons cluster into three themes.
 
 **Third: structural problems cannot be solved with parametric fixes.** Hyperparameter tuning is seductive because it's systematic and feels productive. But when the output format is wrong because of a template mismatch, no learning rate will fix it. When severity calibration fails because the labels are noisy, no amount of rank or label smoothing helps. The most expensive mistake we made — repeatedly — was optimizing the wrong thing. Run 8 changed learning rate, LoRA rank, epochs, and label smoothing simultaneously, making it impossible to attribute outcomes to any specific change. The actual fix was a two-line change to how training data was formatted.
 
+## Round 6: Asking Too Much of a Small Model
+
+V9's strong results gave us confidence, but one question nagged: was the model learning bias *detection*, or was it learning to parrot verification database recommendations? V9's verification score (0.562 vs. baseline 0.281) was its most dramatic improvement — the model learned where to look. But had that come at the cost of learning what to look *for*?
+
+V10 answered the question definitively: yes.
+
+We expanded the dataset to include multi-model annotations (both Anthropic Claude and DeepSeek) and added per-model export filtering so training data could come from a single annotator. The training configuration was identical to V9 — same learning rate (5e-6), same LoRA rank (32), same single epoch, same attention-only targeting. Only the dataset had grown.
+
+V10's results were a regression across the board:
+
+| Metric | V10 | Baseline | Winner |
+|--------|:---:|:---:|:---:|
+| F1 (binary) | 0.874 | **0.933** | Baseline |
+| Precision | **1.000** | 0.965 | V10 |
+| Recall | 0.776 | **0.902** | Baseline |
+| Severity kappa | 0.167 | 0.188 | Baseline |
+| Calibration Error | **0.458** | 0.516 | V10 |
+| Verification Score | **0.509** | 0.288 | V10 |
+
+The model became overly conservative — perfect precision (every flag was correct) but recall collapsed from 0.902 to 0.776. It missed one in four biased papers. All five per-dimension F1 scores fell below baseline, though none reached statistical significance individually. Inference was twice as slow (126 seconds vs. 67 seconds) because the model produced reasoning chains averaging 11,350 characters — more than double the baseline's 5,204 — without better answers. It was thinking harder about the wrong things.
+
+The verification source knowledge told the real story. The fine-tuned model scored 90% on Retraction Watch recommendations (baseline: 21%), 79% on ORCID (baseline: 34%), 85% on Europe PMC (baseline: 34%). It had memorized which databases to recommend for which bias patterns. This was exactly what we trained it to do — the prompt spent ~550 tokens on verification database descriptions, and the training examples all contained specific database recommendations in their output.
+
+But a 3.6-billion-active-parameter model has limited capacity. Every parameter spent learning "recommend ORCID when COI concerns exist" was a parameter not spent learning "this abstract reports only relative risk without absolute risk difference." We had allocated a significant fraction of the model's learning budget to a task that could be done trivially with a few `if` statements in post-processing code.
+
+This was a prompt design problem, not a model problem. The training and annotation prompts had grown to ~2,700 tokens each — enormous for a small model doing attention-only LoRA on just 0.04% of parameters. They contained:
+
+- Detailed severity boundary definitions for five domains (~1,800 tokens) — essential
+- Verification database descriptions with URLs and recommendation logic (~550 tokens) — delegatable
+- Retraction severity floor principles (~250 tokens) — essential
+- Calibration notes (~100 tokens) — essential
+
+The verification section was pure memorization load. It asked the model to learn a lookup table: "if COI concern → recommend Open Payments; if RCT → recommend ClinicalTrials.gov; if any concern → recommend Retraction Watch." This is exactly the kind of deterministic logic that belongs in code, not in a neural network. A post-processing step can examine the model's structured output — which already contains `funding_type`, `coi_disclosed`, `industry_author_affiliations`, and per-domain severity ratings — and generate verification recommendations programmatically, with 100% accuracy and zero inference cost.
+
+The full severity kappa trajectory now spans ten versions:
+
+| Version | Change | Kappa |
+|---------|--------|:---:|
+| Baseline | (zero-shot) | 0.168–0.188 |
+| V4 | Rank 32 + 2 epochs | 0.072 |
+| V6 | Harmony template fix | 0.017 |
+| V7 | Single-channel + 2 epochs | 0.095 |
+| V8 | JSON prompt instructions | 0.097 |
+| V9 | JSON data + boundary reasoning | 0.084 |
+| V10 | Multi-model data, same prompt | 0.167 |
+
+Severity kappa has never sustainably exceeded baseline. Fine-tuning teaches the model to detect bias but consistently destroys its natural severity calibration. V10's kappa (0.167) happened to nearly match baseline (0.188), but this appears to be noise rather than progress — the per-dimension scores all regressed.
+
+The lesson from Round 6 is about *prompt economy for small models*. A 3.6B-active-parameter model with attention-only LoRA has a narrow learning budget. Every concept in the prompt competes for that budget. When we ask the model to simultaneously learn bias detection criteria, severity calibration, output formatting, reasoning chains, AND verification database recommendations, something has to give. The verification task — being the most amenable to rote memorization — won the competition for parameters, at the expense of the harder analytical tasks.
+
+Going forward, we are stripping the verification database section from the prompt entirely. Verification recommendations will be generated programmatically from the model's structured output. This removes ~250 tokens (~10%) from each prompt and eliminates a memorization-heavy task that consumed model capacity without contributing to the core analytical mission. The archived V10 prompts are preserved in `attic/prompts/V10/` for reproducibility.
+
+## What We Learned
+
+Looking back across six rounds, the lessons cluster into four themes.
+
+**First: the annotation prompt IS the ground truth, and everything downstream inherits its flaws.** If the annotation prompt doesn't define severity boundaries, the labels reflect whatever the LLM's internal calibration was on that particular day. Defining boundaries only in the training prompt creates a systematic mismatch that fine-tuning amplifies rather than corrects. When we unified the prompts in Round 2, we assumed it would fix calibration. It fixed binary detection. It could not fix the fact that DeepSeek's boundary application was inconsistent even with clear definitions.
+
+**Second: fix the measurement before fixing the model.** Three of our six rounds contained measurement bugs that made results uninterpretable. The harness discarded output. The token budget truncated responses. The CLI default overrode the correct value. The API endpoint silently dropped fields. Each time, we spent days debugging the model before discovering the measurement was broken. A five-minute sanity check — curl the model, inspect the raw response, verify the harness captures it — would have saved days each time.
+
+**Third: structural problems cannot be solved with parametric fixes.** Hyperparameter tuning is seductive because it's systematic and feels productive. But when the output format is wrong because of a template mismatch, no learning rate will fix it. When severity calibration fails because the labels are noisy, no amount of rank or label smoothing helps. The most expensive mistake we made — repeatedly — was optimizing the wrong thing.
+
+**Fourth: small models need focused prompts.** A 3.6B-active-parameter model cannot learn everything at once. When the prompt asks for bias detection AND verification source memorization AND severity calibration AND structured output formatting, the model allocates capacity to whatever is easiest to learn — which may not be what matters most. Deterministic post-processing should handle everything that doesn't require judgment. Only ask the model to do what only a model can do.
+
 ## Where We Are Now
 
-V9 is our production model. Despite the severity kappa limitation, it is a strong bias screening tool. It catches 97% of biased papers. Its probability estimates are the most calibrated of any version — calibration error of 0.178 compared to the baseline's 0.486. It knows which databases to check for verification, outperforming the baseline by 2–4x on specific source recommendations. Three of five bias dimensions show statistically significant improvements.
+V9 remains our best model for binary detection (F1 0.966, recall 0.971) and calibration (error 0.178). V10 demonstrated that expanding the dataset without simplifying the task leads to regression, not improvement.
 
-The path to better severity grading leads through better labels, not better models. Our options are human review of the most confused examples — the 50 papers where model and ground truth disagree by two or more severity levels — or using the baseline's severity predictions as calibration anchors, or mining contrastive paper pairs that explicitly teach the moderate-to-high decision boundary. Or we accept the trade-off: for a screening tool, knowing *that* bias exists matters more than knowing its precise degree.
+The path forward has two tracks:
+
+**Prompt simplification.** Remove verification database recommendations from the prompt entirely. Generate them programmatically from the model's structured output — a few `if` statements examining `funding_type`, `coi_disclosed`, `industry_author_affiliations`, and per-domain severity ratings can produce verification recommendations with 100% accuracy and zero inference cost. This frees ~10% of the prompt for what matters: bias detection criteria and severity boundaries.
+
+**Severity label quality.** Severity kappa has never improved beyond baseline across ten versions. This is a label quality ceiling, not a model limitation. The options are: human review of confused examples, multi-model consensus voting for severity labels, or accepting that severity grading requires a larger model. For a screening tool, the binary question — *is there bias worth investigating?* — may be sufficient, with severity left to human judgment on the flagged subset.
 
 The BiasBuster dataset now contains 4,265 papers with structured annotations across five bias domains, retraction reason classification with abstract-detectability labels, 260 Cochrane expert assessments providing gold-standard calibration, and training data in JSON format with boundary-grounded reasoning chains. Every annotation uses a unified prompt with explicit severity boundaries. Every retracted paper is classified by whether its retraction reason produces visible signals in the abstract. Every piece of this infrastructure exists because something went wrong and we had to build it.
 
