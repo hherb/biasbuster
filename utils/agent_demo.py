@@ -17,7 +17,7 @@ from typing import Any
 
 from nicegui import ui
 
-from agent.config import AgentConfig
+from agent.agent_config import AgentConfig
 from agent.runner import AgentResult, run_agent
 from agent.tools import get_tool_display_name
 
@@ -37,8 +37,8 @@ _STAGE_LABELS = {
     "fetching_abstract": "Fetching abstract from PubMed...",
     "initial_assessment": "Running initial bias assessment...",
     "initial_assessment_done": "Initial assessment complete",
-    "parsing_steps": "Parsing verification steps...",
-    "parsing_steps_done": "Verification steps parsed",
+    "planning_verification": "Planning verification steps...",
+    "planning_verification_done": "Verification steps planned",
     "executing_tools": "Executing verification tools...",
     "tool_started": "Running tool...",
     "tool_done": "Tool complete",

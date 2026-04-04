@@ -1,10 +1,11 @@
 """
-Verification step parser and tool router.
+Verification step router.
 
-Parses the model's recommended verification steps (natural language strings)
-and maps them to concrete tool calls using keyword/regex matching. The model
-was trained to cite specific database names consistently, so pattern matching
-is reliable without needing an additional LLM call.
+Maps verification step strings (natural language) to concrete tool calls
+using keyword/regex matching. Step strings are produced by
+``agent.verification_planner.synthesize_verification_steps()`` and use
+consistent database names, so pattern matching is reliable without
+needing an additional LLM call.
 """
 
 import logging
@@ -203,8 +204,16 @@ def route_verification_steps(
     return calls
 
 
-def parse_verification_steps(model_output: str) -> list[str]:
-    """Extract verification step strings from model output.
+def parse_verification_steps_from_output(model_output: str) -> list[str]:
+    """Extract verification step strings from model output (legacy).
+
+    This function parsed ``recommended_verification_steps`` from the model's
+    JSON output. Since models no longer produce this field, verification
+    steps are now synthesized programmatically via
+    ``agent.verification_planner.plan_verification()``.
+
+    Retained for backward compatibility with older model outputs that may
+    still include the field.
 
     Tries JSON parsing first (``recommended_verification_steps`` field),
     then falls back to regex extraction of bullet points under a

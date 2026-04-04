@@ -3,7 +3,7 @@ Verification agent runner.
 
 Orchestrates the single-pass agent loop:
 1. Call the fine-tuned model for initial bias assessment
-2. Parse verification steps from the model output
+2. Synthesize verification steps programmatically from assessment flags
 3. Execute verification tools concurrently
 4. Call the model again with verification results for a refined assessment
 """
@@ -21,10 +21,10 @@ from agent.model_client import get_initial_assessment, get_refined_assessment
 from agent.tool_router import (
     AbstractContext,
     ToolCall,
-    parse_verification_steps,
     route_verification_steps,
 )
 from agent.tools import ToolResult, execute_tool_call, get_tool_display_name
+from agent.verification_planner import plan_verification
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +99,8 @@ async def run_agent(
         metadata: Optional metadata dict (authors, grants, journal, etc.).
         on_stage: Optional callback invoked at each stage with
             ``(stage_name, stage_data)``. Stages: ``fetching_abstract``,
-            ``initial_assessment``, ``parsing_steps``, ``executing_tools``,
-            ``refining``, ``complete``, ``error``.
+            ``initial_assessment``, ``planning_verification``,
+            ``executing_tools``, ``refining``, ``complete``, ``error``.
 
     Returns:
         AgentResult with all intermediate and final outputs.
@@ -146,18 +146,11 @@ async def run_agent(
         result.initial_assessment = initial
         _notify("initial_assessment_done", {"length": len(initial)})
 
-        # --- Stage 3: Parse verification steps ---
-        _notify("parsing_steps", None)
-        steps = parse_verification_steps(initial)
+        # --- Stage 3: Synthesize verification steps from assessment ---
+        _notify("planning_verification", None)
+        steps, parsed_annotation = plan_verification(initial)
         result.verification_steps = steps
-        logger.info("Parsed %d verification steps", len(steps))
-
-        if not steps:
-            logger.warning("No verification steps found in model output")
-            result.refined_assessment = initial
-            result.total_time_seconds = time.monotonic() - start
-            _notify("complete", result)
-            return result
+        logger.info("Synthesized %d verification steps", len(steps))
 
         # Route steps to tool calls
         authors = []
@@ -173,7 +166,7 @@ async def run_agent(
         )
         tool_calls = route_verification_steps(steps, context)
         result.tool_calls = tool_calls
-        _notify("parsing_steps_done", {
+        _notify("planning_verification_done", {
             "steps": len(steps),
             "tool_calls": len(tool_calls),
         })
