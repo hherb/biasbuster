@@ -48,7 +48,7 @@ class AgentResult:
     error: Optional[str] = None
 
 
-def _format_tool_results_for_model(tool_results: list[ToolResult]) -> str:
+def format_tool_results_for_model(tool_results: list[ToolResult]) -> str:
     """Format tool results as structured markdown for the refinement prompt."""
     sections: list[str] = []
     for result in tool_results:
@@ -212,7 +212,7 @@ async def run_agent(
 
         # --- Stage 5: Refined assessment ---
         _notify("refining", None)
-        verification_text = _format_tool_results_for_model(resolved_results)
+        verification_text = format_tool_results_for_model(resolved_results)
 
         async with httpx.AsyncClient(
             timeout=config.request_timeout_seconds,

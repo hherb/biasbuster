@@ -9,7 +9,13 @@ An agent loop that:
 """
 
 from agent.agent_config import AgentConfig
-from agent.runner import AgentResult, run_agent
+from agent.runner import AgentResult, format_tool_results_for_model, run_agent
 from agent.tools import ToolResult
 
-__all__ = ["AgentConfig", "AgentResult", "ToolResult", "run_agent"]
+__all__ = [
+    "AgentConfig",
+    "AgentResult",
+    "ToolResult",
+    "format_tool_results_for_model",
+    "run_agent",
+]

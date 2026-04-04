@@ -13,7 +13,12 @@ dependencies = [
     "tokenizers>=0.22.2",
     "huggingface-hub>=0.34.0,<1.0",
     "argon2-cffi>=25.1.0",
+    "bmlib[all]",
+    "pdfplumber>=0.10",
 ]
+
+[project.scripts]
+biasbuster = "cli.main:main"
 
 [dependency-groups]
 dev = [
@@ -23,6 +28,9 @@ dev = [
 mlx = [
     "mlx-lm>=0.22",
 ]
+
+[tool.uv.sources]
+bmlib = { path = "../bmlib", editable = true }
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
