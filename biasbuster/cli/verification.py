@@ -102,7 +102,7 @@ async def _run_verification_async(
         title=content_meta.get("title", ""),
         abstract=content_meta.get("abstract", ""),
         authors=content_meta.get("authors", []),
-        fulltext=content_meta.get("fulltext", ""),
+        nct_id=content_meta.get("nct_id", ""),
     )
     tool_calls = route_verification_steps(steps, context)
 

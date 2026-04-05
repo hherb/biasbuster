@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 from typing import Any
 
@@ -150,6 +151,23 @@ def _progress(msg: str, quiet: bool) -> None:
         print(msg, file=sys.stderr)
 
 
+_NCT_RE = re.compile(r"NCT\d{7,8}", re.IGNORECASE)
+
+
+def _extract_nct_from_content(content: AcquiredContent) -> str:
+    """Extract an NCT ID from whatever text is available, cheapest first."""
+    for text in (content.abstract, content.plain_fulltext):
+        if text:
+            m = _NCT_RE.search(text)
+            if m:
+                return m.group(0)
+    if content.jats_xml:
+        m = _NCT_RE.search(content.jats_xml.decode("utf-8", errors="ignore"))
+        if m:
+            return m.group(0)
+    return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Returns exit code (0 = success, 1 = error)."""
     parser = build_parser()
@@ -217,10 +235,7 @@ def main(argv: list[str] | None = None) -> int:
                     "title": content.title,
                     "abstract": content.abstract,
                     "authors": content.authors,
-                    "fulltext": content.plain_fulltext or (
-                        content.jats_xml.decode("utf-8", errors="ignore")
-                        if content.jats_xml else ""
-                    ),
+                    "nct_id": _extract_nct_from_content(content),
                 },
                 config=config,
             )
