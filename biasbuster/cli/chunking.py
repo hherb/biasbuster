@@ -8,6 +8,8 @@ overlapping token windows for unstructured text.
 from __future__ import annotations
 
 import logging
+import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 from bmlib.fulltext.models import JATSArticle, JATSBodySection
@@ -40,6 +42,7 @@ class TextChunk:
 def chunk_jats_article(
     article: JATSArticle,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    jats_xml: bytes | None = None,
 ) -> list[TextChunk]:
     """Split a parsed JATS article into analysis chunks by section.
 
@@ -47,9 +50,15 @@ def chunk_jats_article(
     methods, results, discussion, etc.) to create coherent chunks.
     Large sections are sub-chunked using token windows.
 
+    When ``jats_xml`` is provided, back-matter (funding, COI disclosures,
+    acknowledgments) is extracted and included as a dedicated chunk.
+    This is critical because JATS places funding and COI information
+    in ``<back>`` rather than ``<body>``.
+
     Args:
         article: Parsed JATS article with body sections.
         max_tokens: Maximum tokens per chunk.
+        jats_xml: Raw JATS XML bytes (optional, for back-matter extraction).
 
     Returns:
         Ordered list of text chunks.
@@ -82,6 +91,15 @@ def chunk_jats_article(
                 section_name, section_text, max_tokens
             )
             chunks.extend(sub_chunks)
+
+    # Back-matter: funding, COI, acknowledgments (from raw XML)
+    if jats_xml is not None:
+        backmatter = extract_jats_backmatter(jats_xml)
+        if backmatter.strip():
+            chunks.append(TextChunk(
+                section="Funding, COI & Disclosures",
+                text=backmatter.strip(),
+            ))
 
     return chunks
 
@@ -198,6 +216,86 @@ def _token_window_chunks(
         chunk.total_chunks = len(chunks)
 
     return chunks
+
+
+def extract_jats_backmatter(jats_xml: bytes) -> str:
+    """Extract funding, COI, and disclosure sections from JATS XML back-matter.
+
+    JATS articles place funding and conflict-of-interest disclosures in
+    ``<back>`` elements (``<funding-group>``, ``<notes>``, ``<ack>``,
+    ``<fn-group>``) rather than ``<body>``. These are critical for bias
+    assessment but are not included in JATSParser's ``body_sections``.
+
+    Args:
+        jats_xml: Raw JATS XML content.
+
+    Returns:
+        Plain text with labeled sections for funding, COI, and related
+        disclosures. Empty string if none found.
+    """
+    parts: list[str] = []
+
+    # Decode XML to string for regex-based extraction.
+    # Using regex instead of ET.parse because JATS XML often has namespace
+    # issues and entity references that break strict XML parsers.
+    try:
+        xml_text = jats_xml.decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+    # Funding
+    funding_match = re.search(
+        r"<funding-statement>(.*?)</funding-statement>", xml_text, re.DOTALL
+    )
+    if funding_match:
+        parts.append(f"Funding: {_strip_xml_tags(funding_match.group(1))}")
+    else:
+        # Try funding-source as fallback
+        sources = re.findall(
+            r"<funding-source>(.*?)</funding-source>", xml_text, re.DOTALL
+        )
+        if sources:
+            parts.append(f"Funding sources: {'; '.join(_strip_xml_tags(s) for s in sources)}")
+
+    # COI / Conflicts of Interest
+    coi_match = re.search(
+        r'<notes[^>]*notes-type="COI-statement"[^>]*>(.*?)</notes>',
+        xml_text, re.DOTALL,
+    )
+    if coi_match:
+        coi_text = _strip_xml_tags(coi_match.group(1))
+        # Remove the title tag content separately
+        coi_text = re.sub(r"^\s*Conflicts?\s+of\s+Interest\s*", "", coi_text).strip()
+        parts.append(f"Conflicts of Interest: {coi_text}")
+    else:
+        # Broader search for COI in any <notes> block
+        for m in re.finditer(r"<notes[^>]*>(.*?)</notes>", xml_text, re.DOTALL):
+            content = m.group(1)
+            if re.search(r"conflict|competing\s+interest|COI|disclosure", content, re.IGNORECASE):
+                parts.append(f"Conflicts of Interest: {_strip_xml_tags(content)}")
+                break
+
+    # Author contributions
+    for m in re.finditer(r"<notes[^>]*>(.*?)</notes>", xml_text, re.DOTALL):
+        content = m.group(1)
+        if re.search(r"<title>Author Contributions</title>", content, re.IGNORECASE):
+            parts.append(f"Author Contributions: {_strip_xml_tags(content)}")
+            break
+
+    # Acknowledgments (may reveal funding/industry involvement)
+    ack_match = re.search(r"<ack>(.*?)</ack>", xml_text, re.DOTALL)
+    if ack_match:
+        parts.append(f"Acknowledgments: {_strip_xml_tags(ack_match.group(1))}")
+
+    return "\n\n".join(parts)
+
+
+def _strip_xml_tags(text: str) -> str:
+    """Remove XML/HTML tags from text."""
+    text = re.sub(r"<title>.*?</title>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
 
 def _break_at_boundary(text: str) -> str:

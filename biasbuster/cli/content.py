@@ -47,6 +47,7 @@ class AcquiredContent:
 
     # Structured full text (from JATS)
     jats_article: JATSArticle | None = None
+    jats_xml: bytes | None = None  # Raw JATS XML for back-matter extraction
 
     # Plain full text (from PDF or HTML stripping)
     plain_fulltext: str = ""
@@ -210,6 +211,7 @@ def _acquire_from_file(file_path: str) -> AcquiredContent:
             title=article.title,
             abstract=abstract,
             jats_article=article,
+            jats_xml=data,
             authors=authors,
             journal=article.journal,
             year=article.year,
@@ -334,6 +336,7 @@ def _try_jats_fulltext(content: AcquiredContent, config: CLIConfig) -> bool:
             return False
 
         content.jats_article = article
+        content.jats_xml = resp.content
         content.content_type = "fulltext_jats"
 
         # Fill in any missing metadata from JATS

@@ -211,7 +211,9 @@ def _analyse_fulltext(
     """
     # Chunk the content
     if content.jats_article is not None:
-        chunks = chunk_jats_article(content.jats_article)
+        chunks = chunk_jats_article(
+            content.jats_article, jats_xml=content.jats_xml,
+        )
         logger.info(
             "Split JATS article into %d section chunks", len(chunks)
         )
