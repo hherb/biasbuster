@@ -2,7 +2,7 @@
 
 import pytest
 
-from cli.content import classify_identifier
+from biasbuster.cli.content import classify_identifier
 
 
 def test_classify_pmid_bare():

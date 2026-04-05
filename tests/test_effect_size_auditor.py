@@ -1,7 +1,7 @@
 """Tests for enrichers.effect_size_auditor."""
 
 import pytest
-from enrichers.effect_size_auditor import (
+from biasbuster.enrichers.effect_size_auditor import (
     ReportingPattern,
     audit_abstract,
     batch_audit,

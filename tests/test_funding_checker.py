@@ -1,7 +1,7 @@
 """Tests for enrichers.funding_checker."""
 
 import pytest
-from enrichers.funding_checker import (
+from biasbuster.enrichers.funding_checker import (
     classify_funder,
     analyse_abstract_funding,
     analyse_funding,

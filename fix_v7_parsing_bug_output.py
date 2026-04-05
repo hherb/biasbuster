@@ -19,9 +19,9 @@ import argparse
 import json
 import logging
 
-from database import Database
-from evaluation.scorer import parse_model_output
-from evaluation.run import _assessment_to_annotation
+from biasbuster.database import Database
+from biasbuster.evaluation.scorer import parse_model_output
+from biasbuster.evaluation.run import _assessment_to_annotation
 
 DEFAULT_MODEL_ID = "gpt-oss-20b-biasbusterV7"
 

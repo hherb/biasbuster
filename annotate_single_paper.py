@@ -18,10 +18,10 @@ import logging
 import sys
 from typing import Optional
 
-from annotators import is_retraction_notice
+from biasbuster.annotators import is_retraction_notice
 from config import Config
-from database import Database
-from pipeline import create_annotator
+from biasbuster.database import Database
+from biasbuster.pipeline import create_annotator
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ async def resolve_pmid(
     Returns:
         PMID string, or None if the DOI could not be resolved.
     """
-    from collectors.retraction_watch import RetractionWatchCollector
+    from biasbuster.collectors.retraction_watch import RetractionWatchCollector
 
     async with RetractionWatchCollector(
         mailto=config.crossref_mailto,
@@ -63,7 +63,7 @@ async def fetch_paper(
     Returns:
         Paper dict with title, abstract, authors, etc., or None on failure.
     """
-    from collectors.retraction_watch import RetractionWatchCollector
+    from biasbuster.collectors.retraction_watch import RetractionWatchCollector
 
     async with RetractionWatchCollector(
         mailto=config.crossref_mailto,
@@ -87,7 +87,7 @@ def enrich_paper(
         db: Database instance.
         config: Application configuration (provides suspicion thresholds).
     """
-    from enrichers.effect_size_auditor import ReportingPattern, audit_abstract
+    from biasbuster.enrichers.effect_size_auditor import ReportingPattern, audit_abstract
 
     audit = audit_abstract(pmid=pmid, title=title, abstract=abstract)
     score = audit.reporting_bias_score

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 
-from utils.retry import (
+from biasbuster.utils.retry import (
     retry_with_backoff,
     fetch_with_retry,
     RetryExhaustedError,
@@ -42,7 +42,7 @@ class TestRetryWithBackoff:
         resp = _make_response(429)
         error = httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
         factory = AsyncMock(side_effect=[error, error, "success"])
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock):
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock):
             result = await retry_with_backoff(factory, max_retries=3, base_delay=0.01)
         assert result == "success"
         assert factory.call_count == 3
@@ -60,7 +60,7 @@ class TestRetryWithBackoff:
     async def test_retries_on_connect_error(self):
         error = httpx.ConnectError("connection refused")
         factory = AsyncMock(side_effect=[error, "recovered"])
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock):
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock):
             result = await retry_with_backoff(factory, max_retries=3, base_delay=0.01)
         assert result == "recovered"
 
@@ -68,7 +68,7 @@ class TestRetryWithBackoff:
     async def test_retries_on_timeout(self):
         error = httpx.TimeoutException("timed out")
         factory = AsyncMock(side_effect=[error, "ok"])
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock):
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock):
             result = await retry_with_backoff(factory, max_retries=3, base_delay=0.01)
         assert result == "ok"
 
@@ -77,7 +77,7 @@ class TestRetryWithBackoff:
         resp = _make_response(500)
         error = httpx.HTTPStatusError("server error", request=resp.request, response=resp)
         factory = AsyncMock(side_effect=error)
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock):
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(RetryExhaustedError) as exc_info:
                 await retry_with_backoff(factory, max_retries=2, base_delay=0.01)
         assert exc_info.value.attempts == 3  # max_retries + 1
@@ -87,7 +87,7 @@ class TestRetryWithBackoff:
         resp = _make_response(429)
         error = httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
         factory = AsyncMock(side_effect=[error, error, error, "ok"])
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await retry_with_backoff(factory, max_retries=3, base_delay=1.0, max_delay=60.0)
         # Delays should be 1.0, 2.0, 4.0
         delays = [call.args[0] for call in mock_sleep.call_args_list]
@@ -97,7 +97,7 @@ class TestRetryWithBackoff:
     async def test_max_delay_cap(self):
         error = httpx.ConnectError("refused")
         factory = AsyncMock(side_effect=[error, error, error, "ok"])
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await retry_with_backoff(factory, max_retries=3, base_delay=10.0, max_delay=15.0)
         delays = [call.args[0] for call in mock_sleep.call_args_list]
         assert all(d <= 15.0 for d in delays)
@@ -126,7 +126,7 @@ class TestFetchWithRetry:
             _make_response(429),
             _make_response(200),
         ]
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock):
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock):
             result = await fetch_with_retry(
                 mock_client, "GET", "https://example.com", max_retries=3, base_delay=0.01
             )
@@ -139,7 +139,7 @@ class TestFetchWithRetry:
             _make_response(500),
             _make_response(200),
         ]
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock):
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock):
             result = await fetch_with_retry(
                 mock_client, "GET", "https://example.com", max_retries=3, base_delay=0.01
             )
@@ -158,7 +158,7 @@ class TestFetchWithRetry:
     @pytest.mark.asyncio
     async def test_exhausted_on_persistent_500(self, mock_client):
         mock_client.request.return_value = _make_response(500)
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock):
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(RetryExhaustedError):
                 await fetch_with_retry(
                     mock_client, "GET", "https://example.com",
@@ -172,7 +172,7 @@ class TestFetchWithRetry:
             httpx.ConnectError("refused"),
             _make_response(200),
         ]
-        with patch("utils.retry.asyncio.sleep", new_callable=AsyncMock):
+        with patch("biasbuster.utils.retry.asyncio.sleep", new_callable=AsyncMock):
             result = await fetch_with_retry(
                 mock_client, "GET", "https://example.com", max_retries=3, base_delay=0.01
             )

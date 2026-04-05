@@ -19,11 +19,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-from database import Database
+from biasbuster.database import Database
 from config import Config
-from evaluation.metrics import BinaryMetrics
-from evaluation.scorer import SEVERITY_ORDER
-from enrichers.retraction_classifier import classify_retraction
+from biasbuster.evaluation.metrics import BinaryMetrics
+from biasbuster.evaluation.scorer import SEVERITY_ORDER
+from biasbuster.enrichers.retraction_classifier import classify_retraction
 
 logger = logging.getLogger(__name__)
 

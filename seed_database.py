@@ -38,10 +38,10 @@ from typing import Optional
 
 import httpx
 
-from annotators import is_retraction_notice
+from biasbuster.annotators import is_retraction_notice
 from config import Config
-from database import Database
-from utils.retry import fetch_with_retry
+from biasbuster.database import Database
+from biasbuster.utils.retry import fetch_with_retry
 
 logging.basicConfig(
     level=logging.INFO,
@@ -218,7 +218,7 @@ async def fetch_missing_abstracts(config: Config, db: Database) -> int:
     )
 
     # Use the existing PubMed batch fetch infrastructure
-    from collectors.retraction_watch import RetractionWatchCollector
+    from biasbuster.collectors.retraction_watch import RetractionWatchCollector
 
     fetched = 0
     async with RetractionWatchCollector(

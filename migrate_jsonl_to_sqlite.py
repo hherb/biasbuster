@@ -16,7 +16,7 @@ import json
 import logging
 from pathlib import Path
 
-from database import Database
+from biasbuster.database import Database
 
 logging.basicConfig(
     level=logging.INFO,

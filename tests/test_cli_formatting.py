@@ -2,7 +2,7 @@
 
 import json
 
-from cli.formatting import build_metadata, format_json, format_markdown
+from biasbuster.cli.formatting import build_metadata, format_json, format_markdown
 
 
 def _sample_assessment():

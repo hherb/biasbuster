@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 # Canonical prompt imported from the single source of truth.
 # See docs/MISTAKES_ROUND_1_AND_FIXES.md for why prompt unification matters.
-from annotators import _ensure_parsed
-from prompts import TRAINING_SYSTEM_PROMPT as SYSTEM_PROMPT  # noqa: E402
+from biasbuster.annotators import _ensure_parsed
+from biasbuster.prompts import TRAINING_SYSTEM_PROMPT as SYSTEM_PROMPT  # noqa: E402
 
 
 def build_thinking_chain(annotation: dict) -> str:
@@ -407,7 +407,7 @@ def _build_retraction_reasoning(parts: list[str], annotation: dict) -> None:
     if not reasons:
         return
 
-    from enrichers.retraction_classifier import classify_retraction
+    from biasbuster.enrichers.retraction_classifier import classify_retraction
     floor, category, detectable = classify_retraction(
         reasons, title=annotation.get("title", ""),
     )
@@ -477,7 +477,7 @@ def _synthesize_verification_steps(annotation: dict) -> list[str]:
     Delegates to the shared implementation in agent.verification_planner,
     which is also used by the agent harness at inference time.
     """
-    from agent.verification_planner import synthesize_verification_steps
+    from biasbuster.agent.verification_planner import synthesize_verification_steps
     return synthesize_verification_steps(annotation)
 
 
@@ -831,7 +831,7 @@ def _apply_retraction_floors(annotations: list[dict]) -> list[dict]:
     overall_severity up to the floor if it's too low.  Non-retracted
     papers pass through unchanged.
     """
-    from enrichers.retraction_classifier import (
+    from biasbuster.enrichers.retraction_classifier import (
         classify_retraction,
         enforce_severity_floor,
     )

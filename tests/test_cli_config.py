@@ -4,7 +4,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from cli.settings import CLIConfig, load_config
+from biasbuster.cli.settings import CLIConfig, load_config
 
 
 def test_defaults():

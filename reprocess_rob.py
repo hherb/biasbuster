@@ -22,12 +22,12 @@ import asyncio
 import logging
 import re
 import sys
-from collectors.cochrane_rob import (
+from biasbuster.collectors.cochrane_rob import (
     CochraneRoBCollector, RoBAssessment, rob_assessment_to_paper_dict,
 )
 from config import Config
-from database import Database
-from utils.retry import fetch_with_retry
+from biasbuster.database import Database
+from biasbuster.utils.retry import fetch_with_retry
 
 logging.basicConfig(
     level=logging.INFO,

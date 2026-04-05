@@ -1,7 +1,7 @@
 """Tests for collectors.spin_detector."""
 
 import pytest
-from collectors.spin_detector import (
+from biasbuster.collectors.spin_detector import (
     screen_for_spin,
     batch_screen,
     SpinType,

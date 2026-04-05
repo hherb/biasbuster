@@ -1,7 +1,7 @@
 """Tests for collectors.pubmed_xml."""
 
 import pytest
-from collectors.pubmed_xml import parse_pubmed_xml, parse_pubmed_xml_batch
+from biasbuster.collectors.pubmed_xml import parse_pubmed_xml, parse_pubmed_xml_batch
 
 
 class TestParsePubmedXml:

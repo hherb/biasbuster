@@ -23,8 +23,8 @@ import logging
 from pathlib import Path
 
 from config import Config
-from database import Database
-from collectors.cochrane_rob import (
+from biasbuster.database import Database
+from biasbuster.collectors.cochrane_rob import (
     CochraneRoBCollector, rob_assessment_to_paper_dict,
 )
 

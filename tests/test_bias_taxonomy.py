@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from schemas.bias_taxonomy import (
+from biasbuster.schemas.bias_taxonomy import (
     BiasAssessment,
     StatisticalReportingBias,
     SpinAssessment,

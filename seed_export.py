@@ -182,7 +182,7 @@ def _import_tables(
         shutil.copy2(db_path, backup)
         logger.info(f"Backed up existing DB to {backup}")
 
-    from database import Database
+    from biasbuster.database import Database
     db = Database(str(db_path))
     db.initialize()
 

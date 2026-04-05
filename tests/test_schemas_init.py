@@ -1,7 +1,7 @@
 """Tests for schemas.extract_abstract_sections."""
 
 import pytest
-from schemas import extract_abstract_sections
+from biasbuster.schemas import extract_abstract_sections
 
 
 class TestExtractAbstractSections:

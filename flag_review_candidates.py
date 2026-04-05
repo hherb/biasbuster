@@ -18,7 +18,7 @@ import argparse
 import json
 import logging
 
-from database import Database
+from biasbuster.database import Database
 
 logging.basicConfig(
     level=logging.INFO,

@@ -2,7 +2,7 @@
 
 from bmlib.fulltext.models import JATSAbstractSection, JATSArticle, JATSBodySection
 
-from cli.chunking import (
+from biasbuster.cli.chunking import (
     TextChunk,
     chunk_jats_article,
     chunk_plain_text,
