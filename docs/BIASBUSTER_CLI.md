@@ -13,7 +13,7 @@ uv sync
 This registers the `biasbuster` command via the project entry point. You can also run it directly:
 
 ```bash
-uv run python -m cli.main <identifier> [options]
+uv run python -m biasbuster.cli <identifier> [options]
 ```
 
 ### Dependencies
@@ -236,12 +236,13 @@ When `--save` is passed, the tool stores results in the BiasBuster SQLite databa
 ## Architecture
 
 ```
-cli/
+biasbuster/cli/
   __init__.py       Package init
+  __main__.py       Allows: python -m biasbuster.cli
   main.py           Entry point: argparse, config loading, orchestration
-  config.py         TOML config loading, env var resolution, defaults
+  settings.py       TOML config loading, env var resolution, defaults
   content.py        Identifier resolution, content acquisition via bmlib
-  chunking.py       Section-based (JATS) + token-window fallback chunking
+  chunking.py       Section-based (JATS) + token-window + back-matter chunking
   pdf_extract.py    PDF text extraction via pdfplumber
   analysis.py       Single-pass and map-reduce LLM assessment
   verification.py   Wrapper around agent/ verification pipeline
