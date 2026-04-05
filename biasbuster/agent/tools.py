@@ -367,63 +367,148 @@ async def check_retraction_status(
     doi: str,
     config: AgentConfig,
 ) -> ToolResult:
-    """Check for retraction notices via PubMed metadata."""
+    """Check for retraction notices via PubMed and Crossref.
+
+    Strategy (first success wins):
+    1. If PMID available → check PubMed title for retraction keywords.
+    2. If DOI available → check Crossref ``update-to`` field for retractions.
+    Both checks run when both identifiers are present.
+    """
     from biasbuster.collectors.retraction_watch import RetractionWatchCollector
 
-    if not pmid:
+    checks_performed: list[str] = []
+    identifier = f"PMID {pmid}" if pmid else f"DOI {doi}"
+
+    # --- PubMed check (by PMID) -----------------------------------------
+    if pmid:
+        try:
+            async with RetractionWatchCollector(
+                mailto=config.crossref_mailto or "biasbuster@example.com",
+                ncbi_api_key=config.ncbi_api_key,
+            ) as collector:
+                article = await collector.fetch_pubmed_abstract(pmid)
+
+            if article is not None:
+                title = article.get("title", "")
+                is_retracted = any(
+                    kw in title.lower()
+                    for kw in ["retract", "withdraw", "expression of concern"]
+                )
+                if is_retracted:
+                    return ToolResult(
+                        tool_name="retraction_watch",
+                        success=True,
+                        summary=f"RETRACTION/CONCERN DETECTED for PMID {pmid}",
+                        detail=f"**Title:** {title}\n\nThis paper appears to have "
+                               "a retraction notice, withdrawal, or expression of concern.",
+                        raw_data={"retracted": True, "title": title, "source": "pubmed"},
+                    )
+                checks_performed.append(f"PubMed record exists. Title: {title}")
+        except Exception as exc:
+            logger.warning("PubMed retraction check failed: %s", exc)
+            checks_performed.append(f"PubMed check failed: {exc}")
+
+    # --- Crossref check (by DOI) ----------------------------------------
+    if doi:
+        try:
+            crossref_result = await _check_crossref_retraction(doi, config)
+            if crossref_result:
+                return crossref_result
+            checks_performed.append("Crossref: no retraction or correction notices.")
+        except Exception as exc:
+            logger.warning("Crossref retraction check failed: %s", exc)
+            checks_performed.append(f"Crossref check failed: {exc}")
+
+    if not pmid and not doi:
         return ToolResult(
             tool_name="retraction_watch",
             success=False,
-            summary="No PMID provided for retraction check.",
+            summary="No PMID or DOI available for retraction check.",
         )
 
-    try:
-        async with RetractionWatchCollector(
-            mailto=config.crossref_mailto or "biasbuster@example.com",
-            ncbi_api_key=config.ncbi_api_key,
-        ) as collector:
-            article = await collector.fetch_pubmed_abstract(pmid)
+    return ToolResult(
+        tool_name="retraction_watch",
+        success=True,
+        summary=f"No retraction notices found for {identifier}.",
+        detail="\n".join(checks_performed)
+               + "\nNo retraction, withdrawal, or expression of concern detected.",
+        raw_data={"retracted": False},
+    )
 
-            if article is None:
-                return ToolResult(
-                    tool_name="retraction_watch",
-                    success=False,
-                    summary=f"Could not fetch PubMed record for PMID {pmid}.",
-                )
 
-            title = article.get("title", "")
-            is_retracted = any(
-                kw in title.lower()
-                for kw in ["retract", "withdraw", "expression of concern"]
-            )
+async def _check_crossref_retraction(
+    doi: str, config: AgentConfig,
+) -> Optional[ToolResult]:
+    """Query Crossref for retraction/correction notices linked to a DOI.
 
-            if is_retracted:
-                return ToolResult(
-                    tool_name="retraction_watch",
-                    success=True,
-                    summary=f"RETRACTION/CONCERN DETECTED for PMID {pmid}",
-                    detail=f"**Title:** {title}\n\nThis paper appears to have "
-                           "a retraction notice, withdrawal, or expression of concern.",
-                    raw_data={"retracted": True, "title": title},
-                )
+    Returns a ToolResult if a retraction is found, None otherwise.
+    """
+    import requests
 
+    def _fetch() -> dict:
+        mailto = config.crossref_mailto or "biasbuster@example.com"
+        resp = requests.get(
+            f"https://api.crossref.org/works/{doi}",
+            headers={"User-Agent": f"biasbuster/1.0 (mailto:{mailto})"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    import asyncio
+    data = await asyncio.to_thread(_fetch)
+    msg = data.get("message", {})
+
+    _RETRACTION_KEYWORDS = ("retraction", "withdrawal", "expression of concern")
+
+    # Check updated-by field — on the *original* paper, pointing to notices
+    for update in msg.get("updated-by", []):
+        update_type = update.get("type", "").lower()
+        if any(kw in update_type for kw in _RETRACTION_KEYWORDS):
             return ToolResult(
                 tool_name="retraction_watch",
                 success=True,
-                summary=f"No retraction notices found for PMID {pmid}.",
-                detail=f"PubMed record exists. Title: {title}\n"
-                       "No retraction, withdrawal, or expression of concern detected.",
-                raw_data={"retracted": False, "title": title},
+                summary=f"RETRACTION DETECTED via Crossref for DOI {doi}",
+                detail=f"Crossref reports a **{update.get('type')}** notice "
+                       f"(DOI: {update.get('DOI', 'unknown')}).",
+                raw_data={
+                    "retracted": True,
+                    "source": "crossref",
+                    "update_type": update.get("type"),
+                    "update_doi": update.get("DOI"),
+                },
             )
 
-    except Exception as exc:
-        logger.exception("Retraction check failed")
+    # Check update-to field — on *retraction notices*, pointing to originals
+    for update in msg.get("update-to", []):
+        update_type = update.get("type", "").lower()
+        if any(kw in update_type for kw in _RETRACTION_KEYWORDS):
+            return ToolResult(
+                tool_name="retraction_watch",
+                success=True,
+                summary=f"This DOI is itself a {update_type.upper()} notice.",
+                detail=f"Crossref links this to the original article "
+                       f"(DOI: {update.get('DOI', 'unknown')}).",
+                raw_data={
+                    "retracted": True,
+                    "source": "crossref",
+                    "update_type": update.get("type"),
+                    "original_doi": update.get("DOI"),
+                },
+            )
+
+    # Check if the publication type itself signals a retraction
+    pub_type = msg.get("type", "")
+    if pub_type in ("retraction", "expression-of-concern"):
         return ToolResult(
             tool_name="retraction_watch",
-            success=False,
-            error=str(exc),
-            summary=f"Retraction check failed: {exc}",
+            success=True,
+            summary=f"This DOI is itself a {pub_type.upper()} notice.",
+            detail=f"Crossref classifies DOI {doi} as type: **{pub_type}**.",
+            raw_data={"retracted": True, "source": "crossref", "type": pub_type},
         )
+
+    return None
 
 
 async def run_effect_size_audit(
