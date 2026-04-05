@@ -70,6 +70,7 @@ biasbuster <identifier> [options]
 | `--model MODEL` | from config | LLM model as `provider:model_name`. See [Model Selection](#model-selection). |
 | `--format {json,markdown}` | `json` | Output format. |
 | `--verify` | off | Enable the verification pipeline (cross-checks against external databases). |
+| `--force-download` | off | Bypass the download cache and re-fetch content from APIs. |
 | `--save` | off | Persist results to the BiasBuster SQLite database. |
 | `--db PATH` | `dataset/biasbuster.db` | Database path (only with `--save`). |
 | `--config PATH` | `~/.biasbuster/config.toml` | Config file path. |
@@ -232,6 +233,32 @@ When `--save` is passed, the tool stores results in the BiasBuster SQLite databa
 - Inserts the paper record (if not already present) with source `cli_import`
 - Stores the annotation under model label `cli_{provider}_{model_name}`
 - Integrates with the existing dataset pipeline for human review via the NiceGUI web tool
+
+## Download Caching
+
+Downloaded content is cached in `~/.biasbuster/downloads/` so repeated analyses of the same paper skip network calls:
+
+```
+~/.biasbuster/downloads/
+    pmid/
+        12345678.pubmed.xml       # PubMed efetch XML (abstract + metadata)
+        12345678.jats.xml         # Full-text JATS XML from Europe PMC
+    doi/
+        10.1234_example.pubmed.xml
+        10.1234_example.jats.xml
+        10.1234_example.meta.json # Resolved identifiers (DOI → PMID)
+```
+
+The first run fetches from PubMed and Europe PMC; subsequent runs read from disk. To force a re-download (e.g. after a paper is updated or corrected):
+
+```bash
+biasbuster 12345678 --force-download
+```
+
+The cache stores:
+- **PubMed XML** -- abstract, title, authors, grants, MeSH terms
+- **JATS XML** -- full-text body sections plus back-matter (funding, COI)
+- **Identifier mappings** -- DOI-to-PMID resolutions
 
 ## Architecture
 

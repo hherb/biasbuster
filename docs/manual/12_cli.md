@@ -35,6 +35,7 @@ biasbuster ./paper.jats
 | `--model MODEL` | from config | LLM model as `provider:model_name` |
 | `--format {json,markdown}` | `json` | Output format |
 | `--verify` | off | Enable external verification pipeline |
+| `--force-download` | off | Bypass the download cache and re-fetch from APIs |
 | `--save` | off | Persist results to the BiasBuster SQLite database |
 | `--db PATH` | `dataset/biasbuster.db` | Database path (with `--save`) |
 | `--config PATH` | `~/.biasbuster/config.toml` | Config file path |
@@ -101,6 +102,34 @@ The tool resolves the identifier and fetches the best available content through 
 4. **Abstract-only fallback**: If no full text is available, the abstract from PubMed is used.
 
 For local files, `.xml`/`.jats` files are parsed via `JATSParser` and `.pdf` files via pdfplumber.
+
+## Download Caching
+
+All downloaded content is cached in `~/.biasbuster/downloads/` so that repeated analyses of the same paper skip network calls entirely:
+
+```
+~/.biasbuster/downloads/
+    pmid/
+        12345678.pubmed.xml       # PubMed efetch XML (abstract + metadata)
+        12345678.jats.xml         # Full-text JATS XML from Europe PMC
+    doi/
+        10.1234_example.pubmed.xml
+        10.1234_example.jats.xml
+        10.1234_example.meta.json # Resolved identifiers (DOI → PMID)
+```
+
+**What is cached:**
+- **PubMed XML** — abstract, title, authors, grants, MeSH terms
+- **JATS XML** — full-text body sections plus back-matter (funding, COI disclosures)
+- **Identifier mappings** — DOI-to-PMID resolutions so repeat DOI lookups are instant
+
+The first run of `biasbuster 12345678` fetches from PubMed and Europe PMC; the second run loads from disk with no network calls. To force a fresh download (e.g. after a correction or retraction is published):
+
+```bash
+biasbuster 12345678 --force-download
+```
+
+The cache has no expiry — papers rarely change after publication. Use `--force-download` when you know content has been updated.
 
 ## Analysis Modes
 

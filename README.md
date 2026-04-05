@@ -193,6 +193,12 @@ biasbuster 12345678 --model gpt-oss:20b                    # Ollama (auto-detect
 Bare model names without a known provider prefix (e.g. `gpt-oss:20b`) default to
 Ollama. Known providers: anthropic, ollama, openai, deepseek, mistral, gemini.
 
+### Download Caching
+
+Downloaded abstracts and full-text files are cached in `~/.biasbuster/downloads/`
+so repeated analyses of the same paper skip network calls. Use `--force-download`
+to re-fetch after a correction or retraction.
+
 ### Configuration
 
 Settings are read from `~/.biasbuster/config.toml` with environment variable and
