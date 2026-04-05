@@ -99,6 +99,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Bypass the download cache and re-fetch content from APIs.",
+    )
+
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Verbose logging to stderr.",
@@ -164,7 +170,9 @@ def main(argv: list[str] | None = None) -> int:
     # Acquire content
     _progress("Fetching content...", args.quiet)
     try:
-        content = acquire_content(args.identifier, config)
+        content = acquire_content(
+            args.identifier, config, force_download=args.force_download,
+        )
     except (ValueError, FileNotFoundError, ImportError) as exc:
         print(f"Error acquiring content: {exc}", file=sys.stderr)
         return 1

@@ -3,10 +3,15 @@
 Resolves identifiers (PMID, DOI, local file) to analysable content.
 Uses bmlib for full-text retrieval and JATS parsing, falling back to
 abstract-only when full text is unavailable.
+
+Downloaded content is cached in ~/.biasbuster/downloads/ (keyed by PMID
+or DOI) so repeated analyses of the same paper skip network calls.
+Pass force_download=True to bypass the cache.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -33,6 +38,91 @@ NCBI_ID_CONVERTER = "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/"
 
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1.0  # seconds
+
+DEFAULT_CACHE_DIR = Path.home() / ".biasbuster" / "downloads"
+
+
+class ContentCache:
+    """Disk cache for downloaded PubMed metadata and JATS full text.
+
+    Layout::
+
+        ~/.biasbuster/downloads/
+            pmid/
+                12345678.pubmed.xml     # Raw PubMed efetch XML
+                12345678.jats.xml       # Raw JATS full-text XML
+                12345678.meta.json      # Resolved identifiers (pmid↔doi↔pmcid)
+            doi/
+                10.1234_example.pubmed.xml
+                10.1234_example.jats.xml
+                10.1234_example.meta.json
+    """
+
+    def __init__(self, cache_dir: Path | None = None) -> None:
+        self.root = cache_dir or DEFAULT_CACHE_DIR
+
+    @staticmethod
+    def _safe_key(identifier: str) -> str:
+        """Turn an identifier into a filesystem-safe filename stem."""
+        return re.sub(r"[^\w.\-]", "_", identifier)
+
+    def _dir(self, id_type: str) -> Path:
+        return self.root / id_type
+
+    # -- PubMed XML ----------------------------------------------------------
+
+    def get_pubmed_xml(self, id_type: str, identifier: str) -> str | None:
+        """Return cached PubMed efetch XML text, or None."""
+        path = self._dir(id_type) / f"{self._safe_key(identifier)}.pubmed.xml"
+        if path.exists():
+            logger.info("Cache hit: PubMed XML for %s %s", id_type, identifier)
+            return path.read_text(encoding="utf-8")
+        return None
+
+    def save_pubmed_xml(self, id_type: str, identifier: str, xml_text: str) -> None:
+        """Save PubMed efetch XML to cache."""
+        d = self._dir(id_type)
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f"{self._safe_key(identifier)}.pubmed.xml"
+        path.write_text(xml_text, encoding="utf-8")
+        logger.debug("Cached PubMed XML → %s", path)
+
+    # -- JATS XML ------------------------------------------------------------
+
+    def get_jats_xml(self, id_type: str, identifier: str) -> bytes | None:
+        """Return cached JATS full-text XML bytes, or None."""
+        path = self._dir(id_type) / f"{self._safe_key(identifier)}.jats.xml"
+        if path.exists():
+            logger.info("Cache hit: JATS XML for %s %s", id_type, identifier)
+            return path.read_bytes()
+        return None
+
+    def save_jats_xml(self, id_type: str, identifier: str, xml_bytes: bytes) -> None:
+        """Save JATS full-text XML to cache."""
+        d = self._dir(id_type)
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f"{self._safe_key(identifier)}.jats.xml"
+        path.write_bytes(xml_bytes)
+        logger.debug("Cached JATS XML → %s", path)
+
+    # -- Identifier mapping --------------------------------------------------
+
+    def get_meta(self, id_type: str, identifier: str) -> dict | None:
+        """Return cached identifier mappings (pmid↔doi↔pmcid), or None."""
+        path = self._dir(id_type) / f"{self._safe_key(identifier)}.meta.json"
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return None
+        return None
+
+    def save_meta(self, id_type: str, identifier: str, meta: dict) -> None:
+        """Save identifier mappings to cache."""
+        d = self._dir(id_type)
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f"{self._safe_key(identifier)}.meta.json"
+        path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
 @dataclass
@@ -160,27 +250,35 @@ def classify_identifier(raw: str) -> tuple[str, str]:
     raise ValueError(f"Cannot classify identifier: {raw!r}. Expected PMID, DOI, or file path.")
 
 
-def acquire_content(identifier: str, config: CLIConfig) -> AcquiredContent:
+def acquire_content(
+    identifier: str,
+    config: CLIConfig,
+    *,
+    force_download: bool = False,
+) -> AcquiredContent:
     """Resolve an identifier and fetch the best available content.
 
     Attempts to get structured JATS full text first, then falls back to
-    PDF text extraction, then to abstract-only.
+    PDF text extraction, then to abstract-only. Downloaded content is
+    cached in ~/.biasbuster/downloads/ for subsequent runs.
 
     Args:
         identifier: PMID, DOI, or local file path.
         config: CLI configuration.
+        force_download: If True, bypass the cache and re-download.
 
     Returns:
         AcquiredContent with the best available text for analysis.
     """
     id_type, id_value = classify_identifier(identifier)
+    cache = ContentCache() if not force_download else None
 
     if id_type == "file":
         return _acquire_from_file(id_value)
     elif id_type == "pmid":
-        return _acquire_from_pmid(id_value, config)
+        return _acquire_from_pmid(id_value, config, cache=cache)
     elif id_type == "doi":
-        return _acquire_from_doi(id_value, config)
+        return _acquire_from_doi(id_value, config, cache=cache)
     else:
         raise ValueError(f"Unknown identifier type: {id_type}")
 
@@ -230,15 +328,17 @@ def _acquire_from_file(file_path: str) -> AcquiredContent:
     raise ValueError(f"Unsupported file format: {suffix}")
 
 
-def _acquire_from_pmid(pmid: str, config: CLIConfig) -> AcquiredContent:
+def _acquire_from_pmid(
+    pmid: str, config: CLIConfig, *, cache: ContentCache | None = None,
+) -> AcquiredContent:
     """Fetch content for a PubMed ID — try full text, fall back to abstract."""
     content = AcquiredContent(pmid=pmid)
 
     # Step 1: Fetch abstract + metadata from PubMed
-    _fetch_pubmed_metadata(content, config)
+    _fetch_pubmed_metadata(content, config, cache=cache)
 
     # Step 2: Try to get structured JATS full text
-    if _try_jats_fulltext(content, config):
+    if _try_jats_fulltext(content, config, cache=cache):
         return content
 
     # Step 3: Try bmlib FullTextService for PDF fallback
@@ -253,18 +353,20 @@ def _acquire_from_pmid(pmid: str, config: CLIConfig) -> AcquiredContent:
     raise ValueError(f"No content found for PMID {pmid}")
 
 
-def _acquire_from_doi(doi: str, config: CLIConfig) -> AcquiredContent:
+def _acquire_from_doi(
+    doi: str, config: CLIConfig, *, cache: ContentCache | None = None,
+) -> AcquiredContent:
     """Fetch content for a DOI — try full text, fall back to abstract."""
     content = AcquiredContent(doi=doi)
 
     # Step 1: Try to resolve DOI to PMID for metadata
-    pmid = _doi_to_pmid(doi, email=config.email)
+    pmid = _doi_to_pmid(doi, email=config.email, cache=cache)
     if pmid:
         content.pmid = pmid
-        _fetch_pubmed_metadata(content, config)
+        _fetch_pubmed_metadata(content, config, cache=cache)
 
     # Step 2: Try structured JATS full text
-    if _try_jats_fulltext(content, config):
+    if _try_jats_fulltext(content, config, cache=cache):
         return content
 
     # Step 3: Try bmlib FullTextService for PDF fallback
@@ -279,27 +381,43 @@ def _acquire_from_doi(doi: str, config: CLIConfig) -> AcquiredContent:
     raise ValueError(f"No content found for DOI {doi}")
 
 
-def _fetch_pubmed_metadata(content: AcquiredContent, config: CLIConfig) -> None:
+def _fetch_pubmed_metadata(
+    content: AcquiredContent,
+    config: CLIConfig,
+    *,
+    cache: ContentCache | None = None,
+) -> None:
     """Fetch title, abstract, and metadata from PubMed E-utilities."""
     if not content.pmid:
         return
 
-    params = {
-        "db": "pubmed",
-        "id": content.pmid,
-        "rettype": "xml",
-        "retmode": "xml",
-    }
-    if config.ncbi_api_key:
-        params["api_key"] = config.ncbi_api_key
+    # Check cache first
+    cached_xml = cache.get_pubmed_xml("pmid", content.pmid) if cache else None
+    if cached_xml is not None:
+        xml_text = cached_xml
+    else:
+        params = {
+            "db": "pubmed",
+            "id": content.pmid,
+            "rettype": "xml",
+            "retmode": "xml",
+        }
+        if config.ncbi_api_key:
+            params["api_key"] = config.ncbi_api_key
 
-    try:
-        resp = _http_get_with_retry(PUBMED_EFETCH, params=params)
-    except Exception:
-        logger.warning("PubMed fetch failed for PMID %s", content.pmid, exc_info=True)
-        return
+        try:
+            resp = _http_get_with_retry(PUBMED_EFETCH, params=params)
+        except Exception:
+            logger.warning("PubMed fetch failed for PMID %s", content.pmid, exc_info=True)
+            return
 
-    parsed = parse_pubmed_xml(resp.text)
+        xml_text = resp.text
+
+        # Save to cache
+        if cache:
+            cache.save_pubmed_xml("pmid", content.pmid, xml_text)
+
+    parsed = parse_pubmed_xml(xml_text)
     if parsed is None:
         logger.warning("Failed to parse PubMed XML for PMID %s", content.pmid)
         return
@@ -312,11 +430,25 @@ def _fetch_pubmed_metadata(content: AcquiredContent, config: CLIConfig) -> None:
     content.authors = parsed.get("authors", [])
 
 
-def _try_jats_fulltext(content: AcquiredContent, config: CLIConfig) -> bool:
+def _try_jats_fulltext(
+    content: AcquiredContent,
+    config: CLIConfig,
+    *,
+    cache: ContentCache | None = None,
+) -> bool:
     """Try to fetch JATS XML from Europe PMC and parse into structured sections.
 
     Returns True if structured full text was obtained.
     """
+    # Determine cache key: prefer PMID, fall back to DOI
+    cache_id_type = "pmid" if content.pmid else "doi"
+    cache_id = content.pmid or content.doi
+
+    # Check JATS cache
+    cached_jats = cache.get_jats_xml(cache_id_type, cache_id) if cache and cache_id else None
+    if cached_jats is not None:
+        return _parse_jats_into_content(cached_jats, content, "cached")
+
     pmc_id = _discover_pmc_id(content.doi, content.pmid)
     if not pmc_id:
         return False
@@ -327,19 +459,36 @@ def _try_jats_fulltext(content: AcquiredContent, config: CLIConfig) -> bool:
     try:
         resp = _http_get_with_retry(url, headers={"Accept": "application/xml"})
 
-        parser = JATSParser(resp.content, known_pmc_id=normalized)
+        # Cache the raw JATS XML
+        if cache and cache_id:
+            cache.save_jats_xml(cache_id_type, cache_id, resp.content)
+
+        return _parse_jats_into_content(resp.content, content, f"Europe PMC {pmc_id}")
+
+    except Exception:
+        logger.debug("JATS fetch/parse failed for %s", pmc_id, exc_info=True)
+        return False
+
+
+def _parse_jats_into_content(
+    jats_bytes: bytes, content: AcquiredContent, source: str,
+) -> bool:
+    """Parse JATS XML bytes and populate content fields.
+
+    Returns True if structured full text with body sections was obtained.
+    """
+    try:
+        parser = JATSParser(jats_bytes)
         article = parser.parse()
 
-        # Only count as full text if body sections exist
         if not article.body_sections:
-            logger.debug("JATS parsed but no body sections for %s", pmc_id)
+            logger.debug("JATS parsed but no body sections (%s)", source)
             return False
 
         content.jats_article = article
-        content.jats_xml = resp.content
+        content.jats_xml = jats_bytes
         content.content_type = "fulltext_jats"
 
-        # Fill in any missing metadata from JATS
         if not content.title and article.title:
             content.title = article.title
         if not content.doi and article.doi:
@@ -347,11 +496,10 @@ def _try_jats_fulltext(content: AcquiredContent, config: CLIConfig) -> bool:
         if not content.pmid and article.pmid:
             content.pmid = article.pmid
 
-        logger.info("Got structured JATS full text via Europe PMC (%s)", pmc_id)
+        logger.info("Got structured JATS full text (%s)", source)
         return True
-
     except Exception:
-        logger.debug("JATS fetch/parse failed for %s", pmc_id, exc_info=True)
+        logger.debug("JATS parse failed (%s)", source, exc_info=True)
         return False
 
 
@@ -430,13 +578,28 @@ def _discover_pmc_id(doi: str | None, pmid: str) -> str | None:
     return None
 
 
-def _doi_to_pmid(doi: str, email: str = "") -> str | None:
+def _doi_to_pmid(
+    doi: str, email: str = "", *, cache: ContentCache | None = None,
+) -> str | None:
     """Resolve DOI to PMID via NCBI ID Converter API, falling back to Europe PMC.
 
     Args:
         doi: Digital Object Identifier to resolve.
         email: Contact email for NCBI polite pool (required by NCBI).
+        cache: Optional content cache for storing resolved identifiers.
     """
+    # Check cache for previously resolved mapping
+    if cache:
+        meta = cache.get_meta("doi", doi)
+        if meta and meta.get("pmid"):
+            logger.info("Cache hit: DOI %s → PMID %s", doi, meta["pmid"])
+            return meta["pmid"]
+
+    def _cache_and_return(resolved_pmid: str) -> str:
+        if cache:
+            cache.save_meta("doi", doi, {"pmid": resolved_pmid, "doi": doi})
+        return resolved_pmid
+
     # Try NCBI ID Converter (requires email)
     if email:
         try:
@@ -447,7 +610,7 @@ def _doi_to_pmid(doi: str, email: str = "") -> str | None:
             if records:
                 pmid = records[0].get("pmid", "")
                 if pmid:
-                    return pmid
+                    return _cache_and_return(pmid)
         except Exception:
             logger.debug("NCBI ID Converter failed for %s", doi, exc_info=True)
 
@@ -463,7 +626,7 @@ def _doi_to_pmid(doi: str, email: str = "") -> str | None:
         if results:
             pmid = results[0].get("pmid", "")
             if pmid:
-                return pmid
+                return _cache_and_return(pmid)
     except Exception:
         logger.debug("Europe PMC DOI→PMID fallback failed for %s", doi, exc_info=True)
 
