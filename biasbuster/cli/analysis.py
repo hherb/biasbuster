@@ -13,7 +13,12 @@ from typing import Any
 
 from bmlib.llm import LLMClient, LLMMessage
 
-from biasbuster.annotators import build_user_message, parse_llm_json
+from biasbuster.annotators import (
+    build_user_message,
+    parse_llm_json,
+    strip_markdown_fences,
+    repair_json,
+)
 from biasbuster.cli.chunking import TextChunk, chunk_jats_article, chunk_plain_text
 from biasbuster.cli.settings import CLIConfig
 from biasbuster.cli.content import AcquiredContent
@@ -184,7 +189,7 @@ def _analyse_abstract(
         json_mode=True,
     )
 
-    assessment = parse_llm_json(response.content, pmid=content.pmid)
+    assessment = _parse_assessment_lenient(response.content, pmid=content.pmid)
     if assessment is None:
         raise ValueError(
             f"Failed to parse LLM response as valid bias assessment. "
@@ -247,7 +252,7 @@ def _analyse_fulltext(
             json_mode=True,
         )
 
-        parsed = parse_llm_json(response.content)
+        parsed = _parse_section_json(response.content)
         if parsed is not None:
             section_results.append(parsed)
         else:
@@ -292,7 +297,7 @@ def _synthesize(
         json_mode=True,
     )
 
-    assessment = parse_llm_json(response.content, pmid=content.pmid)
+    assessment = _parse_assessment_lenient(response.content, pmid=content.pmid)
     if assessment is None:
         raise ValueError(
             f"Failed to parse synthesis response. "
@@ -300,6 +305,101 @@ def _synthesize(
         )
 
     return assessment
+
+
+def _parse_section_json(text: str) -> dict[str, Any] | None:
+    """Parse section-level analysis JSON (simpler schema than full annotation).
+
+    Section results use {"section": "...", "signals": [...]} format,
+    NOT the full 5-domain annotation schema. So we cannot use parse_llm_json
+    which validates against the annotation schema.
+    """
+    text = strip_markdown_fences(text)
+    if not text.strip():
+        return None
+
+    result = None
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError:
+        repaired = repair_json(text)
+        try:
+            result = json.loads(repaired)
+        except json.JSONDecodeError:
+            logger.debug("Section JSON parse failed: %s", text[:200])
+            return None
+
+    if not isinstance(result, dict):
+        return None
+
+    # Minimal validation: must have "signals" key (list)
+    if "signals" not in result or not isinstance(result.get("signals"), list):
+        # Some models return the signals directly without the wrapper
+        if isinstance(result.get("section"), str):
+            result.setdefault("signals", [])
+        else:
+            logger.debug("Section result missing 'signals' key: %s", list(result.keys()))
+            return None
+
+    return result
+
+
+def _parse_assessment_lenient(text: str, pmid: str = "") -> dict[str, Any] | None:
+    """Parse a full assessment JSON, filling in missing optional fields.
+
+    Uses parse_llm_json first. If that rejects the response for missing
+    non-critical fields (like recommended_verification_steps), we parse
+    manually and fill defaults.
+    """
+    # Try strict parse first
+    result = parse_llm_json(text, pmid=pmid)
+    if result is not None:
+        return result
+
+    # Strict parse failed — try lenient: parse JSON and fill defaults
+    text = strip_markdown_fences(text)
+    if not text.strip():
+        return None
+
+    parsed = None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        repaired = repair_json(text)
+        try:
+            parsed = json.loads(repaired)
+        except json.JSONDecodeError:
+            return None
+
+    if not isinstance(parsed, dict):
+        return None
+
+    # Must have at least overall_severity and one domain to be usable
+    if "overall_severity" not in parsed:
+        return None
+
+    has_any_domain = any(
+        k in parsed
+        for k in ("statistical_reporting", "spin", "outcome_reporting",
+                   "conflict_of_interest", "methodology")
+    )
+    if not has_any_domain:
+        return None
+
+    # Fill missing optional fields with safe defaults
+    parsed.setdefault("recommended_verification_steps", [])
+    parsed.setdefault("confidence", "low")
+    parsed.setdefault("overall_bias_probability", 0.0)
+    parsed.setdefault("reasoning", "")
+
+    # Fill missing domains with empty assessments
+    for domain in ("statistical_reporting", "spin", "outcome_reporting",
+                   "conflict_of_interest", "methodology"):
+        if domain not in parsed:
+            parsed[domain] = {"severity": "none"}
+
+    logger.info("PMID %s: accepted assessment with lenient parsing (filled defaults)", pmid)
+    return parsed
 
 
 def _build_metadata_dict(content: AcquiredContent) -> dict[str, Any] | None:

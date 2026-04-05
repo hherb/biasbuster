@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 EUROPE_PMC_REST = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 PUBMED_EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-NCBI_ID_CONVERTER = "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/"
+NCBI_ID_CONVERTER = "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/"
 
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1.0  # seconds
@@ -428,23 +428,41 @@ def _discover_pmc_id(doi: str | None, pmid: str) -> str | None:
 
 
 def _doi_to_pmid(doi: str, email: str = "") -> str | None:
-    """Resolve DOI to PMID via NCBI ID Converter API.
+    """Resolve DOI to PMID via NCBI ID Converter API, falling back to Europe PMC.
 
     Args:
         doi: Digital Object Identifier to resolve.
-        email: Contact email for NCBI polite pool.
+        email: Contact email for NCBI polite pool (required by NCBI).
     """
-    params = {"ids": doi, "format": "json", "tool": "biasbuster", "email": email}
+    # Try NCBI ID Converter (requires email)
+    if email:
+        try:
+            params = {"ids": doi, "format": "json", "tool": "biasbuster", "email": email}
+            resp = _http_get_with_retry(NCBI_ID_CONVERTER, params=params, timeout=15.0)
+            data = resp.json()
+            records = data.get("records", [])
+            if records:
+                pmid = records[0].get("pmid", "")
+                if pmid:
+                    return pmid
+        except Exception:
+            logger.debug("NCBI ID Converter failed for %s", doi, exc_info=True)
 
+    # Fallback: Europe PMC search (no email required)
     try:
-        resp = _http_get_with_retry(NCBI_ID_CONVERTER, params=params, timeout=15.0)
+        url = (
+            f"{EUROPE_PMC_REST}/search"
+            f"?query={quote(f'DOI:{doi}', safe=':')}&format=json&pageSize=1"
+        )
+        resp = _http_get_with_retry(url, timeout=15.0)
         data = resp.json()
-        records = data.get("records", [])
-        if records:
-            pmid = records[0].get("pmid", "")
-            return pmid if pmid else None
+        results = data.get("resultList", {}).get("result", [])
+        if results:
+            pmid = results[0].get("pmid", "")
+            if pmid:
+                return pmid
     except Exception:
-        logger.debug("DOI→PMID resolution failed for %s", doi, exc_info=True)
+        logger.debug("Europe PMC DOI→PMID fallback failed for %s", doi, exc_info=True)
 
     return None
 

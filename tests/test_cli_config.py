@@ -31,6 +31,17 @@ def test_provider_extraction():
     assert cfg3.provider == "ollama"
     assert cfg3.model_name == "qwen3.5-9b-biasbuster"
 
+    # Ollama model with colon tag → still detected as ollama
+    cfg4 = CLIConfig(model="gpt-oss:20b")
+    assert cfg4.provider == "ollama"
+    assert cfg4.model_name == "gpt-oss:20b"
+
+    # Explicit ollama prefix
+    cfg5 = CLIConfig(model="ollama:gpt-oss:20b")
+    assert cfg5.provider == "ollama"
+    assert cfg5.model_name == "gpt-oss:20b"
+    assert cfg3.model_name == "qwen3.5-9b-biasbuster"
+
 
 def test_load_config_from_toml():
     """Config values are read from TOML file."""

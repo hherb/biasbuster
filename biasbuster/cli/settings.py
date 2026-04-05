@@ -51,18 +51,37 @@ class CLIConfig:
     temperature: float = 0.1
     max_tokens: int = 4000
 
+    # Known LLM provider names — used to distinguish "provider:model" from
+    # Ollama model names that contain colons (e.g. "gpt-oss:20b").
+    KNOWN_PROVIDERS = frozenset({
+        "anthropic", "ollama", "openai", "deepseek", "mistral", "gemini",
+    })
+
     @property
     def provider(self) -> str:
-        """Extract provider name from model string (e.g. 'anthropic' from 'anthropic:claude-sonnet-4-6')."""
+        """Extract provider name from model string.
+
+        Returns the part before the first colon if it's a known provider,
+        otherwise defaults to "ollama" (Ollama model names often contain
+        colons for tags, e.g. "gpt-oss:20b").
+        """
         if ":" in self.model:
-            return self.model.split(":", 1)[0]
+            prefix = self.model.split(":", 1)[0]
+            if prefix in self.KNOWN_PROVIDERS:
+                return prefix
         return "ollama"
 
     @property
     def model_name(self) -> str:
-        """Extract model name from model string (e.g. 'claude-sonnet-4-6' from 'anthropic:claude-sonnet-4-6')."""
+        """Extract model name from model string.
+
+        Strips the provider prefix if present and recognised, otherwise
+        returns the full string (which is the Ollama model name/tag).
+        """
         if ":" in self.model:
-            return self.model.split(":", 1)[1]
+            prefix = self.model.split(":", 1)[0]
+            if prefix in self.KNOWN_PROVIDERS:
+                return self.model.split(":", 1)[1]
         return self.model
 
 
