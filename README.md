@@ -24,6 +24,9 @@ biasbuster 12345678 --model anthropic:claude-sonnet-4-6
 biasbuster ./paper.pdf --format markdown
 biasbuster ./paper.xml --model deepseek:deepseek-reasoner
 
+# Save markdown report to a file
+biasbuster 12345678 --format markdown --outfile report.md
+
 # Full analysis with external verification
 biasbuster 12345678 --verify --format markdown
 ```

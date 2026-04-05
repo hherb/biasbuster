@@ -9,6 +9,7 @@ Usage:
 Examples:
     biasbuster 12345678                                    # PMID, default model
     biasbuster 10.1234/example.2024 --format markdown      # DOI, markdown output
+    biasbuster 12345678 --format markdown -o report.md     # save report to file
     biasbuster ./paper.xml --model anthropic:claude-sonnet-4-6  # local JATS file
     biasbuster 12345678 --verify --save                    # with verification + DB save
 """
@@ -96,6 +97,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--email",
         default=None,
         help="Contact email for API polite pools (PubMed, Unpaywall).",
+    )
+
+    parser.add_argument(
+        "--outfile",
+        "-o",
+        default=None,
+        metavar="PATH",
+        help="Write the report to this file instead of stdout.",
     )
 
     parser.add_argument(
@@ -242,7 +251,16 @@ def main(argv: list[str] | None = None) -> int:
     else:
         output = format_json(assessment, metadata, verification_dict)
 
-    print(output)
+    if args.outfile:
+        try:
+            with open(args.outfile, "w", encoding="utf-8") as fh:
+                fh.write(output)
+            _progress(f"Report written to {args.outfile}", args.quiet)
+        except OSError as exc:
+            print(f"Error writing to {args.outfile}: {exc}", file=sys.stderr)
+            return 1
+    else:
+        print(output)
 
     # Optional DB persistence
     if args.save:

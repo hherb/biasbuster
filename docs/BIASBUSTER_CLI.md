@@ -69,6 +69,7 @@ biasbuster <identifier> [options]
 |------|---------|-------------|
 | `--model MODEL` | from config | LLM model as `provider:model_name`. See [Model Selection](#model-selection). |
 | `--format {json,markdown}` | `json` | Output format. |
+| `-o` / `--outfile PATH` | stdout | Write the report to a file instead of stdout. |
 | `--verify` | off | Enable the verification pipeline (cross-checks against external databases). |
 | `--force-download` | off | Bypass the download cache and re-fetch content from APIs. |
 | `--save` | off | Persist results to the BiasBuster SQLite database. |

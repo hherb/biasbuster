@@ -34,6 +34,7 @@ biasbuster ./paper.jats
 |------|---------|-------------|
 | `--model MODEL` | from config | LLM model as `provider:model_name` |
 | `--format {json,markdown}` | `json` | Output format |
+| `-o` / `--outfile PATH` | stdout | Write the report to a file instead of stdout |
 | `--verify` | off | Enable external verification pipeline |
 | `--force-download` | off | Bypass the download cache and re-fetch from APIs |
 | `--save` | off | Persist results to the BiasBuster SQLite database |
