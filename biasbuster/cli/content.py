@@ -495,6 +495,19 @@ def _parse_jats_into_content(
             content.doi = article.doi
         if not content.pmid and article.pmid:
             content.pmid = article.pmid
+        if not content.abstract and article.abstract_sections:
+            content.abstract = " ".join(
+                s.content for s in article.abstract_sections
+            )
+        if not content.authors and article.authors:
+            content.authors = [
+                {"last": a.surname, "first": a.given_names}
+                for a in article.authors
+            ]
+        if not content.journal and article.journal:
+            content.journal = article.journal
+        if not content.year and article.year:
+            content.year = article.year
 
         logger.info("Got structured JATS full text (%s)", source)
         return True
