@@ -301,6 +301,9 @@ def _synthesize(
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         json_mode=True,
+        # Disable thinking — synthesis is structured JSON generation from
+        # pre-analysed signals, not open-ended reasoning.
+        think=False,
     )
 
     assessment = _parse_assessment_lenient(response.content, pmid=content.pmid)

@@ -49,7 +49,7 @@ class CLIConfig:
 
     # LLM parameters
     temperature: float = 0.1
-    max_tokens: int = 4000
+    max_tokens: int = 8192
 
     # Known LLM provider names — used to distinguish "provider:model" from
     # Ollama model names that contain colons (e.g. "gpt-oss:20b").
