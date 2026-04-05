@@ -230,19 +230,28 @@ class AuthorCOIVerifier:
         return affiliations
 
     async def get_europmc_funding(self, pmid: str) -> list[dict]:
-        """
-        Get funder information from Europe PMC.
+        """Get funder information from Europe PMC by PMID."""
+        return await self.get_europmc_funding_by_query(
+            f"EXT_ID:{pmid} AND SRC:MED"
+        )
+
+    async def get_europmc_funding_by_query(self, query: str) -> list[dict]:
+        """Get funder information from Europe PMC using an arbitrary query.
 
         Europe PMC extracts grant/funding data from full-text articles and
         provides it via API. This often captures funding not visible in abstracts.
+
+        Args:
+            query: Europe PMC search query (e.g. ``"EXT_ID:12345 AND SRC:MED"``
+                   or ``"DOI:10.1234/example"``).
         """
-        grants = []
+        grants: list[dict] = []
         try:
             resp = await fetch_with_retry(
                 self.client, "GET",
                 "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
                 params={
-                    "query": f"EXT_ID:{pmid} AND SRC:MED",
+                    "query": query,
                     "resultType": "core",
                     "format": "json",
                 },
@@ -259,7 +268,7 @@ class AuthorCOIVerifier:
                             "acronym": grant.get("acronym", ""),
                         })
         except Exception as e:
-            logger.warning(f"EuroPMC funding lookup error for {pmid}: {e}")
+            logger.warning(f"EuroPMC funding lookup error for query '{query}': {e}")
 
         return grants
 

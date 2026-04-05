@@ -307,31 +307,43 @@ async def check_orcid(
 
 async def check_europmc_funding(
     pmid: str,
+    doi: str,
     config: AgentConfig,
 ) -> ToolResult:
-    """Get funder information from Europe PMC."""
+    """Get funder information from Europe PMC.
+
+    Searches by PMID (preferred) or DOI fallback.
+    """
     from biasbuster.enrichers.author_coi import AuthorCOIVerifier
 
-    if not pmid:
+    if not pmid and not doi:
         return ToolResult(
             tool_name="europmc",
             success=False,
-            summary="No PMID provided for Europe PMC lookup.",
+            summary="No PMID or DOI provided for Europe PMC lookup.",
         )
+
+    # Build Europe PMC query — PMID is more precise, DOI as fallback
+    if pmid:
+        query = f"EXT_ID:{pmid} AND SRC:MED"
+        identifier = f"PMID {pmid}"
+    else:
+        query = f"DOI:{doi}"
+        identifier = f"DOI {doi}"
 
     try:
         async with AuthorCOIVerifier(
             mailto=config.crossref_mailto,
             ncbi_api_key=config.ncbi_api_key,
         ) as verifier:
-            grants = await verifier.get_europmc_funding(pmid)
+            grants = await verifier.get_europmc_funding_by_query(query)
 
             if not grants:
                 return ToolResult(
                     tool_name="europmc",
                     success=True,
                     summary="No funder metadata found in Europe PMC.",
-                    detail=f"No grant/funding records found for PMID {pmid} "
+                    detail=f"No grant/funding records found for {identifier} "
                            "in Europe PMC. This may mean the full text is not "
                            "indexed or funding is not machine-extractable.",
                 )
@@ -620,6 +632,7 @@ async def execute_tool_call(call: ToolCall, config: AgentConfig) -> ToolResult:
     if call.tool_name == "europmc":
         return await check_europmc_funding(
             pmid=call.params.get("pmid", ""),
+            doi=call.params.get("doi", ""),
             config=config,
         )
 

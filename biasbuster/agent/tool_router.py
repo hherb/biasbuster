@@ -151,7 +151,7 @@ def _build_params(
         authors = _extract_author_names(step, context)
         return {"authors": authors}
     elif tool_name == "europmc":
-        return {"pmid": context.pmid}
+        return {"pmid": context.pmid, "doi": context.doi}
     elif tool_name == "retraction_watch":
         return {"pmid": context.pmid, "doi": context.doi}
     elif tool_name == "effect_size_audit":
