@@ -217,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
                     "title": content.title,
                     "abstract": content.abstract,
                     "authors": content.authors,
+                    "fulltext": content.plain_fulltext or (
+                        content.jats_xml.decode("utf-8", errors="ignore")
+                        if content.jats_xml else ""
+                    ),
                 },
                 config=config,
             )

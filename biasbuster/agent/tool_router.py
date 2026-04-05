@@ -44,6 +44,7 @@ class AbstractContext:
     title: str = ""
     abstract: str = ""
     authors: list[dict] = field(default_factory=list)
+    fulltext: str = ""
 
 
 @dataclass
@@ -94,14 +95,17 @@ _TOOL_PATTERNS: list[tuple[str, re.Pattern]] = [
 
 
 def _extract_nct_id(step: str, context: AbstractContext) -> Optional[str]:
-    """Extract NCT ID from verification step text or abstract."""
+    """Extract NCT ID from verification step text, abstract, or full text."""
     match = _NCT_RE.search(step)
     if match:
         return match.group(0)
-    if context.abstract:
-        match = _NCT_RE.search(context.abstract)
-        if match:
-            return match.group(0)
+    # Search abstract first (cheapest), then full text (NCT IDs are often
+    # in the methods or ethics/IRB section rather than the abstract).
+    for text in (context.abstract, context.fulltext):
+        if text:
+            match = _NCT_RE.search(text)
+            if match:
+                return match.group(0)
     return None
 
 
