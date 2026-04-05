@@ -252,6 +252,10 @@ def _analyse_fulltext(
             temperature=config.temperature,
             max_tokens=2000,
             json_mode=True,
+            # Disable extended thinking for section extraction — it's a
+            # simple task that doesn't benefit from reasoning, and models
+            # like Qwen3.5 exhaust the token budget on thinking alone.
+            think=False,
         )
 
         parsed = _parse_section_json(response.content)
