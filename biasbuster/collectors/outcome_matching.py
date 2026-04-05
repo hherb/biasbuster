@@ -115,7 +115,7 @@ async def batch_check_outcome_switching(
             nct_id = item.get("nct_id", "")
             if not nct_id:
                 # Try to extract from abstract text
-                nct_id = await collector.extract_nct_from_abstract(
+                nct_id = collector.extract_nct_from_abstract(
                     item.get("abstract", "")
                 )
 

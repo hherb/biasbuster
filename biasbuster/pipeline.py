@@ -360,7 +360,7 @@ async def stage_enrich(config: Config, db: Database) -> None:
             checked = 0
             for item in high_suspicion[:config.outcome_switching_check_limit]:
                 abstract = item.get("abstract", "")
-                nct_id = await ctgov.extract_nct_from_abstract(abstract)
+                nct_id = ctgov.extract_nct_from_abstract(abstract)
                 if nct_id:
                     report = await ctgov.detect_outcome_switching(
                         nct_id=nct_id,

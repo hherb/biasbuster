@@ -19,13 +19,13 @@ systematically documented outcome switching in top 5 medical journals.
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
-import httpx
+import requests
 
 from biasbuster.collectors.outcome_matching import extract_outcome_terms, extract_published_primary
-from biasbuster.utils.retry import fetch_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -120,101 +120,107 @@ class ClinicalTrialsGovCollector:
     """
 
     BASE_URL = "https://clinicaltrials.gov/api/v2"
+    _MAX_RETRIES = 3
+    _BASE_DELAY = 1.0  # seconds
 
     def __init__(self) -> None:
         """Initialise the collector.
 
-        The HTTP client is created lazily when entering the async context
+        The HTTP session is created lazily when entering the async context
         manager, so this constructor performs no I/O.
         """
-        self.client: Optional[httpx.AsyncClient] = None
+        self._session: Optional[requests.Session] = None
 
     async def __aenter__(self) -> "ClinicalTrialsGovCollector":
-        """Create an ``httpx.AsyncClient`` and return the collector.
+        """Create a ``requests.Session`` and return the collector.
 
         Use this class as an async context manager::
 
             async with ClinicalTrialsGovCollector() as collector:
                 reg = await collector.fetch_study("NCT01105962")
+
+        Note: uses ``requests`` (urllib3) rather than httpx because
+        ClinicalTrials.gov's CDN blocks httpx's TLS fingerprint.
+        Sync calls are wrapped in ``asyncio.to_thread`` to stay non-blocking.
         """
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self._session = requests.Session()
+        self._session.headers.update({
+            "Accept": "application/json",
+        })
         return self
 
     async def __aexit__(self, *args) -> None:
-        """Close the underlying HTTP client, releasing connection resources."""
-        if self.client:
-            await self.client.aclose()
+        """Close the underlying HTTP session."""
+        if self._session:
+            self._session.close()
+
+    # -- low-level HTTP helper -------------------------------------------
+
+    async def _get(
+        self, url: str, params: dict[str, Any] | None = None,
+    ) -> Optional[dict]:
+        """GET *url* with retry, returning parsed JSON or None on failure.
+
+        Runs the blocking ``requests.get`` in a thread to avoid stalling
+        the event loop.
+        """
+        def _do_get() -> requests.Response:
+            return self._session.get(url, params=params, timeout=30)
+
+        last_error: Optional[Exception] = None
+        for attempt in range(self._MAX_RETRIES + 1):
+            try:
+                resp = await asyncio.to_thread(_do_get)
+                if resp.status_code == 200:
+                    return resp.json()
+                if resp.status_code in (429, 500, 502, 503):
+                    last_error = RuntimeError(f"HTTP {resp.status_code}")
+                else:
+                    logger.warning("CTgov API error: %s %s", resp.status_code, url)
+                    return None
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_error = exc
+
+            if attempt < self._MAX_RETRIES:
+                delay = min(self._BASE_DELAY * (2 ** attempt), 60.0)
+                logger.warning(
+                    "CTgov request attempt %d/%d failed (%s), retrying in %.1fs",
+                    attempt + 1, self._MAX_RETRIES + 1, last_error, delay,
+                )
+                await asyncio.sleep(delay)
+
+        logger.warning("CTgov request failed after %d attempts: %s", self._MAX_RETRIES + 1, url)
+        return None
+
+    # -- public API -------------------------------------------------------
 
     async def fetch_study(self, nct_id: str) -> Optional[TrialRegistration]:
         """Fetch a single study by NCT ID."""
-        try:
-            resp = await fetch_with_retry(
-                self.client,
-                "GET",
-                f"{self.BASE_URL}/studies/{nct_id}",
-                params={
-                    "fields": (
-                        "NCTId,BriefTitle,OfficialTitle,BriefSummary,"
-                        "OverallStatus,Phase,EnrollmentCount,EnrollmentType,"
-                        "StartDate,CompletionDate,StudyFirstPostDate,LastUpdatePostDate,"
-                        "ResultsFirstPostDate,"
-                        "LeadSponsorName,LeadSponsorClass,CollaboratorName,"
-                        "PrimaryOutcomeMeasure,PrimaryOutcomeDescription,"
-                        "PrimaryOutcomeTimeFrame,"
-                        "SecondaryOutcomeMeasure,SecondaryOutcomeDescription,"
-                        "SecondaryOutcomeTimeFrame,"
-                        "StudyType,DesignAllocation,DesignMasking,"
-                        "ArmGroupLabel,ArmGroupType,ArmGroupDescription,"
-                        "InterventionName,InterventionType"
-                    ),
-                },
-            )
-
-            if resp.status_code != 200:
-                logger.warning(f"CTgov API error for {nct_id}: {resp.status_code}")
-                return None
-
-            data = resp.json()
-            return self._parse_study(data)
-
-        except Exception as e:
-            logger.warning(f"Failed to fetch {nct_id}: {e}")
+        data = await self._get(f"{self.BASE_URL}/studies/{nct_id}")
+        if data is None:
             return None
+        return self._parse_study(data)
 
     async def search_by_doi(self, doi: str) -> Optional[TrialRegistration]:
         """Search ClinicalTrials.gov by DOI to find the trial registration."""
-        try:
-            # The v2 API doesn't directly search by DOI, but we can try
-            # searching by the DOI in the references section
-            resp = await fetch_with_retry(
-                self.client,
-                "GET",
-                f"{self.BASE_URL}/studies",
-                params={
-                    "query.term": doi,
-                    "pageSize": 5,
-                },
-            )
-
-            if resp.status_code == 200:
-                data = resp.json()
-                studies = data.get("studies", [])
-                if studies:
-                    return self._parse_study(studies[0])
-
-        except Exception as e:
-            logger.warning(f"DOI search failed for {doi}: {e}")
+        data = await self._get(
+            f"{self.BASE_URL}/studies",
+            params={"query.term": doi, "pageSize": 5},
+        )
+        if data is None:
+            return None
+        studies = data.get("studies", [])
+        if studies:
+            return self._parse_study(studies[0])
         return None
 
     async def search_by_title_keywords(
-        self, title: str, intervention: str = ""
+        self, title: str, intervention: str = "",
     ) -> list[TrialRegistration]:
-        """
-        Search by title keywords when no NCT ID or DOI is available.
+        """Search by title keywords when no NCT ID or DOI is available.
+
         Returns multiple candidates for manual matching.
         """
-        # Extract key terms from title
-        # Remove common words
         stopwords = {
             "a", "an", "the", "of", "in", "for", "and", "or", "to", "with",
             "on", "by", "at", "from", "is", "are", "was", "were", "been",
@@ -226,39 +232,30 @@ class ClinicalTrialsGovCollector:
         keywords = [w for w in words if w not in stopwords][:6]
         query = " AND ".join(keywords[:4])
 
+        data = await self._get(
+            f"{self.BASE_URL}/studies",
+            params={
+                "query.term": query,
+                "filter.overallStatus": "COMPLETED,TERMINATED",
+                "pageSize": 10,
+                "sort": "LastUpdatePostDate:desc",
+            },
+        )
+        if data is None:
+            return []
         results = []
-        try:
-            resp = await fetch_with_retry(
-                self.client,
-                "GET",
-                f"{self.BASE_URL}/studies",
-                params={
-                    "query.term": query,
-                    "filter.overallStatus": "COMPLETED,TERMINATED",
-                    "pageSize": 10,
-                    "sort": "LastUpdatePostDate:desc",
-                },
-            )
-
-            if resp.status_code == 200:
-                data = resp.json()
-                for study in data.get("studies", []):
-                    parsed = self._parse_study(study)
-                    if parsed:
-                        results.append(parsed)
-
-        except Exception as e:
-            logger.warning(f"Title keyword search failed: {e}")
-
+        for study in data.get("studies", []):
+            parsed = self._parse_study(study)
+            if parsed:
+                results.append(parsed)
         return results
 
-    async def extract_nct_from_abstract(self, abstract: str) -> Optional[str]:
+    def extract_nct_from_abstract(self, abstract: str) -> Optional[str]:
         """Extract NCT ID from abstract text (many abstracts include it)."""
         match = re.search(r'NCT\d{8}', abstract)
         if match:
             return match.group()
 
-        # Also try ClinicalTrials.gov URL patterns
         match = re.search(r'clinicaltrials\.gov/(?:ct2/show/|study/)?(NCT\d{8})', abstract)
         if match:
             return match.group(1)

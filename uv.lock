@@ -241,6 +241,7 @@ dependencies = [
     { name = "nicegui" },
     { name = "pandas" },
     { name = "pdfplumber" },
+    { name = "requests" },
     { name = "tokenizers" },
     { name = "tqdm" },
 ]
@@ -264,6 +265,7 @@ requires-dist = [
     { name = "nicegui", specifier = ">=3.8.0" },
     { name = "pandas" },
     { name = "pdfplumber", specifier = ">=0.10" },
+    { name = "requests", specifier = ">=2.33.1" },
     { name = "tokenizers", specifier = ">=0.22.2" },
     { name = "tqdm" },
 ]
