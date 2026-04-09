@@ -14,21 +14,20 @@ import logging
 import os
 from typing import Optional
 
-from tqdm import tqdm
-
 import httpx
 
-from . import (
-    build_user_message,
-    parse_llm_json,
-)
-from .llm_prelabel import ANNOTATION_SYSTEM_PROMPT
+from . import BaseAnnotator
 
 logger = logging.getLogger(__name__)
 
 
-class OpenAICompatAnnotator:
-    """Pre-label abstracts using any OpenAI-compatible API (DeepSeek, etc.)."""
+class OpenAICompatAnnotator(BaseAnnotator):
+    """Pre-label abstracts using any OpenAI-compatible API (DeepSeek, etc.).
+
+    Inherits single-call, two-call, and batch annotation from BaseAnnotator.
+    Only the transport layer (_call_llm) and async lifecycle are specific
+    to the OpenAI-compatible HTTP interface.
+    """
 
     def __init__(
         self,
@@ -55,24 +54,25 @@ class OpenAICompatAnnotator:
         if self.client:
             await self.client.aclose()
 
-    async def annotate_abstract(
+    async def _call_llm(
         self,
-        pmid: str,
-        title: str,
-        abstract: str,
-        metadata: Optional[dict] = None,
-    ) -> Optional[dict]:
-        """Send a single abstract for bias assessment. Returns parsed JSON or None."""
+        system_prompt: str,
+        user_message: str,
+        pmid: str = "",
+    ) -> Optional[str]:
+        """Send a single system+user message pair and return raw text.
+
+        Handles retries, rate limiting, and transient errors.
+        Returns the raw text response or None on failure.
+        """
         if not self.api_key:
             logger.error("No API key configured for OpenAI-compatible endpoint")
             return None
 
-        user_message = build_user_message(pmid, title, abstract, metadata)
-
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": ANNOTATION_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ],
             "max_tokens": self.max_tokens,
@@ -114,21 +114,13 @@ class OpenAICompatAnnotator:
                     .get("content", "")
                 )
 
-                assessment = parse_llm_json(text, pmid=pmid)
-                if assessment is not None:
-                    assessment["pmid"] = pmid
-                    assessment["title"] = title
-                    assessment["_annotation_model"] = self.model
-                    return assessment
+                if not text.strip():
+                    last_error = "empty response"
+                    await asyncio.sleep(2 ** attempt)
+                    continue
 
-                # parse_llm_json returned None — retry
-                last_error = "JSON parse failure after repair attempt"
-                logger.warning(
-                    f"PMID {pmid}: JSON parse failed "
-                    f"(attempt {attempt + 1}/{self.max_retries}), retrying"
-                )
-                await asyncio.sleep(2 ** attempt)
-                continue
+                return text
+
             except httpx.TransportError as e:
                 last_error = f"{type(e).__name__}: {e!r}"
                 logger.warning(
@@ -147,7 +139,7 @@ class OpenAICompatAnnotator:
                 continue
             except Exception as e:
                 logger.error(
-                    f"Annotation failed for PMID {pmid} "
+                    f"LLM call failed for PMID {pmid} "
                     f"({type(e).__name__}): {e!r}"
                 )
                 return None
@@ -156,86 +148,3 @@ class OpenAICompatAnnotator:
             f"All {self.max_retries} attempts failed for PMID {pmid}: {last_error}"
         )
         return None
-
-    async def annotate_batch(
-        self,
-        items: list[dict],
-        concurrency: int = 3,
-        delay: float = 1.0,
-        already_done: Optional[set[str]] = None,
-        on_result: Optional[callable] = None,
-    ) -> list[dict]:
-        """Annotate a batch of abstracts with rate limiting.
-
-        Skips PMIDs already in already_done (for resume support).
-        Each successful annotation is passed to on_result immediately
-        for incremental persistence (e.g. saving to database).
-
-        Args:
-            items: List of dicts with pmid, title, abstract, metadata keys.
-            concurrency: Max concurrent API requests.
-            delay: Seconds between requests.
-            already_done: Set of PMIDs to skip (already annotated).
-            on_result: Optional callback(annotation_dict) called immediately
-                       on each successful annotation for incremental save.
-
-        Returns:
-            List of successful annotations.
-        """
-        if already_done is None:
-            already_done = set()
-
-        # Deduplicate by PMID
-        seen_pmids: set[str] = set(already_done)
-        remaining = []
-        for it in items:
-            pmid = it["pmid"]
-            if pmid not in seen_pmids:
-                seen_pmids.add(pmid)
-                remaining.append(it)
-        if not remaining:
-            logger.info("All items already annotated, nothing to do")
-            return []
-
-        semaphore = asyncio.Semaphore(concurrency)
-        successful: list[dict] = []
-        failed = 0
-
-        pbar = tqdm(
-            total=len(remaining),
-            desc=f"Annotating ({self.model})",
-            unit="paper",
-            dynamic_ncols=True,
-        )
-
-        async def process_one(item):
-            nonlocal failed
-            async with semaphore:
-                result = await self.annotate_abstract(
-                    pmid=item["pmid"],
-                    title=item["title"],
-                    abstract=item["abstract"],
-                    metadata=item.get("metadata"),
-                )
-                # Save incrementally as each result arrives
-                if result is not None:
-                    successful.append(result)
-                    if on_result:
-                        on_result(result)
-                else:
-                    failed += 1
-                pbar.set_postfix(ok=len(successful), fail=failed, refresh=False)
-                pbar.update(1)
-                await asyncio.sleep(delay)
-                return result
-
-        await asyncio.gather(
-            *(process_one(item) for item in remaining)
-        )
-
-        pbar.close()
-        logger.info(
-            f"Annotated {len(successful)}/{len(remaining)} abstracts successfully "
-            f"(model: {self.model})"
-        )
-        return successful

@@ -390,7 +390,8 @@ async def stage_enrich(config: Config, db: Database) -> None:
 
 
 async def stage_annotate(
-    config: Config, db: Database, models: Optional[list[str]] = None
+    config: Config, db: Database, models: Optional[list[str]] = None,
+    two_call: bool = True,
 ) -> None:
     """Pre-label abstracts with one or more LLMs for structured bias assessment.
 
@@ -402,6 +403,8 @@ async def stage_annotate(
         db: Database instance.
         models: List of annotator backends to use. Defaults to ["anthropic"].
                 Supported: "anthropic", "deepseek".
+        two_call: If True (default), use v3 two-call pipeline
+                  (extraction → assessment). If False, use single-call v1.
     """
     if models is None:
         models = ["anthropic"]
@@ -494,6 +497,7 @@ async def stage_annotate(
                     delay=config.annotation_delay,
                     already_done=already_done,
                     on_result=save_annotation,
+                    two_call=two_call,
                 )
 
                 logger.info(
@@ -824,6 +828,11 @@ def main() -> None:
         help="Override export directory (default: config.export_dir). "
              "Example: --export-dir dataset_V2/export",
     )
+    parser.add_argument(
+        "--single-call", action="store_true",
+        help="Use single-call annotation (v1) instead of two-call (v3). "
+             "Default is two-call: Stage 1 extracts facts, Stage 2 assesses bias.",
+    )
     args = parser.parse_args()
 
     config = Config()
@@ -852,7 +861,10 @@ def main() -> None:
         "collect-rob": lambda cfg: stage_collect_rob(cfg, db),
         "seed": lambda cfg: stage_seed(cfg, db),
         "enrich": lambda cfg: stage_enrich(cfg, db),
-        "annotate": lambda cfg: stage_annotate(cfg, db, models=annotation_models),
+        "annotate": lambda cfg: stage_annotate(
+            cfg, db, models=annotation_models,
+            two_call=not args.single_call,
+        ),
         "export": lambda cfg: stage_export(cfg, db, export_dir=args.export_dir, export_model=export_model),
         "compare": lambda cfg: stage_compare(cfg, db),
     }

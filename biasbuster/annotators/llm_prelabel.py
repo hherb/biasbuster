@@ -18,23 +18,19 @@ from typing import Optional
 
 import anthropic
 import httpx
-from tqdm import tqdm
 
-from . import (
-    build_user_message,
-    parse_llm_json,
-)
+from . import BaseAnnotator
 
 logger = logging.getLogger(__name__)
 
-# The system prompt encodes the full bias taxonomy and verification knowledge
-# Canonical prompt imported from the single source of truth.
-# See docs/MISTAKES_ROUND_1_AND_FIXES.md for why prompt unification matters.
-from biasbuster.prompts import ANNOTATION_SYSTEM_PROMPT  # noqa: E402
 
+class LLMAnnotator(BaseAnnotator):
+    """Pre-label abstracts using Claude API via the official Anthropic SDK.
 
-class LLMAnnotator:
-    """Pre-label abstracts using Claude API via the official Anthropic SDK."""
+    Inherits single-call, two-call, and batch annotation from BaseAnnotator.
+    Only the transport layer (_call_llm) and async lifecycle are specific
+    to the Anthropic SDK.
+    """
 
     def __init__(
         self,
@@ -60,22 +56,20 @@ class LLMAnnotator:
         if self.client:
             await self.client.close()
 
-    async def annotate_abstract(
+    async def _call_llm(
         self,
-        pmid: str,
-        title: str,
-        abstract: str,
-        metadata: Optional[dict] = None,
-    ) -> Optional[dict]:
-        """
-        Send a single abstract to Claude for bias assessment.
-        Returns parsed JSON assessment or None on failure.
+        system_prompt: str,
+        user_message: str,
+        pmid: str = "",
+    ) -> Optional[str]:
+        """Send a single system+user message pair to Claude and return raw text.
+
+        Handles retries, refusal detection, and transient errors.
+        Returns the raw text response or None on failure.
         """
         if not self.api_key:
             logger.error("No Anthropic API key configured")
             return None
-
-        user_message = build_user_message(pmid, title, abstract, metadata)
 
         last_error = None
         for attempt in range(self.max_retries):
@@ -83,7 +77,7 @@ class LLMAnnotator:
                 message = await self.client.messages.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
-                    system=ANNOTATION_SYSTEM_PROMPT,
+                    system=system_prompt,
                     messages=[{"role": "user", "content": user_message}],
                 )
 
@@ -95,7 +89,7 @@ class LLMAnnotator:
                 # Detect refusals — no point retrying, model will always refuse
                 if message.stop_reason == "refusal":
                     logger.warning(
-                        f"PMID {pmid}: model refused to process this abstract "
+                        f"PMID {pmid}: model refused to process "
                         f"(content likely triggered safety filters). Skipping."
                     )
                     return None
@@ -106,22 +100,11 @@ class LLMAnnotator:
                         f"(stop_reason={message.stop_reason}, "
                         f"content_types={[b.type for b in message.content]})"
                     )
+                    last_error = "empty response"
+                    await asyncio.sleep(2 ** attempt)
+                    continue
 
-                assessment = parse_llm_json(text, pmid=pmid)
-                if assessment is not None:
-                    assessment["pmid"] = pmid
-                    assessment["title"] = title
-                    assessment["_annotation_model"] = self.model
-                    return assessment
-
-                # parse_llm_json returned None — retry with the API
-                last_error = "JSON parse failure after repair attempt"
-                logger.warning(
-                    f"PMID {pmid}: JSON parse failed "
-                    f"(attempt {attempt + 1}/{self.max_retries}), retrying"
-                )
-                await asyncio.sleep(2 ** attempt)
-                continue
+                return text
 
             except anthropic.APIError as e:
                 last_error = f"APIError: {e!r}"
@@ -141,7 +124,7 @@ class LLMAnnotator:
                 continue
             except Exception as e:
                 logger.error(
-                    f"Annotation failed for PMID {pmid} "
+                    f"LLM call failed for PMID {pmid} "
                     f"({type(e).__name__}): {e!r}"
                 )
                 return None
@@ -150,85 +133,3 @@ class LLMAnnotator:
             f"All {self.max_retries} attempts failed for PMID {pmid}: {last_error}"
         )
         return None
-
-    async def annotate_batch(
-        self,
-        items: list[dict],
-        concurrency: int = 3,
-        delay: float = 1.0,
-        already_done: Optional[set[str]] = None,
-        on_result: Optional[callable] = None,
-    ) -> list[dict]:
-        """Annotate a batch of abstracts with rate limiting.
-
-        Skips PMIDs already in already_done (for resume support).
-        Each successful annotation is passed to on_result immediately
-        for incremental persistence (e.g. saving to database).
-
-        Args:
-            items: List of dicts with pmid, title, abstract, metadata keys.
-            concurrency: Max concurrent API requests.
-            delay: Seconds between requests.
-            already_done: Set of PMIDs to skip (already annotated).
-            on_result: Optional callback(annotation_dict) called immediately
-                       on each successful annotation for incremental save.
-
-        Returns:
-            List of successful annotations.
-        """
-        if already_done is None:
-            already_done = set()
-
-        # Deduplicate by PMID
-        seen_pmids: set[str] = set(already_done)
-        remaining = []
-        for it in items:
-            pmid = it["pmid"]
-            if pmid not in seen_pmids:
-                seen_pmids.add(pmid)
-                remaining.append(it)
-        if not remaining:
-            logger.info("All items already annotated, nothing to do")
-            return []
-
-        semaphore = asyncio.Semaphore(concurrency)
-        successful: list[dict] = []
-        failed = 0
-
-        pbar = tqdm(
-            total=len(remaining),
-            desc=f"Annotating ({self.model})",
-            unit="paper",
-            dynamic_ncols=True,
-        )
-
-        async def process_one(item):
-            nonlocal failed
-            async with semaphore:
-                result = await self.annotate_abstract(
-                    pmid=item["pmid"],
-                    title=item["title"],
-                    abstract=item["abstract"],
-                    metadata=item.get("metadata"),
-                )
-                # Save incrementally as each result arrives
-                if result is not None:
-                    successful.append(result)
-                    if on_result:
-                        on_result(result)
-                else:
-                    failed += 1
-                pbar.set_postfix(ok=len(successful), fail=failed, refresh=False)
-                pbar.update(1)
-                await asyncio.sleep(delay)
-                return result
-
-        await asyncio.gather(
-            *(process_one(item) for item in remaining)
-        )
-
-        pbar.close()
-        logger.info(
-            f"Annotated {len(successful)}/{len(remaining)} abstracts successfully"
-        )
-        return successful

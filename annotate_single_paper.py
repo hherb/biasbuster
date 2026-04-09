@@ -124,6 +124,7 @@ async def annotate_paper(
     config: Config,
     model_name: str,
     force: bool = False,
+    two_call: bool = True,
 ) -> bool:
     """Annotate a single paper and store the result.
 
@@ -134,6 +135,7 @@ async def annotate_paper(
         config: Application configuration.
         model_name: Annotator backend ("anthropic" or "deepseek").
         force: If True, delete any existing annotation and re-annotate.
+        two_call: If True (default), use v3 two-call pipeline.
 
     Returns:
         True if annotation succeeded, False otherwise.
@@ -159,8 +161,15 @@ async def annotate_paper(
             )
             return True
 
+    annotate_fn = (
+        annotator.annotate_abstract_two_call if two_call
+        else annotator.annotate_abstract
+    )
+    mode_label = "two-call v3" if two_call else "single-call v1"
+    logger.info(f"Using {mode_label} annotation mode")
+
     async with annotator:
-        result = await annotator.annotate_abstract(
+        result = await annotate_fn(
             pmid=pmid,
             title=paper.get("title", ""),
             abstract=paper.get("abstract", ""),
@@ -212,6 +221,12 @@ async def main() -> int:
         "--force",
         action="store_true",
         help="Re-annotate even if an annotation already exists",
+    )
+    parser.add_argument(
+        "--single-call",
+        action="store_true",
+        help="Use single-call annotation (v1) instead of two-call (v3). "
+             "Default is two-call: Stage 1 extracts facts, Stage 2 assesses bias.",
     )
     args = parser.parse_args()
 
@@ -280,7 +295,9 @@ async def main() -> int:
 
         # --- Annotate ---
         success = await annotate_paper(
-            pmid, paper, db, config, args.model, force=args.force
+            pmid, paper, db, config, args.model,
+            force=args.force,
+            two_call=not args.single_call,
         )
         return 0 if success else 1
 
