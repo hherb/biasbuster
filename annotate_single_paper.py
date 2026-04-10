@@ -125,7 +125,7 @@ async def annotate_paper(
     model_name: str,
     force: bool = False,
     two_call: bool = True,
-) -> bool:
+) -> Optional[dict]:
     """Annotate a single paper and store the result.
 
     Args:
@@ -138,7 +138,7 @@ async def annotate_paper(
         two_call: If True (default), use v3 two-call pipeline.
 
     Returns:
-        True if annotation succeeded, False otherwise.
+        The annotation dict if successful, None otherwise.
     """
     annotator = create_annotator(config, model_name)
     if annotator is None:
@@ -159,7 +159,10 @@ async def annotate_paper(
                 f"PMID {pmid} already annotated by {db_model_name}, skipping. "
                 f"Use --force to re-annotate."
             )
-            return True
+            # Return existing annotation
+            existing = db.get_annotations(model_name=db_model_name, pmid=pmid)
+            if existing:
+                return existing[0].get("annotation", {})
 
     annotate_fn = (
         annotator.annotate_abstract_two_call if two_call
@@ -178,7 +181,7 @@ async def annotate_paper(
 
     if result is None:
         logger.error(f"Annotation failed for PMID {pmid}")
-        return False
+        return None
 
     # Store — mirror the pipeline's save_annotation logic
     result["abstract_text"] = paper.get("abstract", "")
@@ -189,7 +192,7 @@ async def annotate_paper(
         f"bias_prob={result.get('overall_bias_probability')}, "
         f"confidence={result.get('confidence')}"
     )
-    return True
+    return result
 
 
 async def main() -> int:
@@ -227,6 +230,13 @@ async def main() -> int:
         action="store_true",
         help="Use single-call annotation (v1) instead of two-call (v3). "
              "Default is two-call: Stage 1 extracts facts, Stage 2 assesses bias.",
+    )
+    parser.add_argument(
+        "--output", "-o",
+        type=str,
+        default=None,
+        help="Write full annotation JSON to this file. "
+             "Prints to stdout if set to '-'. Default: no file output.",
     )
     args = parser.parse_args()
 
@@ -294,12 +304,26 @@ async def main() -> int:
         assert paper is not None
 
         # --- Annotate ---
-        success = await annotate_paper(
+        result = await annotate_paper(
             pmid, paper, db, config, args.model,
             force=args.force,
             two_call=not args.single_call,
         )
-        return 0 if success else 1
+        if result is None:
+            return 1
+
+        # --- Output ---
+        if args.output:
+            import json
+            formatted = json.dumps(result, indent=2, ensure_ascii=False)
+            if args.output == "-":
+                print(formatted)
+            else:
+                with open(args.output, "w") as f:
+                    f.write(formatted)
+                logger.info(f"Annotation written to {args.output}")
+
+        return 0
 
     finally:
         db.close()

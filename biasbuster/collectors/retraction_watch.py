@@ -216,7 +216,7 @@ class RetractionWatchCollector:
             batch = dois[i : i + 100]
             ids_param = ",".join(batch)
             try:
-                url = "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/"
+                url = "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/"
                 resp = await fetch_with_retry(
                     self.client, "GET", url,
                     params={
