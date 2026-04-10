@@ -142,7 +142,7 @@ async def annotate_paper(
     """
     annotator = create_annotator(config, model_name)
     if annotator is None:
-        return False
+        return None
 
     # Pipeline uses the backend name (e.g. "deepseek") as the DB key,
     # not the specific model string (e.g. "deepseek-reasoner").
@@ -162,7 +162,8 @@ async def annotate_paper(
             # Return existing annotation
             existing = db.get_annotations(model_name=db_model_name, pmid=pmid)
             if existing:
-                return existing[0].get("annotation", {})
+                return existing[0]
+            return None
 
     annotate_fn = (
         annotator.annotate_abstract_two_call if two_call
