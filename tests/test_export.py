@@ -49,7 +49,11 @@ class TestToAlpacaFormat:
 
     def test_output_contains_structured_response(self, sample_annotation):
         result = to_alpaca_format(sample_annotation)
-        assert "Statistical Reporting" in result["output"]
+        # Since commit ee4a04b (Round 5), training data uses JSON output to
+        # match the inference format. Verify the JSON response is present by
+        # looking for its schema keys.
+        assert "statistical_reporting" in result["output"]
+        assert "overall_severity" in result["output"]
 
 
 class TestToSharegptFormat:
@@ -114,17 +118,30 @@ class TestBuildThinkingChain:
         assert "only reports relative measures" in chain
 
     def test_builds_from_domains_when_no_reasoning(self):
+        # Since commit ee4a04b (Round 5), domain reasoning is gated on
+        # each domain's `severity` field (not the individual flags) so
+        # the thinking chain reflects the annotator's severity judgment
+        # rather than inferring severity from flags. Real annotations
+        # always set severity, so we do the same here.
         annotation = {
             "statistical_reporting": {
+                "severity": "moderate",
                 "relative_only": True,
                 "evidence_quotes": ["HR 0.50"],
             },
-            "spin": {"spin_level": "high", "focus_on_secondary_when_primary_ns": True},
-            "conflict_of_interest": {"funding_type": "industry"},
+            "spin": {
+                "severity": "high",
+                "spin_level": "high",
+                "focus_on_secondary_when_primary_ns": True,
+            },
+            "conflict_of_interest": {
+                "severity": "moderate",
+                "funding_type": "industry",
+            },
         }
         chain = build_thinking_chain(annotation)
         assert "<think>" in chain
-        assert "relative measures" in chain
+        assert "relative" in chain.lower()  # "relative_only" or "relative measures"
         assert "industry" in chain.lower()
 
     def test_empty_annotation(self):
