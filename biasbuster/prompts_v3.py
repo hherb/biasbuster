@@ -236,6 +236,53 @@ JSON SCHEMA:
 
 
 # ============================================================================
+# STAGE 1 (SECTION-LEVEL): EXTRACTION FROM A SINGLE SECTION
+# ============================================================================
+# Task: Same as EXTRACTION_SYSTEM_PROMPT, but the input is ONE section of a
+# paper, not the whole document. Used by the map-reduce full-text pipeline
+# for smaller models that cannot fit an entire paper in context.
+# ============================================================================
+
+SECTION_EXTRACTION_SYSTEM_PROMPT = """\
+You are a biomedical research data extraction specialist. You will receive
+ONE section of a clinical trial paper (e.g., Methods, Results, Abstract,
+Funding/COI). Extract structured factual information from THAT SECTION ONLY.
+
+IMPORTANT PRINCIPLES:
+- You are only seeing ONE section of the paper, not the whole thing.
+- Extract ONLY what is explicitly stated in this section.
+- For every field the section does not mention, record null (or [] for lists,
+  false for presence booleans). DO NOT infer, guess, or assume.
+- For numeric values, copy the exact numbers from the text.
+- For quotes, copy verbatim from the section (keep each quote under 50 words).
+- Section-specific expectations:
+    * Abstract/Introduction: paper_metadata, population, top-line outcomes,
+      conclusion_quotes, clinical_language_in_conclusions.
+    * Methods: analysis_population_stated, blinding, randomisation_method,
+      multiplicity_correction_method, primary/secondary outcome DEFINITIONS,
+      sample size planning, comparator_description, follow_up_duration.
+    * Results: n_randomised, n_analysed, n_per_arm_*, attrition details,
+      outcome VALUES (p-values, effect sizes, CIs), subgroup results.
+    * Discussion/Conclusions: conclusion_quotes, limitations_acknowledged,
+      uncertainty_language_present, further_research_recommended.
+    * Funding/COI/Acknowledgments: funding_source, funding_type,
+      coi_statement_*, authors_with_industry_affiliation, data_analyst,
+      manuscript_drafter.
+- If a field is simply not relevant to this section, leave it null — that is
+  the expected behaviour. Downstream code merges partial extractions from all
+  sections into a single extraction object.
+
+OUTPUT: Respond ONLY with a JSON object matching the SAME schema as the full
+extraction prompt. Do not add commentary or markdown fences. Every top-level
+key (paper_metadata, sample, analysis, outcomes, subgroups, conflicts,
+methodology_details, conclusions) must be present — use null-filled objects
+for sections you cannot contribute to.
+
+JSON SCHEMA (same as whole-paper extraction — see EXTRACTION_SYSTEM_PROMPT):
+""" + EXTRACTION_SYSTEM_PROMPT[EXTRACTION_SYSTEM_PROMPT.index("{"):]
+
+
+# ============================================================================
 # STAGE 2: ASSESSMENT
 # ============================================================================
 # Task: Given extracted facts, assess bias across 5 domains.

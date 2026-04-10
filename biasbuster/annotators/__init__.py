@@ -520,6 +520,278 @@ def build_assessment_user_message(
 
 
 # ============================================================================
+# Extraction merge — combine partial extractions from map-reduce chunks
+# ============================================================================
+# See docs/two_step_approach/MERGE_STRATEGY.md for rationale and limitations.
+# ============================================================================
+
+# Section-name → priority rank (higher = more authoritative for its fields).
+# Matching is substring, case-insensitive; first match wins.
+_SECTION_PRIORITY = {
+    "abstract": 1,
+    "introduction": 1,
+    "background": 1,
+    "method": 5,            # "Methods", "Materials and Methods"
+    "result": 5,            # "Results"
+    "finding": 5,           # "Findings"
+    "discussion": 3,
+    "conclusion": 3,
+    "limitation": 3,
+    "funding": 6,           # COI / Funding back-matter — most authoritative
+    "coi": 6,
+    "conflict": 6,          # "Conflict of interest"
+    "disclosure": 6,
+    "acknowledg": 4,        # "Acknowledgments" (covers US + UK spelling)
+}
+
+
+def _section_priority(section_name: str | None) -> int:
+    """Return the authority rank of a section name (higher = more authoritative).
+
+    Returns 2 (default, ahead of Abstract/Intro) if no keyword matches, so
+    unlabeled chunks don't get zero priority.
+    """
+    if not section_name:
+        return 2
+    lowered = section_name.lower()
+    for keyword, rank in _SECTION_PRIORITY.items():
+        if keyword in lowered:
+            return rank
+    return 2
+
+
+# Presence booleans — use OR logic during merge.
+_PRESENCE_BOOLEANS_BY_PATH = {
+    ("sample", "attrition_stated"),
+    ("subgroups", "subgroup_analyses_present"),
+    ("conflicts", "coi_statement_present"),
+    ("conflicts", "funding_disclosed_in_abstract"),
+    ("methodology_details", "run_in_or_enrichment"),
+    ("methodology_details", "early_stopping"),
+    ("conclusions", "clinical_language_in_conclusions"),
+    ("conclusions", "further_research_recommended"),
+    ("conclusions", "uncertainty_language_present"),
+}
+
+# List-valued fields — union with dedup by a stable key.
+# Value is the dedup key within each list item; None means "compare whole dict".
+_LIST_FIELDS_BY_PATH = {
+    ("sample", "attrition_quotes"): None,
+    ("outcomes", "primary_outcomes_stated"): "name",
+    ("outcomes", "secondary_outcomes_stated"): "name",
+    ("outcomes", "effect_size_quotes"): None,
+    ("subgroups", "subgroups"): "name",
+    ("conflicts", "authors_with_industry_affiliation"): "name",
+    ("conclusions", "conclusion_quotes"): None,
+    ("conclusions", "limitations_acknowledged"): None,
+}
+
+
+def _is_null_like(value) -> bool:
+    """True if the value is null / empty / zero-length."""
+    if value is None:
+        return True
+    if isinstance(value, (list, dict, str)) and len(value) == 0:
+        return True
+    return False
+
+
+def _merge_list_field(
+    merged: list, incoming: list, dedup_key: str | None,
+) -> list:
+    """Union two lists with dedup by key (or whole-item if key is None)."""
+    if not incoming:
+        return merged
+    if dedup_key is None:
+        seen = {json.dumps(item, sort_keys=True) for item in merged
+                if isinstance(item, (dict, list))}
+        seen_scalars = {item for item in merged
+                        if not isinstance(item, (dict, list))}
+        for item in incoming:
+            if isinstance(item, (dict, list)):
+                key = json.dumps(item, sort_keys=True)
+                if key not in seen:
+                    seen.add(key)
+                    merged.append(item)
+            else:
+                if item not in seen_scalars:
+                    seen_scalars.add(item)
+                    merged.append(item)
+        return merged
+
+    seen_keys = {
+        item.get(dedup_key) for item in merged
+        if isinstance(item, dict) and item.get(dedup_key)
+    }
+    for item in incoming:
+        if isinstance(item, dict):
+            key = item.get(dedup_key)
+            if key and key not in seen_keys:
+                seen_keys.add(key)
+                merged.append(item)
+            elif not key:
+                merged.append(item)  # no key → always include
+        else:
+            merged.append(item)
+    return merged
+
+
+def _merge_singleton(
+    merged_value,
+    merged_priority: int,
+    incoming_value,
+    incoming_priority: int,
+    path: tuple[str, ...],
+    conflicts: list[dict],
+) -> tuple[object, int]:
+    """Merge a singleton (scalar or nested dict) with priority-based conflict detection.
+
+    Returns (chosen_value, chosen_priority). Records a conflict when two
+    non-null values from equally-authoritative sections disagree.
+    """
+    if _is_null_like(incoming_value):
+        return merged_value, merged_priority
+    if _is_null_like(merged_value):
+        return incoming_value, incoming_priority
+
+    # Both non-null. Compare.
+    if merged_value == incoming_value:
+        return merged_value, max(merged_priority, incoming_priority)
+
+    if incoming_priority > merged_priority:
+        # Higher authority wins; log conflict
+        conflicts.append({
+            "path": ".".join(path),
+            "kept": incoming_value,
+            "dropped": merged_value,
+            "reason": "higher-priority section overrode lower-priority",
+        })
+        return incoming_value, incoming_priority
+
+    if incoming_priority < merged_priority:
+        conflicts.append({
+            "path": ".".join(path),
+            "kept": merged_value,
+            "dropped": incoming_value,
+            "reason": "lower-priority section dropped",
+        })
+        return merged_value, merged_priority
+
+    # Equal priority disagreement — preserve both, keep first
+    conflicts.append({
+        "path": ".".join(path),
+        "kept": merged_value,
+        "dropped": incoming_value,
+        "reason": "equal-priority sections disagree — kept first-seen",
+    })
+    return merged_value, merged_priority
+
+
+def _merge_dict_recursive(
+    merged: dict,
+    priorities: dict,
+    incoming: dict,
+    incoming_priority: int,
+    conflicts: list[dict],
+    path: tuple[str, ...] = (),
+) -> None:
+    """Recursively merge ``incoming`` into ``merged`` using path-specific rules.
+
+    ``priorities`` tracks the per-path authority rank of the current merged
+    value so later chunks can override it when they come from a more
+    authoritative section.
+    """
+    for key, incoming_val in incoming.items():
+        field_path = path + (key,)
+        existing_val = merged.get(key)
+
+        # Rule 1: presence booleans — OR
+        if field_path in _PRESENCE_BOOLEANS_BY_PATH:
+            merged[key] = bool(existing_val) or bool(incoming_val)
+            continue
+
+        # Rule 2: list fields — union with dedup
+        if field_path in _LIST_FIELDS_BY_PATH:
+            if not isinstance(existing_val, list):
+                existing_val = []
+            if isinstance(incoming_val, list):
+                merged[key] = _merge_list_field(
+                    list(existing_val),
+                    incoming_val,
+                    _LIST_FIELDS_BY_PATH[field_path],
+                )
+            else:
+                merged[key] = existing_val
+            continue
+
+        # Rule 3: nested dicts — recurse
+        if isinstance(incoming_val, dict) and isinstance(existing_val, dict):
+            _merge_dict_recursive(
+                existing_val, priorities, incoming_val,
+                incoming_priority, conflicts, field_path,
+            )
+            continue
+        if isinstance(incoming_val, dict) and existing_val is None:
+            merged[key] = {}
+            _merge_dict_recursive(
+                merged[key], priorities, incoming_val,
+                incoming_priority, conflicts, field_path,
+            )
+            continue
+
+        # Rule 4: singleton — priority-based
+        existing_priority = priorities.get(field_path, -1)
+        new_val, new_prio = _merge_singleton(
+            existing_val, existing_priority,
+            incoming_val, incoming_priority,
+            field_path, conflicts,
+        )
+        merged[key] = new_val
+        priorities[field_path] = new_prio
+
+
+def merge_section_extractions(
+    partials: list[tuple[str, dict]],
+) -> dict:
+    """Merge per-section partial extractions into a single extraction dict.
+
+    Args:
+        partials: list of (section_name, partial_extraction_dict) tuples,
+                  one per successfully extracted chunk.
+
+    Returns:
+        Merged extraction dict with the same schema as whole-paper extraction,
+        plus a ``_merge_conflicts`` key listing any detected conflicts.
+
+    See docs/two_step_approach/MERGE_STRATEGY.md for the merge rules and
+    the list of fields that cannot be synthesised from per-section views
+    (the coherence-pass limitation).
+    """
+    if not partials:
+        return {}
+
+    merged: dict = {}
+    priorities: dict[tuple[str, ...], int] = {}
+    conflicts: list[dict] = []
+
+    for section_name, partial in partials:
+        if not isinstance(partial, dict):
+            logger.warning(
+                f"merge_section_extractions: skipping non-dict partial "
+                f"from section '{section_name}'"
+            )
+            continue
+        prio = _section_priority(section_name)
+        _merge_dict_recursive(
+            merged, priorities, partial, prio, conflicts,
+        )
+
+    if conflicts:
+        merged["_merge_conflicts"] = conflicts
+    return merged
+
+
+# ============================================================================
 # Base annotator — shared annotation logic for all LLM backends
 # ============================================================================
 
@@ -598,6 +870,150 @@ class BaseAnnotator(abc.ABC):
 
         logger.error(
             f"All {self.max_retries} parse attempts failed for PMID {pmid}"
+        )
+        return None
+
+    # ------------------------------------------------------------------
+    # Full-text two-call annotation (v3, map-reduce)
+    # ------------------------------------------------------------------
+
+    async def annotate_full_text_two_call(
+        self,
+        pmid: str,
+        title: str,
+        sections: list[tuple[str, str]],
+        metadata: Optional[dict] = None,
+    ) -> Optional[dict]:
+        """Map-reduce two-call annotation for full-text papers.
+
+        Stage 1 (map): extract facts from each section independently using
+            the section-level extraction prompt.
+        Stage 1 (reduce): merge the partial extractions into a single
+            extraction dict via field-type-specific rules. See
+            ``merge_section_extractions`` and
+            ``docs/two_step_approach/MERGE_STRATEGY.md``.
+        Stage 2: assess bias from the merged extraction.
+
+        Args:
+            pmid: Paper identifier (used for logging and result metadata).
+            title: Paper title (used for logging and result metadata).
+            sections: List of (section_name, section_text) tuples. Typically
+                      produced by ``biasbuster.cli.chunking.chunk_jats_article``
+                      or ``chunk_plain_text``.
+            metadata: Optional paper metadata (retraction context, Cochrane
+                      RoB, effect-size audit hints). Passed through to
+                      Stage 2 assessment for severity calibration.
+
+        Returns:
+            Parsed assessment dict with nested ``extraction`` and
+            ``_annotation_mode: "two_call_full_text_v3"``. None if any stage
+            fails after retries.
+        """
+        from biasbuster.prompts_v3 import (
+            SECTION_EXTRACTION_SYSTEM_PROMPT,
+            ASSESSMENT_SYSTEM_PROMPT,
+        )
+
+        if not sections:
+            logger.error(f"PMID {pmid}: no sections to annotate")
+            return None
+
+        # Stage 1 (map): extract per-section in parallel
+        async def extract_section(
+            section_name: str, section_text: str,
+        ) -> Optional[tuple[str, dict]]:
+            user_msg = (
+                f"Paper: {title}\n"
+                f"Section: {section_name}\n\n"
+                f"{section_text}"
+            )
+            for attempt in range(self.max_retries):
+                raw = await self._call_llm(
+                    SECTION_EXTRACTION_SYSTEM_PROMPT, user_msg, pmid=pmid,
+                )
+                if raw is None:
+                    return None
+                partial = parse_extraction_json(raw, pmid=pmid)
+                if partial is not None:
+                    return (section_name, partial)
+                logger.warning(
+                    f"PMID {pmid}/{section_name}: section extraction parse "
+                    f"failed (attempt {attempt + 1}/{self.max_retries})"
+                )
+                await asyncio.sleep(2 ** attempt)
+            logger.error(
+                f"PMID {pmid}/{section_name}: all extraction attempts failed"
+            )
+            return None
+
+        section_results = await asyncio.gather(
+            *(extract_section(name, text) for name, text in sections)
+        )
+        partials = [r for r in section_results if r is not None]
+
+        if not partials:
+            logger.error(
+                f"PMID {pmid}: every section extraction failed, aborting"
+            )
+            return None
+
+        failed_count = len(sections) - len(partials)
+        if failed_count:
+            logger.warning(
+                f"PMID {pmid}: {failed_count}/{len(sections)} sections "
+                f"failed extraction; assessing from the remaining "
+                f"{len(partials)} sections"
+            )
+
+        # Stage 1 (reduce): merge partials
+        extraction = merge_section_extractions(partials)
+        merge_conflicts = extraction.pop("_merge_conflicts", [])
+        if merge_conflicts:
+            logger.info(
+                f"PMID {pmid}: {len(merge_conflicts)} merge conflicts "
+                f"(preserved in extraction metadata for assessment)"
+            )
+
+        # Stage 2: assessment from merged extraction
+        assessment_message = build_assessment_user_message(extraction, metadata)
+        if merge_conflicts:
+            # Surface conflicts to the assessment model as a reporting signal
+            assessment_message += (
+                "\n\nMERGE CONFLICTS DETECTED during section-level extraction "
+                "(the paper reported different values for the same field in "
+                "different sections). Treat these as a reporting-consistency "
+                "concern under statistical_reporting:\n"
+                + json.dumps(merge_conflicts, indent=2)
+            )
+
+        for attempt in range(self.max_retries):
+            raw_assessment = await self._call_llm(
+                ASSESSMENT_SYSTEM_PROMPT, assessment_message, pmid=pmid,
+            )
+            if raw_assessment is None:
+                return None
+
+            assessment = parse_llm_json(raw_assessment, pmid=pmid)
+            if assessment is not None:
+                assessment["pmid"] = pmid
+                assessment["title"] = title
+                assessment["_annotation_model"] = self.model
+                assessment["_annotation_mode"] = "two_call_full_text_v3"
+                assessment["extraction"] = extraction
+                if merge_conflicts:
+                    assessment["_merge_conflicts"] = merge_conflicts
+                if failed_count:
+                    assessment["_failed_sections"] = failed_count
+                return assessment
+
+            logger.warning(
+                f"PMID {pmid}: assessment parse failed "
+                f"(attempt {attempt + 1}/{self.max_retries}), retrying"
+            )
+            await asyncio.sleep(2 ** attempt)
+
+        logger.error(
+            f"PMID {pmid}: all assessment parse attempts failed"
         )
         return None
 
