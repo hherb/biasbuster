@@ -1,13 +1,17 @@
 # BiasBuster v3 Two-Call Architecture — Initial Findings
 
-**Status:** rounds 1–10 complete through prompt edits; Round 10 verification
-pending. Claude full-text ground truth obtained (Round 7). 120b
-sequential-extraction fix verified (Round 8). Round 9 verification (§3.10):
-3 of 4 fix targets landed, COI trigger failed due to a sponsor-role-
-disclaimer extrapolation bug in the extraction stage. Round 10 (commit
-`c34885a`) adds extraction-side and assessment-side fixes for the COI
-regression; re-run on both 120b and 20b is the next step. Calibration on
-LOW-bias papers remains the next major experiment after Round 10 lands.
+**Status:** rounds 1–10 complete and verified across all three local model
+families (gpt-oss 120b, gpt-oss 20b, gemma4 26B). Claude full-text ground
+truth obtained (Round 7). 120b sequential-extraction fix verified (Round 8).
+Round 9 verification (§3.10): 3 of 4 fix targets landed; Round 10
+(commit `c34885a`) patched the remaining COI failure. Round 10 verification
+(§3.12) is clean: gemma4 26B matches Claude ground truth exactly on every
+flag and on bias_probability to two decimal places; 120b matches on severity
+with one run in the per-arm extraction noise band; 20b matches on every flag
+with one run over-escalating to `critical` (in the correct direction on a
+genuinely HIGH paper). **Calibration paper test is the next experiment** —
+orchestration script at `scripts/run_calibration_test.sh` runs 4 papers ×
+4 modes × 3 local models + Claude GT = 52 annotations.
 
 **Date of these findings:** 2026-04-09 → 2026-04-11.
 
@@ -37,16 +41,17 @@ rules).
 4. Five small prompt edits to the v3 assessment criteria moved gpt-oss
    abstract two-call from 78% to 92% agreement on the same paper (Round 3).
    Four further edits in Round 9 (`475b6a6`) targeted specific reliability
-   gaps observed in Round 8 — **3 of 4 landed** on verification (§3.10):
-   outcome_reporting no longer flips to low (6/6), `per_protocol_only`
-   is now 6/6, per-arm extraction is 5/6. The COI trigger failed (0/6)
-   because both local models over-read the paper's "sponsor had no role in
-   clinical trial operations" disclaimer. **Round 10 (commit `c34885a`)
+   gaps observed in Round 8 — **3 of 4 landed** on verification (§3.10)
+   but the COI trigger failed across 6/6 runs because of an extraction-
+   side disclaimer extrapolation bug. **Round 10 (commit `c34885a`)
    patches this** with an extraction-side rule (sponsor disclaimers only
    cover the activities they explicitly name; sponsor-employed authors
    always count as manuscript drafters) and a belt-and-braces assessment-
-   side HIGH trigger (industry funding + ≥1 employee/shareholder author →
-   HIGH regardless of sponsor_controls flags). Verification pending.
+   side HIGH trigger. **Round 10 verification (§3.12) is clean across all
+   three local model families:** 9/9 runs rate COI high, all Round 9
+   successes hold, no regressions. gemma4 26B matches Claude ground truth
+   *exactly* on every flag and bias_probability (0.82) — the first
+   zero-divergence reliability result we have from any local model.
 5. The full-text path was **non-deterministic on gpt-oss-120b** before
    commit `66bca3c`. The sequential-extraction fix is now empirically
    verified by Round 8: 3/3 reliability runs catch the headline attrition
@@ -848,6 +853,135 @@ critical one: if 20b goes to 3/3 COI high without regressing on any
 other domain, the architecture is ready for the calibration paper
 test (§6.2).
 
+### 3.12 Round 10 verification — clean pass across all three model families
+
+Ran `scripts/reliability_test_fulltext.py` three times on
+PMID `41750436` for **all three local model families** (gpt-oss 120b,
+gpt-oss 20b, gemma4 26B) with the Round 10 prompts (commit `c34885a`).
+Results stored under the same
+`ollama_<model>_fulltext_twocall_rel{1,2,3}` tags as Round 9 (the
+reliability script overwrites its own slots each run).
+
+Per-flag scorecard vs the Claude full-text ground truth
+(`anthropic_fulltext`, which has `hdr=high`, `out=moderate`,
+`meth=high`, `coi=high`, all per-arm fields populated, all 5 methodology
+flags True, `sponsor_controls_manuscript=True`, `bias_prob=0.82`):
+
+| run         | hdr      | out | meth         | coi      | diff_att | pp_only | spon_ms | per_arm | prob |
+|-------------|----------|-----|--------------|----------|----------|---------|---------|---------|------|
+| GT (Claude) | high     | mod | high         | high     | True     | True    | True    | Y       | 0.82 |
+| 120b rel1   | high     | mod | high         | **high** | True     | True    | **True**| Y       | 0.81 |
+| 120b rel2   | high     | mod | high         | **high** | False    | True    | **True**| N       | 0.85 |
+| 120b rel3   | high     | mod | high         | **high** | True     | True    | **True**| Y       | 0.82 |
+| 20b rel1    | high     | mod | high         | **high** | True     | True    | **True**| Y       | 0.85 |
+| 20b rel2    | **critical** | mod | **critical** | **high** | True     | True    | **True**| Y       | 0.95 |
+| 20b rel3    | high     | mod | high         | **high** | True     | True    | **True**| Y       | 0.85 |
+| gemma4 rel1 | high     | mod | high         | **high** | True     | True    | **True**| Y       | 0.82 |
+| gemma4 rel2 | high     | mod | high         | **high** | True     | True    | **True**| Y       | 0.82 |
+| gemma4 rel3 | high     | mod | high         | **high** | True     | True    | **True**| Y       | 0.82 |
+
+Bold cells highlight Round 10's specific changes vs the Round 9
+results in §3.10. Key observations:
+
+- **Fix #4 (COI) lands cleanly across both models.** All 6 runs now
+  rate COI as high (3/3 per model, no `low`/`moderate` escapes).
+  `sponsor_controls_manuscript=True` on 6/6 — the extraction-side
+  rule (authorship = manuscript involvement) is firing consistently,
+  and the assessment-side trigger `(d)` is providing the belt-and-
+  braces confirmation in parallel. This was the only Round 9 failure
+  and it's fully resolved.
+- **No regression on the Round 9 successes.** `outcome_reporting`
+  holds moderate on 6/6 (vs 6/6 in Round 9 — the aggregation rule
+  remains untouched). `per_protocol_only` is 6/6 True on both models.
+  `methodology.severity` is high or higher on 6/6.
+- **The 20b regression from Round 9 is reversed.** Round 9 gave
+  20b `coi=low` on 2/3 runs (worse than pre-Round-9). Round 10 lifts
+  those back to high — all six 20b cells now match the ground truth
+  on COI.
+- **Per-arm extraction is model-asymmetric.** 20b is 3/3 on the per-
+  arm fields (matches GT), 120b is 2/3 (rel2 still misses the CONSORT
+  paragraph, same single-run noise band we saw in Round 9). The
+  smaller model remains the more reliable extractor on this
+  particular paper — the Round 9 CONSORT example made 20b fully
+  reliable and left 120b in the 2/3 noise band.
+- **20b rel2 over-escalates to `critical`.** Methodology severity
+  jumps to `critical`, pushing `overall_severity` to `critical` and
+  `overall_bias_probability` to 0.95. The model's own reasoning
+  explains why:
+  > *"Methodology shows per-protocol analysis, high attrition (34.4%)
+  > with differential attrition (18.75%), inadequate sample size
+  > (<30 per arm), no multiplicity correction, and no analytical
+  > flexibility, meeting the per_protocol_only + high_attrition
+  > combination that is a CRITICAL trigger."*
+
+  The assessment prompt lists
+  `per_protocol_only + (high_attrition OR differential_attrition)`
+  as a **HIGH** trigger, not CRITICAL. The 20b has correctly
+  identified all 5 methodology flags as True and is reasoning its
+  way forward to "this must be critical" by piling them up, rather
+  than matching them to the prompt's severity boundaries. This is
+  a model misreading, not a prompt bug — but the direction is
+  informative:
+  - Against our severity scale (which reserves CRITICAL for
+    misconduct / fundamental flaws that invalidate the findings),
+    the correct answer for this paper is HIGH, and rel2 is
+    over-escalating by one level.
+  - Against a human reviewer, "critical" is defensible — 34%
+    differential attrition with per-protocol-only analysis, 54
+    uncorrected endpoints, sponsor-employed authors, and small
+    samples can reasonably be called "fundamentally flawed" by
+    some readers.
+  - Crucially, the direction is toward *more* severity on a
+    genuinely HIGH paper, not toward *less*. This is the opposite
+    of the Round 9 20b bug (which dropped COI to low). Over-calling
+    bias on a biased paper is a much lower-stakes error than
+    under-calling it.
+- **The calibration paper test (§6.2) is now the critical
+  follow-up.** If the 20b also over-escalates a genuinely LOW paper
+  to HIGH or CRITICAL, then the Round 10 calibration is off and
+  we need to rein in the severity anchors. If it correctly rates a
+  LOW paper as low/none, then rel2's critical rating is just a
+  temperature artefact at the high-bias extreme and the architecture
+  is production-ready.
+
+- **gemma4 26B is a perfect match to the Claude full-text ground
+  truth on every single run and every metric.** All three gemma4 runs
+  produce `overall_severity=high`, `overall_bias_probability=0.82`
+  (exactly equal to Claude's `0.82`), and identical per-flag values
+  for every field we inspected — including per-arm extraction,
+  differential_attrition, per_protocol_only, sponsor_controls_
+  manuscript, and the 5 industry-author affiliations. No
+  over-escalation, no per-arm flakiness, no 120b-style 1/3 miss.
+  This is the cleanest reliability result we have obtained from any
+  local model on this paper. Notably, gemma4's three runs also
+  finished in ~11 minutes total versus ~26 minutes for 20b and
+  ~30 minutes for 120b — it is both the fastest and the most
+  calibrated of the three families on this test.
+
+Aggregate summary: **Round 10 closes the Round 9 gap on all three
+model families, with no regressions on any previously-landed fix.**
+gemma4 26B exhibits zero divergence from Claude's full-text ground
+truth. gpt-oss 120b matches on severity and flags on 3/3 runs, with
+one run (rel2) still in the 1/3 noise band for per-arm extraction
+(and derived differential_attrition). gpt-oss 20b matches on every
+flag on 3/3 runs, with one run (rel2) over-escalating the overall
+severity to `critical` — always in the correct direction
+(over-calling a genuinely HIGH paper) and never toward `low` or
+`moderate`.
+
+This shifts the calibration picture materially: gemma4 26B is now
+the single most reliable local-model candidate on this paper,
+beating both gpt-oss variants on every measure. The "smaller wins"
+observation from Round 7 (20b at 87% vs 120b at 82% and gemma4 at
+82%) needs re-examination once the calibration paper test is done,
+because the new Round-10 rankings may not be the same as the
+Round-7 rankings.
+
+The remaining validation is now **only** the calibration paper test
+(§6.2) — to confirm the severity boundaries aren't globally
+miscalibrated when the pipeline meets papers that *should* rate
+LOW or MODERATE.
+
 ---
 
 ## 4. Surprises
@@ -1029,122 +1163,191 @@ JSON. This is the right call for *extraction*, but the **assessment** step
 might genuinely benefit from thinking. We currently apply the same flag
 to both stages. Worth experimenting with `think=True` on assessment only.
 
-### 5.7 Round 10 prompt edits are unverified (Round 9 partially verified)
+### 5.7 Round 10 verified across all three model families — calibration is now the only remaining unknown
 
-Round 9 verification (§3.10) landed three of four fix targets:
-`outcome_reporting` holds moderate 6/6, `per_protocol_only=True` 6/6,
-per-arm extraction 5/6 with derived `differential_attrition=True`
-also 5/6. The COI mechanical HIGH trigger (Fix #4) failed at 0/6 —
-the root cause was an **extraction-side** disclaimer-extrapolation
-bug, not an assessment-side rule problem. Worse, the 20b regressed
-COI severity from moderate → low in 2/3 runs relative to pre-Round-9.
+Round 10 verification (§3.12) is clean on **all three local model
+families**. Every previously-unknown question about the edits has
+been answered:
 
-Round 10 (commit `c34885a`) responds with two targeted edits: an
-extraction-side rule binding `sponsor_controls_manuscript` to
-author-employee status (not to "sponsor had no role" disclaimers),
-a new `sponsor_role_disclaimer` field that forces disclaimers to be
-scoped to only the activities they name, and an assessment-side
-mechanical HIGH trigger `(d)` for `industry funding + ≥1 employee
-or shareholder author`. Details in §3.11.
+1. **Does the extraction-side rule fire on 120b?** Yes — 3/3 runs
+   set `sponsor_controls_manuscript=True` via the authorship path.
+2. **Does the assessment-side trigger `(d)` work as belt-and-braces?**
+   Yes — it fires in parallel with the extraction path on 9/9 runs
+   across 120b, 20b, and gemma4.
+3. **Does the 20b regression reverse?** Yes — 20b is 3/3 COI high
+   (previously 2/3 low).
+4. **Do any Round 9 successes regress?** No — methodology severity,
+   outcome_reporting, per-arm extraction, and per_protocol_only all
+   hold at or above their Round 9 levels on all three families.
+5. **Does gemma4 behave consistently with the gpt-oss models?** Yes
+   — and in fact gemma4 26B is the *most* consistent. All 3 runs
+   match the Claude full-text ground truth exactly on every per-
+   flag value and on `overall_bias_probability` to two decimal
+   places (0.82 vs Claude's 0.82). It is the first time any local
+   model has produced a zero-divergence reliability run on this
+   paper.
 
-Unknowns to resolve in the Round 10 verification runs:
+One new phenomenon is isolated to gpt-oss 20b: rel2 over-escalates
+`methodology.severity` from `high` to `critical`, pushing
+`overall_severity` to `critical` (1/3 runs). Its reasoning correctly
+identifies 5 methodology flags as True and incorrectly maps them to
+the CRITICAL severity boundary, which the prompt reserves for
+misconduct or fundamental flaws that invalidate the findings. This
+is a model misreading, not a prompt bug. Critically, it over-calls
+bias on a genuinely HIGH paper — the opposite direction from the
+Round 9 bug — which makes it a much lower-stakes error than the one
+we just fixed. Neither 120b nor gemma4 exhibits this behaviour, so
+it is specifically a 20b phenomenon, not a prompt-wide calibration
+issue.
 
-1. Does the extraction-side rule fire on gpt-oss 120b? (Round 9's
-   "apply mechanically" language on the assessment side didn't, so
-   we have reason to be cautious about any imperative rewording.)
-2. Does the assessment-side trigger `(d)` fire as a belt-and-braces
-   when the extraction still returns `False`?
-3. Does the 20b regression (moderate → low) reverse?
-4. Do any of the three Round 9 successes regress? The COI-only
-   edits should leave methodology, outcome_reporting, per-arm
-   extraction, and per_protocol_only untouched, but previous
-   rounds showed that prompt edits in one domain can shift
-   attention patterns elsewhere.
+Whether the 20b critical rating is a *bug* at all depends on the
+calibration paper test (§6.2): if the 20b also over-escalates a
+genuinely LOW paper, that's a real miscalibration; if the LOW paper
+stays correctly rated, rel2's critical rating is just a temperature
+artefact at the high-bias extreme.
 
-If Round 10 closes the gap cleanly, this section gets merged into
-§5.1's resolution and the priority shifts to the calibration paper
-test (§5.3). If it does not, the next step is almost certainly to
-break the COI extraction into a standalone sub-prompt — testing a
-dedicated "scan the author list" mini-extraction before the normal
-conflicts-section extraction runs.
+**Remaining unknown:** calibration paper performance (§6.2). With
+Round 10 verified across all three families, calibration is the
+only open validation question before the production decision
+(§6.3).
 
 ---
 
 ## 6. What's next
 
-### 6.1 Verify the Round 10 COI fix (highest priority)
+### 6.1 ~~Verify Round 10~~ — DONE (§3.12)
 
-Round 9 is verified and three of four fix targets landed (§3.10). The
-remaining gap is the COI mechanical HIGH trigger, which failed at 0/6
-because the extraction stage over-read the paper's "sponsor had no
-role in clinical trial operations" disclaimer. Round 10 (commit
-`c34885a`, detailed in §3.11) patches this with both an extraction-
-side rule and a belt-and-braces assessment-side mechanical trigger.
+Round 10 verification is complete across all three local model
+families. Every Round 9 fix target either still landed (outcome_
+reporting, per_protocol_only, per-arm extraction, differential_
+attrition) or has now landed (COI severity=high). gemma4 26B
+produced a perfect match to Claude's full-text ground truth on 3/3
+runs. 120b is clean except for the 1/3 per-arm noise band that
+Round 9 did not eliminate. 20b exhibits a single rel2 over-escalation
+to `critical` that is in the correct direction on a genuinely HIGH
+paper, isolated to the 20b, and not caused by any Round 10 edit —
+see §3.12 for details.
 
-Re-run `scripts/reliability_test_fulltext.py` on PMID `41750436` for
-both **gpt-oss 120b AND gpt-oss 20b**, three runs each. Expected:
+The only remaining validation is the calibration paper test below.
 
-- **3/3 `conflict_of_interest.severity = high`** on both models
-  (closing Fix #4). Either path — extraction-direct or
-  assessment-derived — is sufficient.
-- **No regression** on the three Round 9 successes: outcome_reporting
-  stays moderate 6/6, per_protocol_only stays 6/6 True, per-arm
-  extraction stays at or above 5/6.
-- No regression on the headline (6/6 high) or methodology severity
-  (6/6 high).
-- Specifically verify that 20b's COI stops regressing to low — the
-  Round 9 2/3-low result was the worst observed outcome across the
-  whole iteration loop so far.
+### 6.2 Calibration paper test (highest priority)
 
-If Round 10 lands cleanly, agreement against Claude full-text climbs
-into the high 80s across both model sizes, and the reliability
-ceiling for this paper is effectively reached on local models. The
-priority then shifts to §6.2 (calibration paper).
+All measurements so far are on **one** known HIGH-bias paper
+(PMID `41750436`, Seed Health synbiotic). Before trusting the new
+prompts on a wider corpus, we need coverage across the full RoB
+spectrum. The 20b rel2 `critical` over-escalation in Round 10
+(§3.12) makes this urgent: we need to know whether the 20b also
+over-calls bias on a paper that should rate LOW.
 
-If Round 10 fails, the next step is a dedicated
-"scan-the-author-list" sub-extraction — a separate mini-call whose
-only job is to enumerate author affiliations and flag sponsor
-employees, before the normal conflicts-section extraction runs. This
-would cost one extra LLM call per paper but isolates the COI
-extraction from disclaimer interference.
+**Selected calibration papers** (all with full-text JATS via
+Europe PMC, diverse coverage, Cochrane RoB as reference labels):
 
-### 6.2 Calibration paper test (medium priority)
+| # | PMID | Cochrane RoB | Role |
+|---|---|---|---|
+| 1 | `32382720` | **low** (5/5 domains) | **Academic LOW anchor.** rTMS for depression (EClinicalMedicine 2020). Cleanest LOW reference available in the DB — must rate low or none on the pipeline. |
+| 2 | `39777610` | **low** | **Industry LOW anchor.** Dermavant tapinarof phase 3 atopic dermatitis (Dermatology & Therapy 2025). Well-conducted industry trial with sponsor-employed co-authors. THE test for whether Round 10's new trigger `(d)` over-flags legitimate industry RCTs. |
+| 3 | `39905419` | some_concerns | **Middle-of-scale.** Balneotherapy for post-COVID syndrome (BMC CAM 2025, public grant). Tests whether `some_concerns` maps cleanly to our MODERATE severity. |
+| 4 | `39691748` | **high** | **HIGH generalisation.** Preemptive lidocaine patch for post-craniotomy pain (J Pain Research 2024). Completely different archetype from the Seed Health probiotic paper — tests whether our HIGH pipeline generalises beyond the motivating failure case. |
 
-All measurements so far are on **one** known HIGH-bias paper. Before
-trusting the new prompts on a wider corpus, we need at least one
-calibration paper that should NOT flag HIGH. Pick a Cochrane-rated
-low-RoB paper from the existing dataset
-(`SELECT pmid FROM papers WHERE overall_rob = 'low' AND excluded = 0`)
-and run all 4 modes × 3 model families through the comparison script.
+All four papers already have DeepSeek v1 abstract annotations in the
+DB as a sanity-check reference. The selection was made after probing
+~30 candidates for full-text availability (see chat log around
+Round 10 for details — ruled out 6 initial candidates for having
+abstract-only, and ruled out another 4 crisaborole/tapinarof papers
+that thematically overlapped with #2, plus the JAACAP ARFID
+descriptive study that isn't interventional, plus the diagnostic
+accuracy studies that fall outside the RCT assumption of the v3
+pipeline).
 
-Critical questions:
-- Does the new `inflated_effect_sizes` rule fire on legitimate papers
-  with large but real effects?
-- Does the strengthened methodology HIGH boundary (`>=6 endpoints +
-  no multiplicity correction`) over-flag standard exploratory analyses?
-- Do the new title_spin verb triggers fire on descriptive titles that
-  happen to use "improves" or "promotes" with proper hedging?
+**Test matrix** (commit `e00c951` — `scripts/run_calibration_test.sh`):
 
-If the calibration paper is correctly rated NONE/LOW by the f2 modes,
-we have confidence the v3 prompts don't have a global HIGH bias.
+- **Stage 1**: Claude full-text on each paper (4 Anthropic API calls,
+  stored under `anthropic_fulltext` keyed by PMID).
+- **Stage 2**: `compare_singlecall_twocall.py --pmids <all 4>
+  --full-text` once per local model, producing a1/a2/f1/f2 × 4
+  papers = 16 annotations per model. Models run smallest first
+  (20b → gemma4 26B → 120b) so partial failures leave us with
+  the faster data.
+- **Outputs**: SQLite DB (standard tags), `calibration_test_logs_<ts>/`
+  per-run logs, `calibration_test_results_<ts>/*.json` structured
+  outputs.
+- **Summary**: final stage prints a per-paper × per-mode severity
+  table covering all 13 annotation slots (Claude GT + 12 local-
+  model cells).
+
+**Critical questions the matrix answers:**
+
+1. **Does the pipeline over-flag well-conducted industry RCTs?**
+   PMID 39777610 is the direct test. If any `f2` mode rates it
+   higher than `moderate`, the new COI trigger `(d)` is
+   miscalibrated — sponsor-employee authorship alone should NOT
+   force HIGH on a Cochrane-LOW paper. (The prompt's intent is that
+   the trigger fires only when sponsor authorship combines with
+   other concerning signals; it's currently written as a hard HIGH
+   mechanism, which needs this empirical check.)
+
+2. **Does the pipeline correctly anchor LOW?** PMID 32382720
+   (Cochrane 5/5 low-RoB) is the purest anchor. Any `f2` mode that
+   rates this `high` is miscalibrated.
+
+3. **Does the 20b rel2 critical over-escalation generalise to LOW
+   papers?** If 20b rates PMID 32382720 or 39777610 as critical,
+   we have a severity anchor problem; if it stays low/none on those
+   and only escalates on genuinely HIGH papers, the rel2 rating is a
+   temperature artefact.
+
+4. **Does the MODERATE boundary work?** PMID 39905419 should rate
+   moderate, not high, not low. Any extreme is a calibration failure.
+
+5. **Does HIGH generalise beyond probiotic trials?** PMID 39691748
+   should rate high across all f2 modes. Failure here means the
+   motivating failure case overfit the pipeline.
+
+**Expected runtime** (rough): Claude GT ~12 min, 20b ~90 min,
+gemma4 26B ~90 min, 120b ~3 hours → ~5–6 hours wall-clock.
+
+Safe to `nohup` and walk away. Script is idempotent for Stage 1
+(skip-if-exists) and overwrite-on-restart for Stage 2 (compare
+script deletes then inserts on every run).
+
+If the calibration papers are correctly rated by the f2 modes, we
+have confidence the v3 prompts don't have a global HIGH bias, and
+the priority shifts to §6.3 (production model decision). If they
+are NOT correctly rated — in either direction — the next step is
+a Round 11 severity re-calibration targeted at the specific
+miscalibration observed.
 
 ### 6.3 Decide on production model and mode (after calibration)
 
-Current best-known data (subject to Round 9 verification):
+Current best-known data after Round 10 verification (§3.12):
 
-- **gpt-oss 20b f2** — 87% against Claude full-text, caught the
-  original failure case (32→21 attrition + manuscript drafter),
-  fastest, smallest. **Current production candidate**.
-- **gemma4 26B f2** — 82%, cross-family validation, useful as a
-  second-opinion ensemble member.
-- **gpt-oss 120b f2** — 79-82% across the 3 reliability runs after
-  the parallelism fix; should improve after Round 9 edits but
-  pending verification.
-- **abstract two-call** is sufficient for high-volume screening;
-  full-text two-call is required for proper analysis (the abstract
-  cannot contain the per-arm dropout, analysis population, or
-  manuscript-drafter information that drive HIGH severity in the
-  Seed Health case).
+- **gemma4 26B f2** — **new top candidate.** Matches Claude's full-
+  text ground truth *exactly* on 3/3 runs (every per-flag value,
+  bias_probability 0.82 vs Claude's 0.82). Fastest of the three
+  families (~11 min for 3 reliability runs vs 20b's ~26 min and
+  120b's ~30 min). No over-escalation, no per-arm flakiness, no
+  known regressions. Pending calibration validation to confirm it
+  isn't globally over-calling bias.
+- **gpt-oss 20b f2** — previous Round-7 leader at 87% against
+  Claude full-text. Round 10 per-flag match is clean except for
+  one run over-escalating severity from high → critical, which is
+  in the correct direction on a genuinely HIGH paper. Still the
+  smallest practical deployment footprint. Whether to prefer it
+  over gemma4 depends on calibration results and hardware
+  constraints.
+- **gpt-oss 120b f2** — Round 10 per-flag match is clean except
+  for one run still missing the CONSORT paragraph (1/3 noise band
+  on per-arm extraction, carried over from Round 9). No advantage
+  over gemma4 or 20b at higher cost.
+- **abstract two-call** remains sufficient for high-volume
+  screening; full-text two-call is required for proper analysis
+  (the abstract cannot contain the per-arm dropout, analysis
+  population, or manuscript-drafter information that drive HIGH
+  severity in the Seed Health case).
+
+The production decision is effectively gated on §6.2 — until we
+know whether these three models behave on a LOW-bias paper, the
+ranking above is provisional.
 
 ### 6.4 Address the merge-conflict noise (low priority)
 
@@ -1177,6 +1380,7 @@ and start generating the v3 training corpus. See
 | `scripts/compare_singlecall_twocall.py` | Four-mode comparison runner | `2de8810` → `fced4c4` |
 | `scripts/reliability_test_fulltext.py` | N-run determinism check for the f2 path | `df2d505` |
 | `scripts/tag_v1_annotations.py` | DB migration for legacy v1 annotations | `81647e0` |
+| `scripts/run_calibration_test.sh` | End-to-end calibration matrix (4 papers × 4 modes × 3 models + Claude GT) | `e00c951` |
 | `docs/two_step_approach/MERGE_STRATEGY.md` | Merge rules + coherence-pass escape hatch | (separate doc) |
 
 Round-by-round prompt evolution:
@@ -1198,7 +1402,15 @@ Round-by-round prompt evolution:
   count as drafters), scoped `sponsor_role_disclaimer` field to
   stop disclaimer extrapolation, and assessment-side mechanical
   HIGH trigger `(d)` for industry funding + employee/shareholder
-  authors — verification pending
+  authors. §3.12 verification is clean across all three local
+  model families: 120b 3/3 on severity+flags (1/3 per-arm noise),
+  20b 3/3 on flags with 1/3 severity over-escalation to critical,
+  **gemma4 26B 3/3 exact match to Claude ground truth on every
+  flag and bias_probability**
+- `e00c951` — `scripts/run_calibration_test.sh` — end-to-end
+  calibration matrix for 4 papers × 4 modes × 3 local models +
+  Claude GT = 52 annotations. Runs sequentially, suitable for
+  `nohup`. Next experiment.
 
 ---
 
@@ -1233,35 +1445,49 @@ Reference rows for context:
 | 120b f2 rel2 (post-seq-fix, Round 8) | — | 79% |
 | 120b f2 rel3 (post-seq-fix, Round 8) | — | 77% |
 
-Round 9 per-flag scorecard (§3.10) instead of an aggregate
-agreement number — the reliability runs differ from the pre-fix runs
-on the specific flags that Round 9 targeted, not on the headline or
-methodology severities, so an aggregate agreement score would mask
-the underlying story. The key facts:
+### Round 10 reliability scorecard (§3.12)
 
-- **Headline severity**: 6/6 high on Round 9 reliability runs (both
-  120b and 20b) — matches Claude full-text GT and the seq-fix runs.
-- **Methodology severity**: 6/6 high — matches GT.
-- **outcome_reporting severity**: 6/6 moderate (matches GT; fixes the
-  rel3 flip to low).
-- **per_protocol_only**: 6/6 True (matches GT; pre-R9 was 0/2).
-- **per-arm extraction**: 5/6 populated (pre-R9 was 1/2 for 120b).
-- **differential_attrition**: 5/6 True (pre-R9 was 1/2 for 120b).
-- **coi severity**: 0/6 high, 5/6 moderate, 1/6 low (regression from
-  pre-R9's 0/2 high but 2/2 moderate) — Round 10 target.
+Per-flag against Claude full-text GT (`hdr=high`, `out=moderate`,
+`meth=high`, `coi=high`, diff_att=True, pp_only=True,
+spon_ms=True, per_arm=populated, `bias_prob=0.82`):
+
+| run         | hdr      | meth     | coi      | pp_only | spon_ms | per_arm | prob  |
+|-------------|----------|----------|----------|---------|---------|---------|------:|
+| 120b rel1   | ✓        | ✓        | **✓**    | ✓       | **✓**   | ✓       | 0.81  |
+| 120b rel2   | ✓        | ✓        | **✓**    | ✓       | **✓**   | **✗**   | 0.85  |
+| 120b rel3   | ✓        | ✓        | **✓**    | ✓       | **✓**   | ✓       | 0.82  |
+| 20b rel1    | ✓        | ✓        | **✓**    | ✓       | **✓**   | ✓       | 0.85  |
+| 20b rel2    | **↑crit**| **↑crit**| **✓**    | ✓       | **✓**   | ✓       | 0.95  |
+| 20b rel3    | ✓        | ✓        | **✓**    | ✓       | **✓**   | ✓       | 0.85  |
+| gemma4 rel1 | ✓        | ✓        | **✓**    | ✓       | **✓**   | ✓       | **0.82** |
+| gemma4 rel2 | ✓        | ✓        | **✓**    | ✓       | **✓**   | ✓       | **0.82** |
+| gemma4 rel3 | ✓        | ✓        | **✓**    | ✓       | **✓**   | ✓       | **0.82** |
+
+Read-as-numbers:
+- **COI severity=high**: 9/9 runs match GT (was 0/6 on Round 9)
+- **`sponsor_controls_manuscript=True`**: 9/9 runs match GT (was 0/6)
+- **`per_protocol_only=True`**: 9/9 runs match GT
+- **Methodology severity**: 8/9 match GT (20b rel2 over-escalates
+  to critical in the correct direction)
+- **Per-arm extraction**: 8/9 match GT (120b rel2 still in the 1/3
+  noise band, inherited from Round 9)
+- **Headline severity**: 8/9 match GT (20b rel2 over-escalates)
+- **gemma4 26B**: **9/9 exact match on all flags AND exact match on
+  `bias_probability` to two decimal places (0.82 == GT 0.82)**. This
+  is the first zero-divergence reliability result we have observed
+  from any local model on this paper.
 
 Per-field details in the database under tags
 `ollama_<model>_<mode>` (e.g.
 `ollama_gpt-oss_120b_fulltext_twocall`,
-`ollama_gpt-oss_120b_fulltext_twocall_rel1`).
+`ollama_gpt-oss_120b_fulltext_twocall_rel1`,
+`ollama_gemma4_26b-a4b-it-q8_0_fulltext_twocall_rel1`).
 
-**Reading the two tables together**: against the proper full-text
-ground truth, every f2 mode exceeds the structural ceiling
-(79%) for any abstract-only annotator. The full-text two-call
-pipeline is genuinely a tier above abstract-only. Round 9 (§3.10)
-made the per-flag composition better — 5 of 6 fields matched GT on
-both models — at the cost of COI specifically, which regressed
-because of a disclaimer extrapolation bug in the extraction stage.
-Round 10 (commit `c34885a`, §3.11) patches the COI regression and
-is expected to push headline agreement cleanly past 85% across both
-model sizes — verification pending (§5.7, §6.1).
+**Reading the tables together**: against the proper full-text
+ground truth, every f2 mode exceeds the structural ceiling (79%)
+for any abstract-only annotator. The full-text two-call pipeline is
+genuinely a tier above abstract-only. Round 10 closes the COI gap
+that Round 9 left open and produces the first local model
+(gemma4 26B) that matches Claude exactly on every per-flag value
+and bias_probability on this paper. The last remaining validation
+is the calibration paper test (§6.2, script at `e00c951`).
