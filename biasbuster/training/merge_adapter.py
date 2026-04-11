@@ -119,6 +119,20 @@ def main():
     if not use_gpu and hasattr(model.config, "quantization_config"):
         logger.info("  Removing quantization_config (CPU path → BF16)")
         del model.config.quantization_config
+
+    # Ensure architectures is set — trust_remote_code models sometimes don't
+    # populate this, causing GGUF converters to fail with "unknown architecture".
+    if not getattr(model.config, "architectures", None):
+        arch_name = type(model).__name__
+        # PeftModel wraps the real model; unwrap to get the actual class name
+        if hasattr(model, "base_model") and hasattr(model.base_model, "model"):
+            arch_name = type(model.base_model.model).__name__
+        # Map common HF model class names to their ForCausalLM equivalents
+        if not arch_name.endswith(("ForCausalLM", "ForConditionalGeneration")):
+            arch_name = arch_name.replace("Model", "ForCausalLM")
+        logger.info(f"  Setting missing architectures to [{arch_name}]")
+        model.config.architectures = [arch_name]
+
     model.config.save_pretrained(str(output_dir))
 
     # Save weights directly via safetensors, bypassing revert_weight_conversion

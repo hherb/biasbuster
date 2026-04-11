@@ -106,7 +106,8 @@ else
     echo "==> Creating hard-link directory..."
     for f in "$MERGED_DIR"/*; do
         if [[ -f "$f" ]]; then
-            ln "$(realpath "$f")" "$RESOLVED/$(basename "$f")"
+            ln "$(realpath "$f")" "$RESOLVED/$(basename "$f")" 2>/dev/null \
+                || cp "$(realpath "$f")" "$RESOLVED/$(basename "$f")"
         fi
     done
 
