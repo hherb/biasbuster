@@ -126,10 +126,10 @@ JSON SCHEMA:
   },
 
   "sample": {
-    "n_randomised": "integer or null",
-    "n_analysed": "integer or null",
-    "n_per_arm_randomised": {"arm_name": "integer"} or null,
-    "n_per_arm_analysed": {"arm_name": "integer"} or null,
+    "n_randomised": "integer or null — total participants randomised",
+    "n_analysed": "integer or null — total participants in the final analysis",
+    "n_per_arm_randomised": "object {arm_name: integer} or null. ALWAYS populate this when the paper reports per-arm randomisation, even if only the totals are stated in the abstract. CONSORT diagrams and Methods sections almost always give per-arm numbers — extract them. Example: a trial randomising 32 in 1:1 ratio reports {'placebo': 16, 'synbiotic': 16}",
+    "n_per_arm_analysed": "object {arm_name: integer} or null. ALWAYS populate this when the paper reports per-arm dropouts or per-arm completion. Required for differential attrition analysis. Example: 'Eleven participants were lost to follow-up (Placebo: n=4; DS-01: n=7), leaving 21 participants who completed' → {'placebo': 12, 'DS-01': 9}. Compute from (per_arm_randomised - per_arm_lost) when the paper gives loss counts instead of completion counts.",
     "attrition_stated": "boolean — did the paper explicitly report dropout/attrition?",
     "attrition_quotes": ["verbatim text describing dropout, withdrawal, or loss to follow-up"],
     "population_description": "string — who was enrolled (e.g., 'healthy adults aged 18-45')",
@@ -361,15 +361,23 @@ DOMAIN CRITERIA:
 3. OUTCOME REPORTING
 
    Using the extracted outcomes and any registered outcomes (if available):
-   - primary_outcome_type: Aggregate from primary_outcomes_stated[].type as follows:
-       * If the list is empty or all entries are null → "unclear"
-       * If ALL entries share the same type → that type
-       * If entries mix "patient_centred" with "surrogate"/"composite" →
-         "patient_centred" (the patient-centred ones are the ones that matter)
-       * If entries mix "surrogate" and "composite" (no patient_centred) →
-         "composite" if any composite exists, else "surrogate"
+   - primary_outcome_type: Aggregate from primary_outcomes_stated[].type as follows.
+     Compute n_total = len(primary_outcomes_stated), n_pc = count of "patient_centred",
+     n_surr = count of "surrogate", n_comp = count of "composite".
+       * If n_total == 0 or all entries are null → "unclear"
+       * If n_pc / n_total >= 0.30 AND n_pc >= 2 → "patient_centred"
+         (two or more genuine patient-centred outcomes meaningfully present)
+       * Otherwise if n_comp >= 1 AND n_surr == 0 → "composite"
+       * Otherwise if n_surr > 0 → "surrogate"
+         (this includes mostly-surrogate studies with one stray patient_centred
+          entry — the surrogate outcomes still dominate the trial design)
        * Otherwise → "unclear"
      Do NOT default to "unclear" just because there are multiple entries.
+     Do NOT flip the aggregate to "patient_centred" on the strength of a single
+     patient-centred entry in a mostly-surrogate list — extraction sometimes
+     mis-classifies safety monitoring or adverse-event tracking as a primary
+     patient-centred outcome, and one stray entry should not override the
+     overall character of the trial.
    - surrogate_without_validation: TRUE if type = "surrogate" and no validation
      linking the surrogate to patient-centred outcomes is cited.
    - composite_not_disaggregated: TRUE if type = "composite" and
@@ -399,9 +407,20 @@ DOMAIN CRITERIA:
    - LOW: Industry funding with full transparency and independent analysis.
    - MODERATE: Industry funding with incomplete COI disclosure, OR sponsor employees
      involved in analysis with disclosed independent oversight.
-   - HIGH: Industry funding with undisclosed COI AND sponsor affiliations, OR
-     sponsor employees controlling BOTH data analysis AND manuscript drafting
-     (regardless of disclosure — structural conflict).
+   - HIGH: ANY of the following triggers (apply mechanically — do not require
+     additional reasoning, the trigger alone is sufficient):
+       (a) sponsor_controls_analysis = TRUE AND sponsor_controls_manuscript = TRUE.
+           This is a STRUCTURAL conflict: sponsor employees controlling BOTH the
+           data analysis AND the manuscript drafting compromises the independence
+           of every claim in the paper, regardless of how thoroughly the COI is
+           disclosed. Disclosure does not undo the conflict; it only makes the
+           reader aware of it. If both flags are TRUE, severity MUST be HIGH.
+       (b) Industry funding AND undisclosed COI AND industry author affiliations
+           (three concurrent COI risk factors).
+       (c) sponsor_controls_analysis = TRUE in a trial whose primary outcomes
+           are surrogate (the sponsor controls how surrogate measurements are
+           interpreted, which is the highest-leverage intervention point for
+           selective reporting).
 
 5. METHODOLOGY
 
@@ -416,8 +435,19 @@ DOMAIN CRITERIA:
    - differential_attrition: TRUE if per-arm attrition differs by > 10 percentage points.
 
    ANALYSIS POPULATION:
-   - per_protocol_only: TRUE if analysis_population_stated = "per_protocol" or "completer"
-     AND no mention of ITT or mITT analysis.
+   - per_protocol_only: TRUE if ANY of the following:
+       (a) analysis_population_stated = "per_protocol" or "completer", OR
+       (b) analysis_population_stated = "not_stated" BUT the analysis_population_quote
+         or attrition_quotes describe the analysed group as only the completers
+         (e.g., "21 participants who completed the trial and were included in the
+         statistical analysis" — analysed group equals randomised minus dropouts,
+         with no separate ITT analysis mentioned), OR
+       (c) n_analysed < n_randomised by more than 5% AND no ITT/mITT/imputation
+         method is mentioned in analysis (the paper analysed only the people who
+         finished, regardless of what label it used).
+     The key question is "did the paper analyse everyone who was randomised
+     (ITT/mITT) or only those who completed (per-protocol/completer)?" — answer
+     based on what the paper actually did, not just on which exact words it used.
    - CRITICAL COMBINATION: per_protocol_only = true AND (high_attrition = true OR
      differential_attrition = true) → this alone warrants HIGH severity.
 
