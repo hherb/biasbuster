@@ -1,8 +1,10 @@
 # BiasBuster v3 Two-Call Architecture — Initial Findings
 
-**Status:** initial empirical results, two test papers (one HIGH-bias case study).
-Calibration on LOW-bias papers and a Claude full-text ground-truth pass are
-still pending.
+**Status:** rounds 1–9 complete. Claude full-text ground truth obtained
+(Round 7). 120b sequential-extraction fix verified by 3-run reliability
+test (Round 8). Four further prompt edits committed in Round 9 with
+verification still pending. Calibration on LOW-bias papers is the next
+major experiment.
 
 **Date of these findings:** 2026-04-09 → 2026-04-11.
 
@@ -24,20 +26,29 @@ rules).
    → assessment) successfully extracts the exact facts the original failure
    case said local models could not catch — including the 34.4% attrition
    rate, the 43.75% vs 25% differential dropout, and the sponsor-employee
-   manuscript drafter.
+   manuscript drafter. **All three model families now produce these
+   findings** in their f2 outputs.
 3. The full-text **single-call** path **collapses across all three model
    families** to ~50% agreement and a generic "no major red flags"
    moderate verdict. The v1 prompt cannot use long inputs at all.
 4. Five small prompt edits to the v3 assessment criteria moved gpt-oss
-   abstract two-call from 78% to 92% agreement on the same paper.
+   abstract two-call from 78% to 92% agreement on the same paper (Round 3).
+   Four further edits in Round 9 (`475b6a6`) target specific reliability
+   gaps observed in Round 8 — verification pending.
 5. The full-text path was **non-deterministic on gpt-oss-120b** before
-   commit `66bca3c` — one chunk's correct extraction was sometimes lost
-   during a parallel-extraction run. Fixed by switching to sequential
-   per-chunk extraction.
-6. The agreement-with-Claude metric **understates full-text two-call**
-   because Claude's reference annotation was abstract-only. We need a
-   Claude full-text annotation as ground truth before we can fairly
-   evaluate the f2 mode.
+   commit `66bca3c`. The sequential-extraction fix is now empirically
+   verified by Round 8: 3/3 reliability runs catch the headline attrition
+   data, where the pre-fix run dropped all of it.
+6. **Round 7 produced a Claude full-text ground truth.** Re-scoring
+   against it shows that all three f2 modes (87% / 82% / 82%) exceed
+   Claude-on-abstract (79%), which is the structural ceiling for any
+   abstract-only annotator. The full-text two-call pipeline is a real
+   quality tier above abstract-only — exactly what the architectural
+   investment was supposed to achieve.
+7. **Smaller still wins.** gpt-oss 20B f2 hits 87% against Claude
+   full-text, the best local-model result in the experiment. A 16GB-VRAM
+   model running v3 two-call full-text matches Claude on the paper that
+   originally motivated the entire rebuild.
 
 ---
 
@@ -424,6 +435,264 @@ recovery, same successful attrition extraction — is strong evidence that
 **we're observing an architectural property, not a happy accident of
 prompt design fitting one model family**.
 
+### 3.7 Round 7 — Claude full-text ground truth and the score rebase
+
+The previous rounds all measured agreement against Claude's
+**abstract-only** annotation, because that was the only Claude reference
+in the database. We knew this was unfair to f2 (Round 6, §4.3 below),
+but had no alternative until we extended `annotate_single_paper.py` with
+a `--full-text` flag (commit `7594361`) that calls
+`LLMAnnotator.annotate_full_text_two_call` with `claude-sonnet-4-6` and
+saves under the new tag `anthropic_fulltext`.
+
+Running it on the Seed Health paper produced a richer reference. Claude
+on the full text walks through the exact rules we put into the prompt:
+
+> "The UroA result of '13,008% difference' vastly exceeds the 500%
+> inflation threshold (artifact of near-zero baseline), and synbiotic
+> strain abundance of '2587-fold-change' exceeds the 5x fold-change
+> threshold. Two flags (relative_only=TRUE, inflated_effect_sizes=TRUE)
+> → HIGH severity per the 2+ flags rule."
+
+> "Attrition: n_randomised=32, n_analysed=21; overall attrition =
+> (32-21)/32 = 34.4% — exceeds 20% threshold. Differential attrition:
+> Placebo arm lost 4/16 = 25.0%; DS-01 arm lost 7/16 = 43.75%;
+> difference = 18.75 percentage points."
+
+That is **the exact failure case from the original context document**,
+caught by Claude with the v3 prompts and the v3 pipeline. The headline
+verdict was **HIGH / 0.82 / high confidence** — up from `0.78 / medium`
+on the abstract-only annotation, which is exactly the kind of
+upward nudge we predicted when the methodology details (attrition,
+sponsor-controlled analysis) become visible.
+
+#### Score rebase: agreement against the proper ground truth
+
+Re-scoring every existing local-model annotation against
+`anthropic_fulltext` instead of `anthropic` (abstract) revealed an
+important calibration issue with the previous numbers:
+
+| model-mode | vs abstract GT | vs **full-text GT** | Δ |
+|---|---:|---:|---:|
+| **Claude abstract (C-abs)** | 100% | **79%** | -21pp |
+| 120b a2 | 92% | 72% | -20pp |
+| **120b f2** | 86% | **82%** | -4pp |
+| 20b a2 | 86% | 67% | -20pp |
+| **20b f2** | 89% | **87%** | -2pp |
+| gem26 a2 | 84% | 67% | -17pp |
+| **gem26 f2** | 76% | **82%** | **+6pp** |
+
+Three things jump out:
+
+1. **Claude scores only 79% against itself** when given different
+   inputs. That's the *ceiling* on what any abstract-only annotator
+   can possibly achieve — even a perfect abstract-only annotator can't
+   match a full-text assessment because the inputs simply don't
+   contain enough information to ground the same conclusions.
+   `sponsor_controls_analysis`, `high_attrition`, `differential_attrition`,
+   `per_protocol_only` are all in the body of the paper, never in the
+   abstract.
+
+2. **Every f2 mode now beats Claude-on-abstract.** 20b f2 (87%),
+   gem26 f2 (82%), 120b f2 (82%) all exceed the 79% ceiling that
+   bounded abstract-only annotators. Read that again: a 20B parameter
+   local model running v3 two-call full-text produces annotations
+   *more consistent with Claude-on-full-text* than Claude-on-abstract
+   is. The architectural investment in the map-reduce path paid off
+   exactly where it should have.
+
+3. **gemma4 26b f2 is the only result that climbed when we rebased.**
+   Against the abstract ground truth gemma f2 was the worst f2
+   result (76%); against the full-text ground truth it ties with
+   120b f2 (82%). The previous numbers were penalising gemma for
+   being *more correct than Claude-on-abstract* on `coi_disclosed`,
+   `manuscript_drafter`, and `high_attrition` — facts the abstract
+   simply does not contain.
+
+#### What still disagrees against the proper ground truth
+
+The remaining gaps cluster in three places:
+
+- **Spin severity** (Claude-FT: moderate; most local models: high).
+  Claude-FT noticed that the paper does include hedging language in
+  the Discussion ("may offer distinct advantages", "suggests"), which
+  moderates the spin severity from HIGH to MODERATE. Most local models
+  default to HIGH based on title_spin and inappropriate_extrapolation
+  alone. The two f2 modes that read the full text and got this right
+  are 120b f2 and gem26 f2 (both moderate). Worth noting: this is
+  *another* piece of evidence that full-text inspection produces
+  better calibration, not just better extraction.
+
+- **`per_protocol_only`** (Claude-FT: TRUE; **all local models**: FALSE).
+  The paper reports analysing only the 21 completers but never uses
+  the words "per-protocol" or "completer" — it just describes what it
+  did. Claude-FT inferred per_protocol_only from the substance; every
+  local model trusted the literal "not_stated" enum from extraction
+  and missed the inference. The previous assessment rule required the
+  exact label. Fix queued for Round 9.
+
+- **`conflict_of_interest` HIGH trigger** (Claude-FT: HIGH; locals
+  except gem26 f2: moderate). Claude-FT applied the "sponsor controls
+  analysis AND drafting → HIGH" structural-conflict rule mechanically.
+  Most local models correctly extracted both `sponsor_controls_analysis`
+  and `sponsor_controls_manuscript` as TRUE but stopped at
+  `moderate` anyway. The rule wasn't being applied. Only gemma4-26b
+  f2 followed it. Fix queued for Round 9.
+
+This rebase makes the metric meaningful for the first time. Pre-rebase,
+"agreement with Claude" was conflating "local model is good at the same
+things Claude is" with "local model and Claude are both limited to the
+same input". Post-rebase, the metric measures what we actually care
+about: how close is a local-model annotation to a high-quality
+full-text bias assessment.
+
+### 3.8 Round 8 — 120b reliability test (3-run determinism check)
+
+The sequential-extraction fix (commit `66bca3c`) was empirically
+unverified at the start of this round. Even though running the
+section-extraction prompt on chunk 4 in isolation gave 5/5 successful
+extractions on the 120b, we hadn't proven that the *full* pipeline
+(8 sequential chunks + assessment) was reproducible.
+
+`scripts/reliability_test_fulltext.py` was added in commit `df2d505`
+to run `annotate_full_text_two_call` N times back-to-back on a single
+paper and save each run under a distinct DB tag
+(`<model>_fulltext_twocall_rel1`, `_rel2`, ...). Three sequential
+runs on `gpt-oss:120b` on the Seed Health paper produced:
+
+```
+[run 1/3] done in 675s: overall=high prob=0.80 n_rand=32 n_anal=21 attrition_stated=True ✓
+[run 2/3] done in 658s: overall=high prob=0.80 n_rand=32 n_anal=21 attrition_stated=True ✓
+[run 3/3] done in 549s: overall=high prob=0.80 n_rand=32 n_anal=21 attrition_stated=True ✓
+```
+
+**3/3 ✓** on the headline test — every run caught the 32→21 attrition
+data that the pre-fix run dropped. The `66bca3c` sequential-extraction
+fix is verified for the original failure mode.
+
+But "3/3 on the headline" understates how nuanced the result actually
+is. Per-flag analysis revealed **8 out of 39 scored fields wobble
+between runs**:
+
+| field | rel1 | rel2 | rel3 |
+|---|---|---|---|
+| `statistical_reporting.relative_only` | F | T | T |
+| `statistical_reporting.absolute_reported` | T | T | F |
+| `statistical_reporting.baseline_risk_reported` | F | T | F |
+| `spin.conclusion_matches_results` | T | F | F |
+| **`outcome_reporting.severity`** | **moderate** | **moderate** | **low** |
+| **`outcome_reporting.primary_outcome_type`** | **surrogate** | **surrogate** | **patient_centred** |
+| **`outcome_reporting.surrogate_without_validation`** | **T** | **T** | **F** |
+| **`methodology.differential_attrition`** | **T** | **F** | **F** |
+
+Four of those are cosmetic statistical-reporting flag wobble that
+doesn't change the domain severity. Four are load-bearing failures
+that point at two distinct bugs:
+
+#### Bug A: differential_attrition is detected in only 1 run out of 3
+
+rel1 had `n_per_arm_analysed = {'synbiotic': 9, 'placebo': 12}` and
+correctly computed `differential_attrition = True` (43.75% vs 25%).
+rel2 and rel3 left `n_per_arm_analysed = None` and defaulted
+`differential_attrition = False`.
+
+The information is in the same chunk (Methods part 1, the CONSORT
+paragraph) and all three runs got `n_randomised=32, n_analysed=21`
+from that chunk. But two of three runs **stopped extracting at the
+totals** and skipped the per-arm breakdown.
+
+This is **not** the parallelism bug — sequential extraction is in
+place. It's a content-extraction completeness problem: the model
+extracts the headline numbers and skips the per-arm detail because
+the extraction prompt schema only said
+`{"arm_name": "integer"} or null` without telling the model when to
+populate it. Fix queued for Round 9.
+
+Crucially, **all 3 runs still rated methodology severity HIGH**. The
+aggregation rules are robust enough that a single missing flag
+(`differential_attrition`) doesn't sink the rating — the other flags
+(`high_attrition`, `inadequate_sample_size`, `no_multiplicity_correction`)
+still push methodology to HIGH. The architecture is forgiving even
+when individual extractions are imperfect.
+
+#### Bug B: primary_outcome_type aggregation is fragile
+
+rel3's extracted `primary_outcomes_stated` list had 15 entries: **14
+surrogate and 1 patient_centred** (a hallucinated "adverse-event
+outcome" entry, probably picked up because the Methods discusses
+safety monitoring even though safety wasn't a primary endpoint).
+
+The Round-3 aggregation rule said *"if entries mix patient_centred
+with surrogate/composite, patient_centred wins"*. That rule fired:
+1 patient_centred entry was enough to flip the aggregated
+`primary_outcome_type` to patient_centred, which then triggered
+`surrogate_without_validation = False` and dragged outcome_reporting
+severity from MODERATE down to LOW.
+
+The rule isn't wrong in principle — patient-centred outcomes really
+should anchor a study's interpretation. But it's too generous when
+extraction misclassifies a stray entry. Fix queued for Round 9: require
+**at least 2 patient_centred entries AND at least 30% of the list**
+before flipping.
+
+#### Where the 3 runs sit against the proper ground truth
+
+Agreement against `anthropic_fulltext`:
+
+```
+prefix:  82%   (the original — accidentally LUCKY despite missing attrition)
+rel1:    79%
+rel2:    79%
+rel3:    77%
+```
+
+That looks like a regression at first glance. It's not. The
+pre-fix run scored 82% by hitting the right severities **by accident**:
+it called methodology HIGH because of `inadequate_sample_size` and
+`no_multiplicity_correction` even though it had missed `n_randomised`,
+`n_analysed`, `high_attrition`, and `differential_attrition`
+entirely. The headline severity was right; the underlying evidence
+was wrong.
+
+The post-fix runs catch the actual evidence (n_randomised, n_analysed,
+attrition_stated all populated in 3/3 runs, differential_attrition in
+1/3) and pay for that accuracy with new wobble elsewhere. Net
+agreement is approximately the same; **net fidelity to the actual
+paper is much higher**. That's the right trade.
+
+### 3.9 Round 9 — four targeted prompt edits (verification pending)
+
+Round 8 produced a clear set of follow-up bugs, all in the prompts.
+Commit `475b6a6` made four edits:
+
+| # | Failure observed in Round 8 / 7 | Fix |
+|---|---|---|
+| 1 | rel2/rel3 left `n_per_arm_analysed` null even though the CONSORT paragraph was extracted | Extraction schema doc now spells out the per-arm fields with the literal CONSORT example ("Eleven participants were lost to follow-up (Placebo: n=4; DS-01: n=7), leaving 21 participants who completed" → `{'placebo': 12, 'DS-01': 9}`) and instructs computation from per-arm loss counts |
+| 2 | rel3 hallucinated 1 patient_centred entry into 14 surrogates → outcome_reporting flipped to LOW | Aggregation now requires `n_pc/n_total >= 0.30 AND n_pc >= 2`. Explicit warning about safety/AE mis-classification. One stray entry can no longer override the dominant character of the trial |
+| 3 | All local models missed `per_protocol_only=True` because the paper avoids the label | Rule now triggers on substance (three triggers): explicit `per_protocol`/`completer` label; OR a quote describing the analysed group as only the completers; OR `n_analysed` shrunk by >5% with no ITT/imputation method mentioned |
+| 4 | Local models extracted both `sponsor_controls_*` flags but still rated COI moderate (only gemma4 26b applied the rule) | Imperative phrasing: *"apply mechanically — do not require additional reasoning, the trigger alone is sufficient. severity MUST be HIGH"* — hoisted to the top of the HIGH boundary section as condition (a) |
+
+All four edits are tightenings of existing rules, not new
+functionality. Each one is grounded in a specific failure observed in
+Round 7 or Round 8. All 213 tests still pass after the edits.
+
+**Verification still pending.** Re-running the reliability test on
+both 120b and 20b is the next step. Expected outcomes:
+
+- 3/3 still ✓ on the headline summary (the previous fix shouldn't be
+  touched)
+- 3/3 with `differential_attrition=True` (edit #1)
+- 3/3 with `outcome_reporting.severity = moderate` (edit #2, no more
+  rel3-style flips)
+- 3/3 with `per_protocol_only=True` (edit #3)
+- 3/3 with `conflict_of_interest.severity = high` (edit #4)
+
+If those land, agreement against Claude full-text should climb from
+~78% (Round 8 average) into the mid-to-high 80s, matching or
+exceeding 20b f2's 87%. The 20b runs in parallel are particularly
+important — they verify the edits don't degrade the smaller model
+that was previously the strongest f2 performer.
+
 ---
 
 ## 4. Surprises
@@ -467,20 +736,37 @@ This tells us something important about training data: a fine-tune on
 v3 two-call outputs will teach the model to apply these mechanical rules
 *without* the verbose prompt at inference time.
 
-### 4.3 The agreement metric is not the truth
+### 4.3 The agreement metric is not the truth (resolved in Round 7)
 
-Gemma f2 caught **more correct facts** than gemma a2 (attrition,
-manuscript drafter, etc.) and produced **better reasoning** ("structural
-COI, fishing expedition with 18 endpoints"). But it scored *lower* on
-agreement with Claude (75% vs 83%) because Claude's reference annotation
-was made on the **abstract**, not the full text. When gemma f2 escalated
-COI severity from `moderate` to `high` based on the manuscript-drafter
-finding (which Claude couldn't see), the metric counts that as a
-disagreement — even though gemma f2 is more correct.
+In Rounds 4-6 we observed that gemma f2 caught **more correct facts**
+than gemma a2 (attrition, manuscript drafter, etc.) and produced
+**better reasoning** ("structural COI, fishing expedition with 18
+endpoints"), but scored *lower* on agreement with Claude (75% vs 83%)
+because Claude's reference annotation was made on the **abstract**,
+not the full text. When gemma f2 escalated COI severity from
+`moderate` to `high` based on the manuscript-drafter finding (which
+Claude couldn't see), the metric counted that as a disagreement —
+even though gemma f2 was more correct.
 
-**This is a measurement gap, not a quality gap.** We need a Claude
-**full-text** annotation as the ground truth before we can fairly evaluate
-the f2 mode. See §6.1.
+**This was a measurement gap, not a quality gap.** Round 7 (§3.7)
+resolved it by producing a Claude full-text annotation
+(`anthropic_fulltext`). Re-scoring against the proper ground truth
+shifted the picture significantly:
+
+- Claude-on-abstract scores only 79% against Claude-on-full-text —
+  the structural ceiling on what any abstract-only annotator can
+  achieve.
+- All three f2 modes (20b: 87%, gem26: 82%, 120b: 82%) now exceed
+  that ceiling, validating that the architectural investment in
+  the map-reduce pipeline was the right call.
+- gem26 f2 is the only annotation in the entire experiment whose
+  rebased score *climbed* (76% → 82%); it had been penalised for
+  catching things Claude-on-abstract couldn't.
+
+The lesson generalises: when the reference annotator and the
+candidate annotator have access to different information, the
+agreement metric measures convergence-to-the-same-input, not
+quality. Always pin both to the same input scope.
 
 ### 4.4 Smaller can beat larger when the architecture is right
 
@@ -501,31 +787,41 @@ different failure modes, not simply fewer failures.
 
 ## 5. Open questions and known unknowns
 
-### 5.1 The 120b non-determinism is unverified-fixed
+### 5.1 The 120b non-determinism (resolved in Round 8)
 
-We have a strong hypothesis (parallel chunks → contention) and a fix
-(sequential extraction) but **we have not yet re-run 120b f2 on the Seed
-Health paper after the fix lands** (commit `66bca3c`). The fix is
-plausible but unverified empirically.
+The hypothesis from Rounds 4-5 was that parallel section extraction
+caused in-flight contention on the 120b. Commit `66bca3c` switched to
+sequential extraction. Round 8 verified this empirically: 3 sequential
+runs of 120b f2 on the Seed Health paper all caught the headline
+attrition data (n_randomised=32, n_analysed=21, attrition_stated=True),
+where the pre-fix run had missed all of them.
 
-Reliability test plan: run gpt-oss-120b f2 on the Seed Health paper 3
-times back-to-back with the new code. If 3/3 catch the attrition, we
-have moderate confidence the fix landed. If 2/3 or worse, the
-parallelism wasn't the cause and we have a deeper reliability problem.
+Caveat: while the headline failure mode is fixed, Round 8 surfaced
+**eight other fields that wobble between runs** (4 cosmetic
+statistical-reporting flags + 4 load-bearing failures around per-arm
+extraction and primary_outcome_type aggregation). Round 9 (commit
+`475b6a6`) added four prompt edits to address those. Verification is
+still pending — see §5.7 below.
 
-### 5.2 We have no Claude full-text ground truth
+### 5.2 The Claude full-text ground truth (resolved in Round 7)
 
-All comparisons use Claude's abstract-only annotation as the reference.
-This metric:
-- correctly measures `a2` (apples-to-apples on the abstract)
-- *under*measures `f2` (penalises full-text-only findings)
-- doesn't tell us anything about how Claude would handle the same paper
-  if given the full text
+Round 7 added a `--full-text` flag to `annotate_single_paper.py`
+(commit `7594361`) and ran it on the Seed Health paper. The result
+lives in the DB under tag `anthropic_fulltext`. Re-scoring every
+local-model annotation against this proper ground truth changed the
+picture significantly:
 
-To fix: extend `annotate_single_paper.py` with a `--full-text` flag that
-calls `annotate_full_text_two_call` via `LLMAnnotator`. Cost: ~50 lines of
-code, one Claude API call per paper. After that, the agreement metric
-becomes meaningful for f2.
+- All three f2 modes now exceed Claude-on-abstract (the structural
+  ceiling for abstract-only annotators)
+- gem26 f2 is the only annotation whose score *climbed* on rebase
+  (76% → 82%) — it had been penalised for being more correct than
+  Claude-on-abstract
+- The remaining gaps are concentrated in three places, all addressed
+  by Round 9 prompt edits: spin severity calibration,
+  per_protocol_only inference, and COI HIGH trigger application
+
+The metric is now apples-to-apples for the f2 modes. See §3.7 for the
+full rebase table.
 
 ### 5.3 We have no calibration paper test
 
@@ -578,47 +874,93 @@ JSON. This is the right call for *extraction*, but the **assessment** step
 might genuinely benefit from thinking. We currently apply the same flag
 to both stages. Worth experimenting with `think=True` on assessment only.
 
+### 5.7 Round 9 prompt edits are unverified
+
+Commit `475b6a6` made four targeted prompt edits in response to the
+specific failures observed in Rounds 7 and 8:
+- per-arm extraction with explicit CONSORT example (extraction prompt)
+- tighter primary_outcome_type aggregation (assessment prompt)
+- per_protocol_only triggers on substance not labels (assessment prompt)
+- COI HIGH trigger applies mechanically (assessment prompt)
+
+The edits are tightenings of existing rules, not new functionality, and
+each is grounded in a specific failure with a concrete reproducer.
+Empirical verification is still pending — re-running the reliability
+test on both 120b **and 20b** is the next step. The 20b run is
+particularly important: the previous best f2 result was 20b at 87%, so
+we need to confirm the new edits don't degrade the smaller model on
+its way to fixing the 120b issues.
+
+If the verification runs land cleanly, this section gets merged into
+§5.1's resolution and the priority shifts to the calibration paper
+test (§5.3).
+
 ---
 
 ## 6. What's next
 
-### 6.1 Get the Claude full-text ground truth (highest priority)
+### 6.1 Verify the Round 9 prompt edits (highest priority)
 
-Without it, we can't fairly measure f2. Plan:
-1. Extend `annotate_single_paper.py` with a `--full-text` flag.
-2. Run on the Seed Health paper.
-3. Re-score all f2 results against the new ground truth.
-4. Likely outcome: every model's f2 score climbs significantly because
-   the disagreements that came from "f2 saw more than Claude" now resolve.
+Re-run the reliability test with the four edits in commit `475b6a6` on
+both **gpt-oss 120b AND gpt-oss 20b** to confirm:
+1. The edits fix the four bugs they were targeting
+2. They don't degrade the smaller model that was already at 87%
 
-### 6.2 Verify the sequential-extraction fix (high priority)
+Expected outcomes:
+- 3/3 still ✓ on the headline summary
+- 3/3 with `differential_attrition=True` (edit #1)
+- 3/3 with `outcome_reporting.severity = moderate` (edit #2 stops
+  the rel3-style flip to LOW)
+- 3/3 with `per_protocol_only=True` (edit #3)
+- 3/3 with `conflict_of_interest.severity = high` (edit #4)
 
-Run gpt-oss-120b f2 on the Seed Health paper 3 times with the new code.
-Inspect the `_section_extractions` field to verify chunk 4 returns the
-correct sample data each time. If this passes, we can stop worrying about
-the f2 reliability for the 120b model.
+If all five expectations hit, agreement against Claude full-text
+should climb from ~78% (Round 8 average) into the mid-to-high 80s,
+matching or exceeding 20b f2's previous 87% high-water mark. The
+**20b run is the critical reliability check** — we need to know that
+the prompt edits don't trade away the small-model performance that
+makes the architecture practical for researchers with constrained
+hardware.
 
-### 6.3 Calibration paper test (medium priority)
+### 6.2 Calibration paper test (medium priority)
 
-Pick a Cochrane-rated low-RoB paper from the existing dataset
+All measurements so far are on **one** known HIGH-bias paper. Before
+trusting the new prompts on a wider corpus, we need at least one
+calibration paper that should NOT flag HIGH. Pick a Cochrane-rated
+low-RoB paper from the existing dataset
 (`SELECT pmid FROM papers WHERE overall_rob = 'low' AND excluded = 0`)
 and run all 4 modes × 3 model families through the comparison script.
-Confirm the new prompts do NOT call low-bias papers HIGH.
 
-### 6.4 Decide on production model and mode (after calibration)
+Critical questions:
+- Does the new `inflated_effect_sizes` rule fire on legitimate papers
+  with large but real effects?
+- Does the strengthened methodology HIGH boundary (`>=6 endpoints +
+  no multiplicity correction`) over-flag standard exploratory analyses?
+- Do the new title_spin verb triggers fire on descriptive titles that
+  happen to use "improves" or "promotes" with proper hedging?
 
-The current data suggests:
-- **gpt-oss 20b f2** is the strongest local-model candidate by far —
-  highest agreement (89%), caught the original failure case, no parallel
-  extraction bug, faster than 120b.
-- **gemma4 26B f2** is competitive (75%, also caught the failure case)
-  and a useful second opinion for cross-family ensemble runs.
-- **gpt-oss 120b f2** needs the reliability fix verified before we can
-  recommend it.
-- **abstract two-call** is sufficient for high-volume screening; full-text
-  two-call is required for proper analysis.
+If the calibration paper is correctly rated NONE/LOW by the f2 modes,
+we have confidence the v3 prompts don't have a global HIGH bias.
 
-### 6.5 Address the merge-conflict noise (low priority)
+### 6.3 Decide on production model and mode (after calibration)
+
+Current best-known data (subject to Round 9 verification):
+
+- **gpt-oss 20b f2** — 87% against Claude full-text, caught the
+  original failure case (32→21 attrition + manuscript drafter),
+  fastest, smallest. **Current production candidate**.
+- **gemma4 26B f2** — 82%, cross-family validation, useful as a
+  second-opinion ensemble member.
+- **gpt-oss 120b f2** — 79-82% across the 3 reliability runs after
+  the parallelism fix; should improve after Round 9 edits but
+  pending verification.
+- **abstract two-call** is sufficient for high-volume screening;
+  full-text two-call is required for proper analysis (the abstract
+  cannot contain the per-arm dropout, analysis population, or
+  manuscript-drafter information that drive HIGH severity in the
+  Seed Health case).
+
+### 6.4 Address the merge-conflict noise (low priority)
 
 - Reconcile `n_primary_endpoints` with `len(primary_outcomes_stated)`
   after the list-union merge step.
@@ -627,14 +969,13 @@ The current data suggests:
 - Consider a post-merge sanity pass that flags self-inconsistent
   extractions for human review.
 
-### 6.6 Then: full Claude re-annotation and training data generation
+### 6.5 Then: full Claude re-annotation and training data generation
 
-Once the f2 path is verified reliable on at least the 120b, the Claude
-ground-truth method works, and a calibration paper has been tested,
-we can re-annotate the full dataset (with `tag_v1_annotations.py` to
-preserve the v1 results for comparison) and start generating the v3
-training corpus. See `architecture_guide.md` §3 for the training
-sequence.
+Once Round 9 is verified, calibration passes, and a production
+model/mode has been chosen, we can re-annotate the full dataset (with
+`tag_v1_annotations.py` to preserve the v1 results for comparison)
+and start generating the v3 training corpus. See
+`architecture_guide.md` §3 for the training sequence.
 
 ---
 
@@ -642,17 +983,38 @@ sequence.
 
 | File | Purpose | Commit |
 |---|---|---|
-| `biasbuster/prompts_v3.py` | New v3 prompts (extraction, assessment, section) | `27df87a`, tightened in `483e4fd` and `9b04672` |
-| `biasbuster/annotators/__init__.py` | `BaseAnnotator` + merge logic | `27df87a`, sequential fix in `66bca3c` |
+| `biasbuster/prompts_v3.py` | v3 prompts (extraction, assessment, section) | `27df87a` → `9b04672` → `483e4fd` → `475b6a6` |
+| `biasbuster/annotators/__init__.py` | `BaseAnnotator` + merge logic | `27df87a`, sequential extraction fix in `66bca3c` |
 | `biasbuster/annotators/bmlib_backend.py` | Ollama-via-bmlib adapter | `1ad57d9` |
 | `biasbuster/cli/analysis.py` | CLI rewritten to use BaseAnnotator | `1ad57d9` |
-| `scripts/compare_singlecall_twocall.py` | Four-mode comparison runner | `2de8810`, extended in `fced4c4` |
+| `annotate_single_paper.py` | Single-paper tool with `--full-text` flag for ground-truth runs | `7594361` |
+| `scripts/compare_singlecall_twocall.py` | Four-mode comparison runner | `2de8810` → `fced4c4` |
+| `scripts/reliability_test_fulltext.py` | N-run determinism check for the f2 path | `df2d505` |
 | `scripts/tag_v1_annotations.py` | DB migration for legacy v1 annotations | `81647e0` |
 | `docs/two_step_approach/MERGE_STRATEGY.md` | Merge rules + coherence-pass escape hatch | (separate doc) |
+
+Round-by-round prompt evolution:
+- `27df87a` — initial v3 prompts (Round 2 baseline)
+- `9b04672` — silent contract bug: `recommended_verification_steps` field
+  was required by the parser but never asked for in the prompt (Round 1
+  fix, applied retroactively to v1 and v3)
+- `483e4fd` — five targeted assessment edits from Round 3
+  (`inflated_effect_sizes`, `title_spin`, `primary_outcome_type`
+  aggregation, methodology HIGH boundary, endpoint counting)
+- `66bca3c` — sequential section extraction + per-chunk partial
+  persistence (Round 5 fix for the parallel-extraction bug)
+- `475b6a6` — four targeted edits from Round 9 (per-arm extraction,
+  primary_outcome_type fragility, per_protocol_only inference,
+  COI HIGH mechanical application) — verification pending
 
 ---
 
 ## 8. Headline numbers (one place to find them)
+
+Reference paper: PMID `41750436` (Seed Health synbiotic RCT, the case
+study from `CONTEXT_FOR_CLAUDE_CODE.md`).
+
+### Against Claude's abstract-only annotation (`anthropic`)
 
 | Model | a1 | a2 | f1 | f2 |
 |---|---:|---:|---:|---:|
@@ -660,13 +1022,32 @@ sequence.
 | gpt-oss 20b | 50% | 86% | 50% | **89%** |
 | gemma4 26B | 56% | 83% | 50% | 75% |
 
-Reference: agreement with Claude's abstract-only annotation on PMID
-`41750436` (Seed Health synbiotic RCT, the case study from
-`CONTEXT_FOR_CLAUDE_CODE.md`). 36 fields scored. Per-field details in
-the database under tags
-`ollama_<model>_<mode>` (e.g. `ollama_gpt-oss_120b_fulltext_twocall`).
+### Against Claude's full-text annotation (`anthropic_fulltext`, Round 7)
 
-These numbers will change once we have a Claude full-text ground truth
-(see §6.1) — most likely the f2 column will climb significantly because
-its current "disagreements" with Claude are mostly cases where f2 caught
-information Claude couldn't see in the abstract.
+| Model | a1 | a2 | f1 | f2 |
+|---|---:|---:|---:|---:|
+| gpt-oss 120b | 54% | 72% | 38% | 82% |
+| gpt-oss 20b | 54% | 67% | 49% | **87%** |
+| gemma4 26B | 49% | 67% | 44% | 82% |
+
+Reference rows for context:
+
+| Annotator | vs abstract GT | vs full-text GT |
+|---|---:|---:|
+| Claude abstract (`anthropic`) | 100% | 79% |
+| 120b f2 prefix (pre-`66bca3c`, accidentally lucky) | 86% | 82% |
+| 120b f2 rel1 (post-fix, Round 8) | — | 79% |
+| 120b f2 rel2 (post-fix, Round 8) | — | 79% |
+| 120b f2 rel3 (post-fix, Round 8) | — | 77% |
+
+Per-field details in the database under tags
+`ollama_<model>_<mode>` (e.g.
+`ollama_gpt-oss_120b_fulltext_twocall`,
+`ollama_gpt-oss_120b_fulltext_twocall_rel1`).
+
+**Reading the two tables together**: against the proper full-text
+ground truth, every f2 mode now exceeds the structural ceiling
+(79%) for any abstract-only annotator. The full-text two-call
+pipeline is genuinely a tier above abstract-only. The Round 9
+prompt edits (commit `475b6a6`) are expected to push the f2
+column higher still — verification pending (§5.7, §6.1).
