@@ -1,10 +1,13 @@
 # BiasBuster v3 Two-Call Architecture — Initial Findings
 
-**Status:** rounds 1–9 complete. Claude full-text ground truth obtained
-(Round 7). 120b sequential-extraction fix verified by 3-run reliability
-test (Round 8). Four further prompt edits committed in Round 9 with
-verification still pending. Calibration on LOW-bias papers is the next
-major experiment.
+**Status:** rounds 1–10 complete through prompt edits; Round 10 verification
+pending. Claude full-text ground truth obtained (Round 7). 120b
+sequential-extraction fix verified (Round 8). Round 9 verification (§3.10):
+3 of 4 fix targets landed, COI trigger failed due to a sponsor-role-
+disclaimer extrapolation bug in the extraction stage. Round 10 (commit
+`c34885a`) adds extraction-side and assessment-side fixes for the COI
+regression; re-run on both 120b and 20b is the next step. Calibration on
+LOW-bias papers remains the next major experiment after Round 10 lands.
 
 **Date of these findings:** 2026-04-09 → 2026-04-11.
 
@@ -33,8 +36,17 @@ rules).
    moderate verdict. The v1 prompt cannot use long inputs at all.
 4. Five small prompt edits to the v3 assessment criteria moved gpt-oss
    abstract two-call from 78% to 92% agreement on the same paper (Round 3).
-   Four further edits in Round 9 (`475b6a6`) target specific reliability
-   gaps observed in Round 8 — verification pending.
+   Four further edits in Round 9 (`475b6a6`) targeted specific reliability
+   gaps observed in Round 8 — **3 of 4 landed** on verification (§3.10):
+   outcome_reporting no longer flips to low (6/6), `per_protocol_only`
+   is now 6/6, per-arm extraction is 5/6. The COI trigger failed (0/6)
+   because both local models over-read the paper's "sponsor had no role in
+   clinical trial operations" disclaimer. **Round 10 (commit `c34885a`)
+   patches this** with an extraction-side rule (sponsor disclaimers only
+   cover the activities they explicitly name; sponsor-employed authors
+   always count as manuscript drafters) and a belt-and-braces assessment-
+   side HIGH trigger (industry funding + ≥1 employee/shareholder author →
+   HIGH regardless of sponsor_controls flags). Verification pending.
 5. The full-text path was **non-deterministic on gpt-oss-120b** before
    commit `66bca3c`. The sequential-extraction fix is now empirically
    verified by Round 8: 3/3 reliability runs catch the headline attrition
@@ -660,7 +672,7 @@ attrition_stated all populated in 3/3 runs, differential_attrition in
 agreement is approximately the same; **net fidelity to the actual
 paper is much higher**. That's the right trade.
 
-### 3.9 Round 9 — four targeted prompt edits (verification pending)
+### 3.9 Round 9 — four targeted prompt edits
 
 Round 8 produced a clear set of follow-up bugs, all in the prompts.
 Commit `475b6a6` made four edits:
@@ -676,22 +688,165 @@ All four edits are tightenings of existing rules, not new
 functionality. Each one is grounded in a specific failure observed in
 Round 7 or Round 8. All 213 tests still pass after the edits.
 
-**Verification still pending.** Re-running the reliability test on
-both 120b and 20b is the next step. Expected outcomes:
+Verification results are in §3.10 below: three of the four targets
+landed, one did not — and the failure revealed an unexpected bug in
+the extraction stage that Round 10 (§3.11) addresses.
 
-- 3/3 still ✓ on the headline summary (the previous fix shouldn't be
-  touched)
-- 3/3 with `differential_attrition=True` (edit #1)
-- 3/3 with `outcome_reporting.severity = moderate` (edit #2, no more
-  rel3-style flips)
-- 3/3 with `per_protocol_only=True` (edit #3)
-- 3/3 with `conflict_of_interest.severity = high` (edit #4)
+### 3.10 Round 9 verification — three out of four targets landed
 
-If those land, agreement against Claude full-text should climb from
-~78% (Round 8 average) into the mid-to-high 80s, matching or
-exceeding 20b f2's 87%. The 20b runs in parallel are particularly
-important — they verify the edits don't degrade the smaller model
-that was previously the strongest f2 performer.
+Ran `scripts/reliability_test_fulltext.py` three times on
+PMID `41750436` for both gpt-oss 120b and gpt-oss 20b with the Round 9
+prompts (commit `475b6a6`). Results stored under tags
+`ollama_gpt-oss_{120b,20b}_fulltext_twocall_rel{1,2,3}`.
+
+Scorecard (ground truth `anthropic_fulltext`: `hdr=high`,
+`out=moderate`, `coi=high`, per-arm populated,
+`sponsor_controls_manuscript=True`):
+
+| run         | hdr  | out_sev | meth_sev | coi_sev   | diff_att | pp_only | per_arm |
+|-------------|------|---------|----------|-----------|----------|---------|---------|
+| GT (Claude) | high | mod     | high     | **high**  | True     | True    | Y       |
+| 120b pre-R9 | high | mod     | high     | moderate  | False    | False   | N       |
+| 120b rel1   | high | mod     | high     | moderate  | False    | **True**| N       |
+| 120b rel2   | high | mod     | high     | moderate  | **True** | **True**| **Y**   |
+| 120b rel3   | high | mod     | high     | moderate  | **True** | **True**| **Y**   |
+| 20b pre-R9  | high | mod     | high     | moderate  | True     | False   | Y       |
+| 20b rel1    | high | mod     | high     | **low**   | True     | **True**| Y       |
+| 20b rel2    | high | mod     | high     | **low**   | True     | **True**| Y       |
+| 20b rel3    | high | mod     | high     | moderate  | True     | **True**| Y       |
+
+Fix-target scorecard:
+
+| Fix | Target | Pre-R9 | Post-R9 | Verdict |
+|---|---|---|---|---|
+| #1 | per-arm CONSORT extraction populated | 120b: N, 20b: Y | 120b 2/3, 20b 3/3 | **PARTIAL** 5/6 |
+| #1b | derived `differential_attrition=True` | 120b: F, 20b: T | 120b 2/3, 20b 3/3 | **PARTIAL** 5/6 |
+| #2 | `outcome_reporting.severity` stays moderate | both mod | **6/6 moderate** | **PASS** (rel3-style flip eliminated) |
+| #3 | `per_protocol_only=True` | both F | **6/6 True** | **PASS** |
+| #4 | `conflict_of_interest.severity = high` | both mod | 120b 3/3 mod; 20b 2/3 **low**, 1/3 mod | **FAIL** + **20b regression** |
+
+Three out of four fix targets land. Headline severity is 6/6 ✓,
+`methodology.severity=high` is 6/6 ✓, `high_attrition=True` is 6/6 ✓.
+Outcome_reporting no longer flips to low under any seed. Round 9 is
+a net improvement.
+
+**But Fix #4 fails across all six runs, and the 20b regresses from
+moderate → low in 2/3 runs.** This is unambiguously bad: the Round 9
+edit was supposed to *strengthen* the COI mechanical trigger, and
+instead the 20b's accidentally-correct pre-R9 moderate rating has
+been replaced by a worse rating.
+
+#### Root cause: disclaimer extrapolation in the extraction stage
+
+All six post-Round-9 runs record
+`conflict_of_interest.sponsor_controls_manuscript = False`, so the
+assessment-side HIGH mechanical trigger — which is gated on this flag
+— cannot fire. The extraction is being misled by this sentence in the
+paper's Funding section:
+
+> "The sponsor (Seed Health, Inc.) had no role in clinical trial
+> operations, which were performed independently by KGK Science, Inc."
+
+The disclaimer covers "clinical trial operations" — nothing else. But
+both gpt-oss models (and apparently gpt-oss is peculiarly sensitive to
+this) read it as a blanket "sponsor had no role" and set both
+`sponsor_controls_analysis=False` and `sponsor_controls_manuscript=False`.
+Meanwhile, 4 of the 9 authors are Seed Health employees or
+shareholders — which by itself constitutes sponsor involvement in the
+manuscript, regardless of any disclaimer. Authorship IS manuscript
+drafting by definition: authors write, revise, and approve the paper.
+
+Interestingly, the 20b pre-Round-9 run *did* catch
+`sponsor_controls_manuscript=True` (that's why it scored COI moderate
+rather than low). Round 9's assessment-side edit appears to have
+knocked the 20b off the correct answer it was accidentally landing on
+— the assessment prompt's stronger COI language seems to have pulled
+the extraction's attention toward the disclaimer rather than toward
+the author list. This is brittle, but it tells us two things:
+
+1. The assessment-only fix in Round 9 was fighting the wrong stage.
+   Fix #4 requires an **extraction-side** change first.
+2. The 20b needs its COI extraction hardened, because the regression
+   from moderate to low in 2/3 runs is worse than not having tried.
+
+The full set of the other three fixes hold — they are not affected
+by this extraction bug. The Round 9 edits that landed are genuinely
+improved; Round 10 only patches Fix #4 without revisiting the
+others.
+
+### 3.11 Round 10 — COI sponsor-employee-author fix
+
+Commit `c34885a` makes two targeted edits, both in `prompts_v3.py`.
+
+**Extraction stage** — `EXTRACTION_SYSTEM_PROMPT` schema for
+`conflicts` (inherited automatically by
+`SECTION_EXTRACTION_SYSTEM_PROMPT` via the
+`EXTRACTION_SYSTEM_PROMPT[EXTRACTION_SYSTEM_PROMPT.index("{"):]`
+concatenation trick):
+
+- `conflicts.manuscript_drafter.is_sponsor_affiliated` now has an
+  explicit rule:
+  > *"TRUE if ANY author of the paper is a sponsor employee or
+  > shareholder (authorship is, by definition, participation in
+  > manuscript drafting). A 'the sponsor had no role in the
+  > manuscript' statement does NOT override this when sponsor
+  > employees are listed as authors — their authorship IS sponsor
+  > involvement. Only record false when the paper explicitly names
+  > non-sponsor-affiliated authors as drafters AND the sponsor-
+  > affiliated authors are NOT in the author list. Record null only
+  > when the paper gives no information at all."*
+- `conflicts.data_analyst.is_sponsor_affiliated` clarified: `null`
+  (not `false`) is the correct value when the paper is silent on
+  who performed the analysis. "Silence ≠ disproof".
+- New field `conflicts.sponsor_role_disclaimer`: captures verbatim
+  any "sponsor had no role in X" statement AND forces the extractor
+  to record only the activities X explicitly names. This is the
+  source-level fix for the disclaimer-extrapolation bug.
+
+**Assessment stage** — `ASSESSMENT_SYSTEM_PROMPT` COI section:
+
+- `sponsor_controls_manuscript` now also derives as TRUE when any
+  author has role ∈ {employee, shareholder}, even if the extraction
+  left `manuscript_drafter.is_sponsor_affiliated` unpopulated. This
+  is belt-and-braces: the same logic lives on both sides of the
+  pipeline, so a failure on one side is caught by the other.
+- New mechanical HIGH trigger `(d)`:
+  > *"`funding_type ∈ {industry, mixed}` AND
+  > `authors_with_industry_affiliation` contains AT LEAST ONE entry
+  > with role ∈ {employee, shareholder}. Rationale: sponsor-employed
+  > authors control how the study is written up — they draft,
+  > revise, and approve the manuscript as part of their employment.
+  > A 'sponsor had no role' disclaimer is NOT disqualifying here
+  > because sponsor employees ARE the sponsor's role, via their
+  > authorship. Disclosure does not undo this structural conflict;
+  > it only makes the reader aware of it. If this trigger applies,
+  > severity MUST be HIGH — do not downgrade to moderate or low
+  > based on transparency, independent statistical oversight, or
+  > the presence of a disclaimer. Count shareholders (including
+  > holders of stock options) the same as employees."*
+- LOW severity boundary explicitly excludes any paper with a
+  sponsor-employed author.
+
+Expected Round 10 outcomes for PMID `41750436`:
+
+- `conflict_of_interest.severity = high` on 6/6 reliability runs
+  (both 120b and 20b). Target: close the Fix #4 gap that Round 9
+  left open.
+- `sponsor_controls_manuscript = True` on 6/6 via both paths —
+  extraction-direct (because 4 authors are Seed Health
+  employees/shareholders) and assessment-derived (even if the
+  extraction misses it).
+- `methodology.severity`, `outcome_reporting.severity`,
+  `per_protocol_only`, `differential_attrition`, and per-arm fields
+  stay where Round 9 left them. Round 10 touches only the COI
+  domain; regression-check the others.
+
+If Round 10 closes the last gap, agreement against the Claude full-
+text ground truth should climb from the current ~78–82% into the
+high 80s for both model sizes. The 20b regression check is again the
+critical one: if 20b goes to 3/3 COI high without regressing on any
+other domain, the architecture is ready for the calibration paper
+test (§6.2).
 
 ---
 
@@ -874,53 +1029,84 @@ JSON. This is the right call for *extraction*, but the **assessment** step
 might genuinely benefit from thinking. We currently apply the same flag
 to both stages. Worth experimenting with `think=True` on assessment only.
 
-### 5.7 Round 9 prompt edits are unverified
+### 5.7 Round 10 prompt edits are unverified (Round 9 partially verified)
 
-Commit `475b6a6` made four targeted prompt edits in response to the
-specific failures observed in Rounds 7 and 8:
-- per-arm extraction with explicit CONSORT example (extraction prompt)
-- tighter primary_outcome_type aggregation (assessment prompt)
-- per_protocol_only triggers on substance not labels (assessment prompt)
-- COI HIGH trigger applies mechanically (assessment prompt)
+Round 9 verification (§3.10) landed three of four fix targets:
+`outcome_reporting` holds moderate 6/6, `per_protocol_only=True` 6/6,
+per-arm extraction 5/6 with derived `differential_attrition=True`
+also 5/6. The COI mechanical HIGH trigger (Fix #4) failed at 0/6 —
+the root cause was an **extraction-side** disclaimer-extrapolation
+bug, not an assessment-side rule problem. Worse, the 20b regressed
+COI severity from moderate → low in 2/3 runs relative to pre-Round-9.
 
-The edits are tightenings of existing rules, not new functionality, and
-each is grounded in a specific failure with a concrete reproducer.
-Empirical verification is still pending — re-running the reliability
-test on both 120b **and 20b** is the next step. The 20b run is
-particularly important: the previous best f2 result was 20b at 87%, so
-we need to confirm the new edits don't degrade the smaller model on
-its way to fixing the 120b issues.
+Round 10 (commit `c34885a`) responds with two targeted edits: an
+extraction-side rule binding `sponsor_controls_manuscript` to
+author-employee status (not to "sponsor had no role" disclaimers),
+a new `sponsor_role_disclaimer` field that forces disclaimers to be
+scoped to only the activities they name, and an assessment-side
+mechanical HIGH trigger `(d)` for `industry funding + ≥1 employee
+or shareholder author`. Details in §3.11.
 
-If the verification runs land cleanly, this section gets merged into
+Unknowns to resolve in the Round 10 verification runs:
+
+1. Does the extraction-side rule fire on gpt-oss 120b? (Round 9's
+   "apply mechanically" language on the assessment side didn't, so
+   we have reason to be cautious about any imperative rewording.)
+2. Does the assessment-side trigger `(d)` fire as a belt-and-braces
+   when the extraction still returns `False`?
+3. Does the 20b regression (moderate → low) reverse?
+4. Do any of the three Round 9 successes regress? The COI-only
+   edits should leave methodology, outcome_reporting, per-arm
+   extraction, and per_protocol_only untouched, but previous
+   rounds showed that prompt edits in one domain can shift
+   attention patterns elsewhere.
+
+If Round 10 closes the gap cleanly, this section gets merged into
 §5.1's resolution and the priority shifts to the calibration paper
-test (§5.3).
+test (§5.3). If it does not, the next step is almost certainly to
+break the COI extraction into a standalone sub-prompt — testing a
+dedicated "scan the author list" mini-extraction before the normal
+conflicts-section extraction runs.
 
 ---
 
 ## 6. What's next
 
-### 6.1 Verify the Round 9 prompt edits (highest priority)
+### 6.1 Verify the Round 10 COI fix (highest priority)
 
-Re-run the reliability test with the four edits in commit `475b6a6` on
-both **gpt-oss 120b AND gpt-oss 20b** to confirm:
-1. The edits fix the four bugs they were targeting
-2. They don't degrade the smaller model that was already at 87%
+Round 9 is verified and three of four fix targets landed (§3.10). The
+remaining gap is the COI mechanical HIGH trigger, which failed at 0/6
+because the extraction stage over-read the paper's "sponsor had no
+role in clinical trial operations" disclaimer. Round 10 (commit
+`c34885a`, detailed in §3.11) patches this with both an extraction-
+side rule and a belt-and-braces assessment-side mechanical trigger.
 
-Expected outcomes:
-- 3/3 still ✓ on the headline summary
-- 3/3 with `differential_attrition=True` (edit #1)
-- 3/3 with `outcome_reporting.severity = moderate` (edit #2 stops
-  the rel3-style flip to LOW)
-- 3/3 with `per_protocol_only=True` (edit #3)
-- 3/3 with `conflict_of_interest.severity = high` (edit #4)
+Re-run `scripts/reliability_test_fulltext.py` on PMID `41750436` for
+both **gpt-oss 120b AND gpt-oss 20b**, three runs each. Expected:
 
-If all five expectations hit, agreement against Claude full-text
-should climb from ~78% (Round 8 average) into the mid-to-high 80s,
-matching or exceeding 20b f2's previous 87% high-water mark. The
-**20b run is the critical reliability check** — we need to know that
-the prompt edits don't trade away the small-model performance that
-makes the architecture practical for researchers with constrained
-hardware.
+- **3/3 `conflict_of_interest.severity = high`** on both models
+  (closing Fix #4). Either path — extraction-direct or
+  assessment-derived — is sufficient.
+- **No regression** on the three Round 9 successes: outcome_reporting
+  stays moderate 6/6, per_protocol_only stays 6/6 True, per-arm
+  extraction stays at or above 5/6.
+- No regression on the headline (6/6 high) or methodology severity
+  (6/6 high).
+- Specifically verify that 20b's COI stops regressing to low — the
+  Round 9 2/3-low result was the worst observed outcome across the
+  whole iteration loop so far.
+
+If Round 10 lands cleanly, agreement against Claude full-text climbs
+into the high 80s across both model sizes, and the reliability
+ceiling for this paper is effectively reached on local models. The
+priority then shifts to §6.2 (calibration paper).
+
+If Round 10 fails, the next step is a dedicated
+"scan-the-author-list" sub-extraction — a separate mini-call whose
+only job is to enumerate author affiliations and flag sponsor
+employees, before the normal conflicts-section extraction runs. This
+would cost one extra LLM call per paper but isolates the COI
+extraction from disclaimer interference.
 
 ### 6.2 Calibration paper test (medium priority)
 
@@ -983,7 +1169,7 @@ and start generating the v3 training corpus. See
 
 | File | Purpose | Commit |
 |---|---|---|
-| `biasbuster/prompts_v3.py` | v3 prompts (extraction, assessment, section) | `27df87a` → `9b04672` → `483e4fd` → `475b6a6` |
+| `biasbuster/prompts_v3.py` | v3 prompts (extraction, assessment, section) | `27df87a` → `9b04672` → `483e4fd` → `475b6a6` → `c34885a` |
 | `biasbuster/annotators/__init__.py` | `BaseAnnotator` + merge logic | `27df87a`, sequential extraction fix in `66bca3c` |
 | `biasbuster/annotators/bmlib_backend.py` | Ollama-via-bmlib adapter | `1ad57d9` |
 | `biasbuster/cli/analysis.py` | CLI rewritten to use BaseAnnotator | `1ad57d9` |
@@ -1005,7 +1191,14 @@ Round-by-round prompt evolution:
   persistence (Round 5 fix for the parallel-extraction bug)
 - `475b6a6` — four targeted edits from Round 9 (per-arm extraction,
   primary_outcome_type fragility, per_protocol_only inference,
-  COI HIGH mechanical application) — verification pending
+  COI HIGH mechanical application); §3.10 verification: 3/4 landed,
+  COI trigger failed
+- `c34885a` — Round 10 COI fix: extraction-side rule for
+  `sponsor_controls_manuscript` (sponsor-employed authors always
+  count as drafters), scoped `sponsor_role_disclaimer` field to
+  stop disclaimer extrapolation, and assessment-side mechanical
+  HIGH trigger `(d)` for industry funding + employee/shareholder
+  authors — verification pending
 
 ---
 
@@ -1036,9 +1229,26 @@ Reference rows for context:
 |---|---:|---:|
 | Claude abstract (`anthropic`) | 100% | 79% |
 | 120b f2 prefix (pre-`66bca3c`, accidentally lucky) | 86% | 82% |
-| 120b f2 rel1 (post-fix, Round 8) | — | 79% |
-| 120b f2 rel2 (post-fix, Round 8) | — | 79% |
-| 120b f2 rel3 (post-fix, Round 8) | — | 77% |
+| 120b f2 rel1 (post-seq-fix, Round 8) | — | 79% |
+| 120b f2 rel2 (post-seq-fix, Round 8) | — | 79% |
+| 120b f2 rel3 (post-seq-fix, Round 8) | — | 77% |
+
+Round 9 per-flag scorecard (§3.10) instead of an aggregate
+agreement number — the reliability runs differ from the pre-fix runs
+on the specific flags that Round 9 targeted, not on the headline or
+methodology severities, so an aggregate agreement score would mask
+the underlying story. The key facts:
+
+- **Headline severity**: 6/6 high on Round 9 reliability runs (both
+  120b and 20b) — matches Claude full-text GT and the seq-fix runs.
+- **Methodology severity**: 6/6 high — matches GT.
+- **outcome_reporting severity**: 6/6 moderate (matches GT; fixes the
+  rel3 flip to low).
+- **per_protocol_only**: 6/6 True (matches GT; pre-R9 was 0/2).
+- **per-arm extraction**: 5/6 populated (pre-R9 was 1/2 for 120b).
+- **differential_attrition**: 5/6 True (pre-R9 was 1/2 for 120b).
+- **coi severity**: 0/6 high, 5/6 moderate, 1/6 low (regression from
+  pre-R9's 0/2 high but 2/2 moderate) — Round 10 target.
 
 Per-field details in the database under tags
 `ollama_<model>_<mode>` (e.g.
@@ -1046,8 +1256,12 @@ Per-field details in the database under tags
 `ollama_gpt-oss_120b_fulltext_twocall_rel1`).
 
 **Reading the two tables together**: against the proper full-text
-ground truth, every f2 mode now exceeds the structural ceiling
+ground truth, every f2 mode exceeds the structural ceiling
 (79%) for any abstract-only annotator. The full-text two-call
-pipeline is genuinely a tier above abstract-only. The Round 9
-prompt edits (commit `475b6a6`) are expected to push the f2
-column higher still — verification pending (§5.7, §6.1).
+pipeline is genuinely a tier above abstract-only. Round 9 (§3.10)
+made the per-flag composition better — 5 of 6 fields matched GT on
+both models — at the cost of COI specifically, which regressed
+because of a disclaimer extrapolation bug in the extraction stage.
+Round 10 (commit `c34885a`, §3.11) patches the COI regression and
+is expected to push headline agreement cleanly past 85% across both
+model sizes — verification pending (§5.7, §6.1).
