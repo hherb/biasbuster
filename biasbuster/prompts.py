@@ -204,6 +204,12 @@ For each abstract, provide a structured assessment in JSON format with the follo
   "overall_severity": "none|low|moderate|high|critical",
   "overall_bias_probability": float,  // 0.0 to 1.0
   "reasoning": "Step-by-step reasoning explaining the assessment",
+  "recommended_verification_steps": [
+    // Specific checks to verify findings — cite the database by name.
+    // e.g. "Check ClinicalTrials.gov NCTxxxxxxxx for registered outcomes",
+    //      "Search CMS Open Payments for Dr. Smith's industry payments",
+    //      "Check ORCID for author affiliation history"
+  ],
   "confidence": "low|medium|high"  // Your confidence in this assessment
 }"""
 
@@ -236,13 +242,17 @@ clinical trial abstracts for potential bias across five domains.
 
 {DOMAIN_CRITERIA}
 
+{VERIFICATION_DATABASES}
+
 {RETRACTION_SEVERITY_PRINCIPLE}
 
 {_RETRACTION_NOTICE_HANDLING}
 
 {CALIBRATION_NOTE}
 
-Respond ONLY with the JSON object. No preamble, no markdown fences."""
+Respond ONLY with the JSON object. No preamble, no markdown fences.
+Every field in the schema is REQUIRED — including recommended_verification_steps.
+If no verification is needed, use an empty list [] rather than omitting the field."""
 
 _TRAINING_JSON_OUTPUT_INSTRUCTIONS = """\
 OUTPUT FORMAT:
@@ -297,6 +307,7 @@ valid JSON object (no markdown fences, no trailing text) with this exact schema:
   "overall_severity": "none|low|moderate|high|critical",
   "overall_bias_probability": float (0.0 to 1.0, your calibrated estimate),
   "reasoning": "Brief summary of key findings",
+  "recommended_verification_steps": ["Specific checks citing database names — empty list if none needed"],
   "confidence": "low|medium|high"
 }
 
@@ -329,6 +340,8 @@ level using the specific boundary definitions below.
 {SEVERITY_SCALE}
 
 {DOMAIN_CRITERIA}
+
+{VERIFICATION_DATABASES}
 
 {RETRACTION_SEVERITY_PRINCIPLE}
 

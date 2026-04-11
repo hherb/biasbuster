@@ -495,7 +495,11 @@ CRITICAL RULES:
 - If an extracted field is null, state what you cannot assess and why.
 - Do not default methodology flags to false — if the extraction shows null for
   a relevant field, note this gap in evidence_quotes.
-- Use the calibration anchors to set overall_bias_probability."""
+- Use the calibration anchors to set overall_bias_probability.
+- EVERY field in the schema is REQUIRED — including recommended_verification_steps.
+  If no verification is needed, use an empty list [] rather than omitting the field.
+  Cite specific database names (ClinicalTrials.gov, CMS Open Payments, ORCID, etc.)
+  in the recommended_verification_steps entries."""
 
 
 ASSESSMENT_SYSTEM_PROMPT = f"""\
@@ -508,6 +512,8 @@ Do not re-read or re-interpret the original paper. Work from the extraction.
 {ASSESSMENT_DOMAIN_CRITERIA}
 
 {SEVERITY_SCALE}
+
+{VERIFICATION_DATABASES}
 
 {CALIBRATION_NOTE}
 
@@ -524,6 +530,8 @@ Do not re-read or re-interpret the original paper. Work from the extraction.
 {ASSESSMENT_DOMAIN_CRITERIA}
 
 {SEVERITY_SCALE}
+
+{VERIFICATION_DATABASES}
 
 {CALIBRATION_NOTE}
 
