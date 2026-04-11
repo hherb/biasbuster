@@ -4,12 +4,22 @@
 If the paper already exists in the database, skips straight to annotation.
 If not, fetches it from PubMed, stores it, runs enrichment, then annotates.
 
+Three annotation modes:
+- abstract two-call (default): Stage 1 extracts facts from the abstract,
+  Stage 2 assesses bias.
+- abstract single-call (--single-call): legacy v1 prompt, one LLM call.
+- full-text two-call (--full-text): fetch JATS via Europe PMC, chunk by
+  section, run section-level extraction sequentially, merge, then assess.
+  Stored under a distinct DB tag (``<model>_fulltext``) so the abstract
+  annotation isn't overwritten.
+
 Usage:
     uv run python annotate_single_paper.py --pmid 41271640
     uv run python annotate_single_paper.py --pmid 41271640 --model anthropic
     uv run python annotate_single_paper.py --pmid 41271640 --force
     uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001
     uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001 --source cochrane_rob
+    uv run python annotate_single_paper.py --pmid 41750436 --model anthropic --full-text
 """
 
 import argparse
@@ -19,6 +29,9 @@ import sys
 from typing import Optional
 
 from biasbuster.annotators import is_retraction_notice
+from biasbuster.cli.chunking import chunk_jats_article, chunk_plain_text
+from biasbuster.cli.content import acquire_content
+from biasbuster.cli.settings import load_config
 from config import Config
 from biasbuster.database import Database
 from biasbuster.pipeline import create_annotator
@@ -117,6 +130,55 @@ def enrich_paper(
     )
 
 
+def _fetch_sections_for_full_text(
+    identifier: str,
+) -> Optional[list[tuple[str, str]]]:
+    """Acquire full text for *identifier* and return chunked (section, text) tuples.
+
+    Uses the same path as the BiasBuster CLI: tries Europe PMC JATS first,
+    then PMC PDF fallback. Returns None if no full text is available
+    (caller should treat this as a hard failure when --full-text was
+    requested explicitly).
+
+    Args:
+        identifier: PMID, DOI, or any value accepted by
+                    ``biasbuster.cli.content.acquire_content``.
+
+    Returns:
+        List of (section_name, section_text) tuples ready to feed
+        ``annotate_full_text_two_call``, or None on failure.
+    """
+    cli_config = load_config()
+    try:
+        content = acquire_content(identifier, cli_config)
+    except Exception as exc:
+        logger.error(f"Full-text acquisition failed for {identifier}: {exc!r}")
+        return None
+
+    if not content.has_fulltext:
+        logger.error(
+            f"Full text unavailable for {identifier} "
+            f"(content_type={content.content_type}). "
+            f"--full-text requires JATS or PDF, abstract-only is not enough."
+        )
+        return None
+
+    if content.jats_article is not None:
+        chunks = chunk_jats_article(
+            content.jats_article, jats_xml=content.jats_xml,
+        )
+        logger.info(
+            f"Acquired JATS full text: {len(chunks)} section chunks"
+        )
+    else:
+        chunks = chunk_plain_text(content.plain_fulltext)
+        logger.info(
+            f"Acquired plain-text full text: {len(chunks)} window chunks"
+        )
+
+    return [(c.section, c.text) for c in chunks]
+
+
 async def annotate_paper(
     pmid: str,
     paper: dict,
@@ -125,28 +187,56 @@ async def annotate_paper(
     model_name: str,
     force: bool = False,
     two_call: bool = True,
+    full_text: bool = False,
+    identifier: Optional[str] = None,
 ) -> Optional[dict]:
     """Annotate a single paper and store the result.
 
+    Three modes:
+    - Abstract single-call (``two_call=False, full_text=False``): legacy v1.
+    - Abstract two-call (``two_call=True, full_text=False``): default v3.
+    - Full-text two-call (``full_text=True``): map-reduce v3 over JATS chunks.
+      ``two_call`` must also be True (the script enforces this at the CLI).
+
+    The full-text result is saved under a distinct DB tag
+    (``<model>_fulltext``) so it does not overwrite the abstract
+    annotation, which lives under the bare ``<model>`` tag.
+
     Args:
         pmid: Paper PMID.
-        paper: Full paper dict from the database.
+        paper: Full paper dict from the database (used for metadata even
+               in full-text mode, since enrichment lives there).
         db: Database instance.
         config: Application configuration.
         model_name: Annotator backend ("anthropic" or "deepseek").
-        force: If True, delete any existing annotation and re-annotate.
+        force: If True, delete any existing annotation under this tag
+               and re-annotate.
         two_call: If True (default), use v3 two-call pipeline.
+        full_text: If True, fetch JATS and use the map-reduce path.
+                   Requires ``two_call=True``.
+        identifier: PMID or DOI used to fetch full text (only consulted
+                    when ``full_text=True``). Defaults to *pmid* if not
+                    explicitly provided.
 
     Returns:
         The annotation dict if successful, None otherwise.
     """
+    if full_text and not two_call:
+        logger.error(
+            "full_text=True requires two_call=True "
+            "(no v1 single-call full-text path is supported)"
+        )
+        return None
+
     annotator = create_annotator(config, model_name)
     if annotator is None:
         return None
 
     # Pipeline uses the backend name (e.g. "deepseek") as the DB key,
-    # not the specific model string (e.g. "deepseek-reasoner").
-    db_model_name = model_name
+    # not the specific model string (e.g. "deepseek-reasoner"). Full-text
+    # annotations get their own tag so they don't overwrite the abstract
+    # version under the bare backend name.
+    db_model_name = f"{model_name}_fulltext" if full_text else model_name
 
     if db.has_annotation(pmid, db_model_name):
         if force:
@@ -159,26 +249,42 @@ async def annotate_paper(
                 f"PMID {pmid} already annotated by {db_model_name}, skipping. "
                 f"Use --force to re-annotate."
             )
-            # Return existing annotation
             existing = db.get_annotations(model_name=db_model_name, pmid=pmid)
             if existing:
                 return existing[0]
             return None
 
-    annotate_fn = (
-        annotator.annotate_abstract_two_call if two_call
-        else annotator.annotate_abstract
-    )
-    mode_label = "two-call v3" if two_call else "single-call v1"
-    logger.info(f"Using {mode_label} annotation mode")
-
-    async with annotator:
-        result = await annotate_fn(
-            pmid=pmid,
-            title=paper.get("title", ""),
-            abstract=paper.get("abstract", ""),
-            metadata=paper,
+    if full_text:
+        # Fetch + chunk *before* opening the annotator context so a
+        # full-text acquisition failure doesn't waste an API connection.
+        sections = _fetch_sections_for_full_text(identifier or pmid)
+        if not sections:
+            return None
+        logger.info(
+            f"Using full-text two-call (v3) annotation mode "
+            f"({len(sections)} sections)"
         )
+        async with annotator:
+            result = await annotator.annotate_full_text_two_call(
+                pmid=pmid,
+                title=paper.get("title", ""),
+                sections=sections,
+                metadata=paper,
+            )
+    else:
+        annotate_fn = (
+            annotator.annotate_abstract_two_call if two_call
+            else annotator.annotate_abstract
+        )
+        mode_label = "two-call v3" if two_call else "single-call v1"
+        logger.info(f"Using {mode_label} annotation mode (abstract)")
+        async with annotator:
+            result = await annotate_fn(
+                pmid=pmid,
+                title=paper.get("title", ""),
+                abstract=paper.get("abstract", ""),
+                metadata=paper,
+            )
 
     if result is None:
         logger.error(f"Annotation failed for PMID {pmid}")
@@ -189,7 +295,8 @@ async def annotate_paper(
     result["source"] = paper.get("source", "manual_import")
     db.insert_annotation(pmid, db_model_name, result)
     logger.info(
-        f"Annotation saved: severity={result.get('overall_severity')}, "
+        f"Annotation saved as {db_model_name}: "
+        f"severity={result.get('overall_severity')}, "
         f"bias_prob={result.get('overall_bias_probability')}, "
         f"confidence={result.get('confidence')}"
     )
@@ -226,11 +333,22 @@ async def main() -> int:
         action="store_true",
         help="Re-annotate even if an annotation already exists",
     )
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--single-call",
         action="store_true",
         help="Use single-call annotation (v1) instead of two-call (v3). "
-             "Default is two-call: Stage 1 extracts facts, Stage 2 assesses bias.",
+             "Default is two-call: Stage 1 extracts facts, Stage 2 assesses bias. "
+             "Mutually exclusive with --full-text.",
+    )
+    mode_group.add_argument(
+        "--full-text",
+        action="store_true",
+        help="Annotate the paper's full text via the v3 map-reduce pipeline "
+             "(per-section extraction → merge → assessment). Requires JATS or "
+             "PDF availability via Europe PMC; errors out if only the abstract "
+             "is reachable. Result is stored under the DB tag '<model>_fulltext' "
+             "so it does not overwrite the abstract annotation.",
     )
     parser.add_argument(
         "--output", "-o",
@@ -305,10 +423,16 @@ async def main() -> int:
         assert paper is not None
 
         # --- Annotate ---
+        # Pass the original identifier (PMID or DOI) so full-text mode
+        # can use whichever the user gave us — acquire_content's cache
+        # is keyed by id type.
+        original_identifier = args.doi if args.doi else pmid
         result = await annotate_paper(
             pmid, paper, db, config, args.model,
             force=args.force,
             two_call=not args.single_call,
+            full_text=args.full_text,
+            identifier=original_identifier,
         )
         if result is None:
             return 1
