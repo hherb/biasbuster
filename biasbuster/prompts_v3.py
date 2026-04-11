@@ -168,8 +168,8 @@ JSON SCHEMA:
         "p_value": "string or null"
       }
     ],
-    "n_primary_endpoints": "integer",
-    "n_secondary_endpoints": "integer",
+    "n_primary_endpoints": "integer — set to len(primary_outcomes_stated). If the paper does not explicitly label outcomes as primary, count every distinct outcome with a reported p-value or effect size as an endpoint (each one is a hypothesis test). Do NOT set to 0 when effect sizes are reported.",
+    "n_secondary_endpoints": "integer — set to len(secondary_outcomes_stated).",
     "composite_components_disaggregated": "boolean or null — null if no composite",
     "effect_size_quotes": ["verbatim sentences reporting key effect sizes — up to 5"]
   },
@@ -311,14 +311,23 @@ DOMAIN CRITERIA:
    - subgroup_emphasis: Check the subgroups extraction. TRUE if any subgroup has
      prominence = "title" or "abstract_conclusion" AND (pre_specified = "no" or
      "unclear" OR multiplicity_corrected = "no" or "unclear").
-   - inflated_effect_sizes: TRUE if effect sizes include extreme fold-changes or
-     percentages that result from near-zero denominators, especially if the paper
-     itself acknowledges this artifact.
+   - inflated_effect_sizes: TRUE if ANY of the following:
+       (a) A reported percent change exceeds 500% (five-fold) in either direction,
+       (b) A reported fold-change exceeds 5x,
+       (c) The paper itself acknowledges an artifact from a near-zero denominator.
+     Example: "UroA increased by 13,008%" → TRUE (far exceeds 500%).
+     Do NOT require the paper to acknowledge it — large percent changes are
+     almost always artifacts of small denominators and must be flagged.
 
    Severity boundaries:
    - LOW: Minor omission (NNT absent but arm rates given). Reader can assess significance.
-   - MODERATE: Relative measures only, OR selective p-values, OR post-hoc subgroup emphasis.
-   - HIGH: Multiple concerns (e.g., relative-only + subgroup emphasis + inflated effects).
+   - MODERATE: Exactly ONE of: relative-only, selective p-values, post-hoc subgroup emphasis.
+   - HIGH: TWO OR MORE concerns together, e.g.:
+       * relative_only = TRUE AND inflated_effect_sizes = TRUE, OR
+       * relative_only = TRUE AND baseline_risk_reported = FALSE AND no absolute rates, OR
+       * selective_p_values = TRUE AND subgroup_emphasis = TRUE.
+     When in doubt between MODERATE and HIGH, count the TRUE flags in this domain:
+     1 flag → MODERATE, 2+ flags → HIGH.
 
 2. SPIN
 
@@ -333,7 +342,15 @@ DOMAIN CRITERIA:
      (c) uncertainty_language_present = false AND the study is small or mechanistic.
    - focus_on_secondary_when_primary_ns: TRUE if the primary outcome was non-significant
      but conclusions emphasise a significant secondary outcome.
-   - title_spin: TRUE if the paper title claims clinical benefit from surrogate data.
+   - title_spin: TRUE if BOTH of these hold:
+       (a) All primary_outcomes_stated[].type values are "surrogate" or "composite", AND
+       (b) The paper title uses a clinical/therapeutic verb or noun such as:
+           "promotes", "improves", "treats", "restores", "protects", "prevents",
+           "relieves", "cures", "benefits", "recovery", "enhances healing".
+     Example: A trial measuring only microbiome diversity (surrogate) with a
+     title "Synbiotic Promotes Recovery of Gut Function" → TRUE.
+     Titles that stay descriptive ("Effect of X on Y", "Association of X and Y",
+     "A randomised trial of X") → FALSE.
 
    Spin level (Boutron taxonomy):
    - HIGH: No uncertainty + no further research recommended + clinical claims from surrogates.
@@ -344,7 +361,15 @@ DOMAIN CRITERIA:
 3. OUTCOME REPORTING
 
    Using the extracted outcomes and any registered outcomes (if available):
-   - primary_outcome_type: From the extracted primary_outcomes_stated[].type.
+   - primary_outcome_type: Aggregate from primary_outcomes_stated[].type as follows:
+       * If the list is empty or all entries are null → "unclear"
+       * If ALL entries share the same type → that type
+       * If entries mix "patient_centred" with "surrogate"/"composite" →
+         "patient_centred" (the patient-centred ones are the ones that matter)
+       * If entries mix "surrogate" and "composite" (no patient_centred) →
+         "composite" if any composite exists, else "surrogate"
+       * Otherwise → "unclear"
+     Do NOT default to "unclear" just because there are multiple entries.
    - surrogate_without_validation: TRUE if type = "surrogate" and no validation
      linking the surrogate to patient-centred outcomes is cited.
    - composite_not_disaggregated: TRUE if type = "composite" and
@@ -399,10 +424,16 @@ DOMAIN CRITERIA:
    SAMPLE SIZE:
    - inadequate_sample_size: TRUE if n_analysed < 30 per arm for a superiority trial
      AND n_primary_endpoints + n_secondary_endpoints > 5 (many endpoints, few patients).
+     If n_analysed is null but the study is described as "proof of mechanism",
+     "pilot", or "mechanistic" AND has >5 endpoints, ALSO mark TRUE.
 
    MULTIPLICITY:
+   - Total endpoint count: total_endpoints = n_primary_endpoints + n_secondary_endpoints.
+     If both values are 0, fall back to counting the number of distinct outcomes
+     mentioned in effect_size_quotes (each p-value / effect statement ≈ one test).
    - no_multiplicity_correction: TRUE if multiplicity_correction_method = null AND
-     n_primary_endpoints + n_secondary_endpoints > 5.
+     total_endpoints >= 3. (Three or more hypothesis tests without correction
+     materially inflates family-wise error; this is not a high bar.)
 
    ANALYTICAL FLEXIBILITY:
    - analytical_flexibility: TRUE if analytical_approaches_described > 1 AND the
@@ -417,10 +448,28 @@ DOMAIN CRITERIA:
 
    Severity boundaries:
    - LOW: One minor concern (slightly short follow-up, acknowledged enrichment).
-   - MODERATE: One significant concern (per-protocol without ITT, inappropriate comparator,
-     no multiplicity correction across 5+ endpoints) OR two minor concerns.
-   - HIGH: Multiple significant concerns, OR per-protocol with differential attrition,
-     OR small sample with many uncorrected endpoints."""
+   - MODERATE: Exactly one of the following significant concerns (OR two minor ones):
+       * per_protocol_only = TRUE without mitigating ITT analysis
+       * inappropriate_comparator = TRUE
+       * no_multiplicity_correction = TRUE with 3-5 total endpoints
+       * high_attrition = TRUE (>20%) without differential
+   - HIGH: ANY of the following:
+       * no_multiplicity_correction = TRUE AND total_endpoints >= 6
+         (many uncorrected tests — fishing expedition territory, regardless
+         of whether n_analysed is known)
+       * per_protocol_only = TRUE AND (high_attrition OR differential_attrition)
+       * Two or more MODERATE-level concerns present simultaneously
+       * inadequate_sample_size = TRUE AND no_multiplicity_correction = TRUE
+       * premature_stopping for efficacy without pre-specified stopping rules
+   - CRITICAL: Evidence of misconduct or fundamental design failure that
+     invalidates any possible interpretation of the results.
+
+   IMPORTANT: Do not rate methodology as NONE or LOW just because several
+   methodology fields are null in the extraction. Null means "unknown", not
+   "fine". If key fields (n_analysed, analysis_population_stated, blinding)
+   are all null, note this in evidence_quotes and rate severity based on what
+   IS known. A paper that doesn't disclose its sample size in the abstract
+   has already made reader assessment harder — that alone is at least LOW."""
 
 
 ASSESSMENT_JSON_SCHEMA = """\
