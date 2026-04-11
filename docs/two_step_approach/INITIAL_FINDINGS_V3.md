@@ -18,8 +18,11 @@ orchestration script at `scripts/run_calibration_test.sh` runs 4 papers ×
 **Document scope:** what we built, what we measured, what surprised us, what's
 still uncertain. Read this together with `CONTEXT_FOR_CLAUDE_CODE.md` (the
 original failure case that motivated the rebuild), `architecture_guide.md`
-(the design vision), and `MERGE_STRATEGY.md` (the rationale for the merge
-rules).
+(the design vision), `MERGE_STRATEGY.md` (the rationale for the merge rules),
+and `DESIGN_RATIONALE_COI.md` (why the COI domain is intentionally more
+aggressive than Cochrane RoB 2 — essential reading before interpreting any
+calibration disagreement between BiasBuster and Cochrane on industry-funded
+papers).
 
 ---
 
@@ -781,6 +784,15 @@ others.
 
 ### 3.11 Round 10 — COI sponsor-employee-author fix
 
+> **Note:** The hard-HIGH mechanical trigger added in this round is
+> a deliberate design decision that will produce systematic
+> disagreement with Cochrane RoB 2 on industry-funded papers with
+> sponsor-employed authors. See
+> [`DESIGN_RATIONALE_COI.md`](./DESIGN_RATIONALE_COI.md) for the full
+> justification — *risk of bias, not proof of bias* — including the
+> empirical validation on PMID 39777610 (tapinarof phase 3) during
+> the calibration test (§6.2).
+
 Commit `c34885a` makes two targeted edits, both in `prompts_v3.py`.
 
 **Extraction stage** — `EXTRACTION_SYSTEM_PROMPT` schema for
@@ -1231,6 +1243,19 @@ see §3.12 for details.
 The only remaining validation is the calibration paper test below.
 
 ### 6.2 Calibration paper test (highest priority)
+
+> **Interpretation note:** Cochrane RoB 2 explicitly excludes COI
+> and spin from its assessment. BiasBuster's v3 pipeline includes
+> both. Disagreements with Cochrane on the COI or spin domain for
+> an industry-funded paper with sponsor-employed authors are
+> **expected, validated behaviour** — see
+> [`DESIGN_RATIONALE_COI.md`](./DESIGN_RATIONALE_COI.md). When
+> scoring these calibration runs, separate the methodology-only
+> domains (stat_reporting, outcome_reporting, methodology) from
+> the COI/spin domains before comparing to the Cochrane rating. A
+> systematic Cochrane-LOW → pipeline-HIGH disagreement on the
+> methodology domain is a real calibration bug; the same
+> disagreement driven purely by the COI domain is the feature.
 
 All measurements so far are on **one** known HIGH-bias paper
 (PMID `41750436`, Seed Health synbiotic). Before trusting the new

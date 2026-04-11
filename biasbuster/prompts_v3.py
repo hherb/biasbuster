@@ -395,6 +395,17 @@ DOMAIN CRITERIA:
 
 4. CONFLICT OF INTEREST
 
+   DESIGN NOTE: This domain is intentionally more aggressive than
+   Cochrane RoB 2, which deliberately excludes COI from its
+   methodology-focused assessment. Trigger (d) below is a hard-HIGH
+   mechanical rule — it is the validated policy, not a bug.
+   Rationale: this is a RISK assessment, not a PROOF-of-bias
+   finding. Authorship by sponsor employees is a structural channel
+   for bias that a reader should factor in independently of whether
+   the methodology is visibly sound. See
+   docs/two_step_approach/DESIGN_RATIONALE_COI.md for the full
+   justification, empirical validation, and interpretation guidance.
+
    Using the extracted conflicts section:
    - funding_type: Directly from extraction.
    - funding_disclosed_in_abstract: Directly from extraction.

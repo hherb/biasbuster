@@ -157,6 +157,14 @@ The model is trained on a multi-dimensional bias assessment:
    - Industry funding without disclosure
    - Author-pharma payment patterns
    - Ghost authorship indicators
+   - Structural COI: sponsor-employed/shareholder authors on
+     industry-funded trials trigger a hard-HIGH rating regardless
+     of methodology quality — see
+     [docs/two_step_approach/DESIGN_RATIONALE_COI.md](docs/two_step_approach/DESIGN_RATIONALE_COI.md)
+     for the justification. **BiasBuster assesses *risk of bias*,
+     not *proof of bias*** — and is intentionally more aggressive
+     than Cochrane RoB 2 on this domain, which Cochrane
+     deliberately excludes from its methodology-focused assessment.
 
 5. **Methodological Red Flags**
    - Inappropriate comparator (placebo when active exists)
@@ -398,3 +406,5 @@ uv run python -m biasbuster.evaluation.run \
 - [Training Guide](docs/TRAINING.md) — LoRA fine-tuning details
 - [MLX Training](docs/MLX_TRAINING.md) — Apple Silicon training guide
 - [Model Card](docs/MODEL_CARD.md) — fine-tuned model documentation
+- [COI Design Rationale](docs/two_step_approach/DESIGN_RATIONALE_COI.md) — why BiasBuster's COI domain is intentionally more aggressive than Cochrane RoB 2 (*risk of bias*, not *proof of bias*)
+- [v3 Two-Call Findings](docs/two_step_approach/INITIAL_FINDINGS_V3.md) — empirical history of the v3 architecture: 10 rounds of prompt iteration, 3-family verification, calibration test
