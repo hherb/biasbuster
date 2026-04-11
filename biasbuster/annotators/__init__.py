@@ -887,7 +887,11 @@ class BaseAnnotator(abc.ABC):
         """Map-reduce two-call annotation for full-text papers.
 
         Stage 1 (map): extract facts from each section independently using
-            the section-level extraction prompt.
+            the section-level extraction prompt. **Sections are processed
+            sequentially**, not in parallel — local LLM backends like
+            Ollama serialise requests anyway, and parallel calls can
+            cause non-deterministic content drops on some chunks. Cost
+            is wall-clock time; benefit is reproducibility.
         Stage 1 (reduce): merge the partial extractions into a single
             extraction dict via field-type-specific rules. See
             ``merge_section_extractions`` and
@@ -906,8 +910,11 @@ class BaseAnnotator(abc.ABC):
 
         Returns:
             Parsed assessment dict with nested ``extraction`` and
-            ``_annotation_mode: "two_call_full_text_v3"``. None if any stage
-            fails after retries.
+            ``_annotation_mode: "two_call_full_text_v3"``. The full
+            per-section partial extractions are also preserved under
+            ``_section_extractions`` for retrospective debugging without
+            having to re-run the model. None if any stage fails after
+            retries.
         """
         from biasbuster.prompts_v3 import (
             SECTION_EXTRACTION_SYSTEM_PROMPT,
@@ -918,7 +925,14 @@ class BaseAnnotator(abc.ABC):
             logger.error(f"PMID {pmid}: no sections to annotate")
             return None
 
-        # Stage 1 (map): extract per-section in parallel
+        # Stage 1 (map): extract per-section *sequentially*.
+        # We previously ran sections in parallel via asyncio.gather, but
+        # observed non-deterministic content loss on long pipelines (e.g.
+        # 120b dropping a chunk's sample/attrition fields one run, then
+        # extracting them perfectly when re-run in isolation). Sequential
+        # execution matches what local Ollama actually does (single GPU,
+        # serialised queue) and removes any chance of in-flight contention
+        # while costing only wall-clock time.
         async def extract_section(
             section_name: str, section_text: str,
         ) -> Optional[tuple[str, dict]]:
@@ -946,10 +960,15 @@ class BaseAnnotator(abc.ABC):
             )
             return None
 
-        section_results = await asyncio.gather(
-            *(extract_section(name, text) for name, text in sections)
-        )
-        partials = [r for r in section_results if r is not None]
+        partials: list[tuple[str, dict]] = []
+        for idx, (name, text) in enumerate(sections):
+            logger.info(
+                f"PMID {pmid}: extracting section {idx + 1}/{len(sections)} "
+                f"({name!r})"
+            )
+            result = await extract_section(name, text)
+            if result is not None:
+                partials.append(result)
 
         if not partials:
             logger.error(
@@ -964,6 +983,16 @@ class BaseAnnotator(abc.ABC):
                 f"failed extraction; assessing from the remaining "
                 f"{len(partials)} sections"
             )
+
+        # Preserve the raw per-section partials for retrospective debugging.
+        # When the merged extraction looks suspect, this lets you inspect
+        # exactly which chunk produced which value without re-running the
+        # model. Stored as a list of {section, extraction} dicts so it
+        # serialises to JSON cleanly when saved to the database.
+        section_extractions = [
+            {"section": section_name, "extraction": partial_data}
+            for section_name, partial_data in partials
+        ]
 
         # Stage 1 (reduce): merge partials
         extraction = merge_section_extractions(partials)
@@ -1000,6 +1029,7 @@ class BaseAnnotator(abc.ABC):
                 assessment["_annotation_model"] = self.model
                 assessment["_annotation_mode"] = "two_call_full_text_v3"
                 assessment["extraction"] = extraction
+                assessment["_section_extractions"] = section_extractions
                 if merge_conflicts:
                     assessment["_merge_conflicts"] = merge_conflicts
                 if failed_count:
