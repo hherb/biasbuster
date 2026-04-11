@@ -34,7 +34,7 @@ docker run --gpus all --rm -it \
     -w /workspace/biasbuster \
     "$IMAGE" \
     bash -c "
-        pip install --quiet trl peft datasets 'transformers>=4.57' &&
+        pip install --quiet 'trl>=1.0.0' peft datasets 'transformers>=5.0.0rc3' &&
         python -m training.train_lora \
             --model $MODEL \
             --train-file dataset/export/alpaca/train.jsonl \
