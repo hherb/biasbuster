@@ -204,13 +204,14 @@ JSON SCHEMA:
     "data_analyst": {
       "name": "string or null",
       "affiliation": "string or null",
-      "is_sponsor_affiliated": "boolean or null"
+      "is_sponsor_affiliated": "boolean or null — TRUE if the named data analyst(s) work for the sponsor. If the paper is silent on who performed the analysis, record null — do NOT record false just because the paper claims the sponsor 'had no role'."
     },
     "manuscript_drafter": {
       "name": "string or null",
       "affiliation": "string or null",
-      "is_sponsor_affiliated": "boolean or null"
-    }
+      "is_sponsor_affiliated": "boolean or null — TRUE if ANY author of the paper is a sponsor employee or shareholder (authorship is, by definition, participation in manuscript drafting). A 'the sponsor had no role in the manuscript' statement does NOT override this when sponsor employees are listed as authors — their authorship IS sponsor involvement. Only record false when the paper explicitly names non-sponsor-affiliated authors as drafters AND the sponsor-affiliated authors are NOT in the author list. Record null only when the paper gives no information at all."
+    },
+    "sponsor_role_disclaimer": "string or null — verbatim text of any 'sponsor had no role in X' statement. Extract ONLY the activities the disclaimer explicitly names (e.g., 'had no role in trial operations' covers ONLY operations, NOT analysis or manuscript drafting). Do not extrapolate."
   },
 
   "methodology_details": {
@@ -401,12 +402,17 @@ DOMAIN CRITERIA:
    - coi_disclosed: TRUE if coi_statement_present = true AND the statement contains
      substantive author-level disclosures (not just "funded by X").
    - sponsor_controls_analysis: TRUE if data_analyst.is_sponsor_affiliated = true.
-   - sponsor_controls_manuscript: TRUE if manuscript_drafter.is_sponsor_affiliated = true.
+   - sponsor_controls_manuscript: TRUE if manuscript_drafter.is_sponsor_affiliated = true,
+     OR if authors_with_industry_affiliation contains ANY entry with role ∈
+     {employee, shareholder} (authorship = manuscript involvement by definition,
+     regardless of any "sponsor had no role" disclaimer in the paper).
 
    Severity boundaries:
-   - LOW: Industry funding with full transparency and independent analysis.
+   - LOW: Industry funding with full transparency and independent analysis AND no
+     sponsor employees or shareholders in the author list.
    - MODERATE: Industry funding with incomplete COI disclosure, OR sponsor employees
-     involved in analysis with disclosed independent oversight.
+     involved in analysis with disclosed independent oversight. NEVER use LOW or
+     MODERATE when trigger (d) below applies.
    - HIGH: ANY of the following triggers (apply mechanically — do not require
      additional reasoning, the trigger alone is sufficient):
        (a) sponsor_controls_analysis = TRUE AND sponsor_controls_manuscript = TRUE.
@@ -421,6 +427,18 @@ DOMAIN CRITERIA:
            are surrogate (the sponsor controls how surrogate measurements are
            interpreted, which is the highest-leverage intervention point for
            selective reporting).
+       (d) funding_type ∈ {industry, mixed} AND authors_with_industry_affiliation
+           contains AT LEAST ONE entry with role ∈ {employee, shareholder}.
+           Rationale: sponsor-employed authors control how the study is written
+           up — they draft, revise, and approve the manuscript as part of their
+           employment. A "sponsor had no role" disclaimer is NOT disqualifying
+           here because sponsor employees ARE the sponsor's role, via their
+           authorship. Disclosure does not undo this structural conflict; it
+           only makes the reader aware of it. If this trigger applies,
+           severity MUST be HIGH — do not downgrade to moderate or low based
+           on transparency, independent statistical oversight, or the presence
+           of a disclaimer. Count shareholders (including holders of stock
+           options) the same as employees.
 
 5. METHODOLOGY
 
