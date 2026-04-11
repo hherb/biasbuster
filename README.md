@@ -1,9 +1,48 @@
 # BiasBuster
 
-A toolkit for building curated training datasets to fine-tune LLMs for detecting
-bias in biomedical abstracts, and for evaluating fine-tuned models head-to-head.
-Includes a CLI tool for analysing individual publications. Designed for use with
-BMLibrarian.
+**A risk-of-bias analysis pipeline for biomedical randomised trials.**
+Reads a paper's full text (or abstract if full text isn't available),
+extracts structured facts with one LLM call, assesses bias across
+5 domains with a second LLM call, and produces a JSON or Markdown
+report with specific verification steps pointing at external databases
+(ClinicalTrials.gov, CMS Open Payments, ORCID, etc.). Ships with a CLI
+tool, the analysis library, a dataset-building pipeline, optional
+LoRA fine-tuning infrastructure, and a GUI workbench. Designed for use
+with BMLibrarian.
+
+**BiasBuster assesses *risk of bias*, not *proof of bias*** — and is
+intentionally more aggressive than Cochrane RoB 2 on the Conflict of
+Interest domain, which Cochrane deliberately excludes. See
+[COI Design Rationale](docs/two_step_approach/DESIGN_RATIONALE_COI.md)
+for the full justification.
+
+## Project Status (April 2026)
+
+**The v3 two-call pipeline with Round 10 prompts is the current
+recommended production path.** Ten rounds of prompt engineering on a
+split extraction-then-assessment architecture produced local-model
+results that match Claude's full-text annotation on the project's
+motivating failure case (PMID 41750436, Seed Health synbiotic RCT):
+
+| Local model (v3 full-text two-call) | Match to Claude GT |
+|---|---|
+| **gemma4 26B** (a4b-it-q8_0) | **9/9 reliability runs match Claude exactly** on every per-flag value AND on `overall_bias_probability` to two decimal places |
+| gpt-oss 20B | 3/3 flags match with one run over-escalating to `critical` (in the correct direction on a HIGH paper) |
+| gpt-oss 120B | 3/3 flags match, one run in the 1/3 per-arm extraction noise band |
+
+**This changes the project's positioning.** The original goal was to
+build training data and fine-tune a dedicated model. The v3 pipeline
+with a well-prompted 26B open-weight model now reaches Claude-equivalent
+output on the failure case that motivated the rebuild. Fine-tuning is
+**still supported** via the LoRA infrastructure below, but it is now
+an **optional cost/latency optimisation**, not a necessity for
+quality. If you want to analyse papers and can run Ollama with a
+~26B model, try the v3 pipeline first — you probably don't need to
+fine-tune anything.
+
+Full empirical history, including the iteration loop, reliability
+tests, and ongoing multi-paper calibration:
+[docs/two_step_approach/INITIAL_FINDINGS_V3.md](docs/two_step_approach/INITIAL_FINDINGS_V3.md).
 
 ## Quick Start — Analyse a Publication
 
@@ -11,27 +50,41 @@ BMLibrarian.
 # Install
 uv sync
 
-# Analyse by PMID
-biasbuster 12345678
+# Pull the recommended local model (once, ~18 GB on disk)
+ollama pull gemma4:26b-a4b-it-q8_0
+
+# Analyse by PMID with the recommended local model
+biasbuster 12345678 --model ollama:gemma4:26b-a4b-it-q8_0
 
 # Analyse by DOI with markdown report
-biasbuster 10.1016/j.example.2024.01.001 --format markdown
+biasbuster 10.1016/j.example.2024.01.001 \
+    --model ollama:gemma4:26b-a4b-it-q8_0 \
+    --format markdown
 
-# Use a cloud model instead of local Ollama
+# Cloud fallback when you want the strongest available model
 biasbuster 12345678 --model anthropic:claude-sonnet-4-6
 
 # Analyse a local PDF or JATS XML file
-biasbuster ./paper.pdf --format markdown
+biasbuster ./paper.pdf --format markdown --model ollama:gemma4:26b-a4b-it-q8_0
 biasbuster ./paper.xml --model deepseek:deepseek-reasoner
 
 # Save markdown report to a file
-biasbuster 12345678 --format markdown --outfile report.md
+biasbuster 12345678 --model ollama:gemma4:26b-a4b-it-q8_0 --format markdown -o report.md
 
-# Full analysis with external verification
-biasbuster 12345678 --verify --format markdown
+# Full analysis with external verification (ClinicalTrials.gov, CMS, ORCID, etc.)
+biasbuster 12345678 --model ollama:gemma4:26b-a4b-it-q8_0 --verify --format markdown
 ```
 
-See [docs/BIASBUSTER_CLI.md](docs/BIASBUSTER_CLI.md) for full CLI documentation.
+See [docs/BIASBUSTER_CLI.md](docs/BIASBUSTER_CLI.md) for full CLI
+documentation.
+
+> **On the default model**: for historical reasons the CLI's built-in
+> `DEFAULT_MODEL` still points at a legacy fine-tuned alias
+> (`ollama:qwen3.5-9b-biasbuster`) produced by this project's earlier
+> training pipeline. If you haven't fine-tuned that model yourself,
+> pass `--model ollama:gemma4:26b-a4b-it-q8_0` (or any other model
+> of your choice) explicitly, or set `model.default` in
+> `~/.biasbuster/config.toml`.
 
 ## Package Structure
 
@@ -134,7 +187,15 @@ biasbuster --help
 
 ## Bias Taxonomy
 
-The model is trained on a multi-dimensional bias assessment:
+The pipeline assesses papers along five independent domains, each
+rated on a `none / low / moderate / high / critical` severity scale
+with its own per-flag evidence quotes. The overall severity is the
+maximum of the domain severities; the overall bias probability is a
+separately-calibrated numeric value that can sit below the
+categorical rating to express "structural risk present but
+methodology otherwise acceptable" (see
+[DESIGN_RATIONALE_COI.md](docs/two_step_approach/DESIGN_RATIONALE_COI.md)
+for how the category+probability combination is used).
 
 1. **Statistical Reporting Bias**
    - Sole/emphasis on relative risk reduction without absolute measures
@@ -180,29 +241,92 @@ reports.
 
 ### How It Works
 
-1. **Content acquisition** — fetches full text via bmlib's 3-tier fallback chain
-   (Europe PMC JATS XML → Unpaywall PDF → abstract-only fallback)
-2. **JATS back-matter extraction** — extracts funding, COI disclosures, and
-   acknowledgments from `<back>` elements that standard body parsers miss
-3. **Analysis** — for abstracts: single-pass LLM assessment; for full text:
-   map-reduce (per-section analysis → synthesis into unified 5-domain assessment)
-4. **Verification** (optional, `--verify`) — cross-checks against ClinicalTrials.gov,
-   CMS Open Payments, ORCID, Europe PMC, Retraction Watch
-5. **Output** — JSON (default) or Markdown report
+The v3 **two-call architecture** is the default. Each paper goes
+through two distinct LLM calls that solve independently-evaluable
+subtasks:
+
+1. **Content acquisition** — fetches full text via bmlib's 3-tier
+   fallback chain (Europe PMC JATS XML → Unpaywall PDF →
+   abstract-only fallback). JATS is preferred because it gives
+   semantic section boundaries.
+2. **JATS back-matter extraction** — extracts funding, COI
+   disclosures, and acknowledgments from `<back>` elements that
+   standard body parsers miss. This is the channel by which the
+   pipeline sees sponsor-employed authors.
+3. **Stage 1 — Extraction**: for each section (full-text mode) or
+   for the abstract (abstract mode), the model extracts structured
+   facts — sample size, attrition, analysis population, outcomes
+   with types and p-values, funding source, author affiliations,
+   etc. No bias judgement at this stage, only facts. Full-text
+   mode merges per-section extractions into a single structured
+   object.
+4. **Stage 2 — Assessment**: the merged extraction object is passed
+   to a second LLM call that applies domain-specific rules and
+   severity boundaries to produce the 5-domain assessment with
+   per-flag evidence quotes, mechanical HIGH triggers (including
+   the COI trigger documented in
+   [DESIGN_RATIONALE_COI.md](docs/two_step_approach/DESIGN_RATIONALE_COI.md)),
+   and recommended verification steps.
+5. **Verification** (optional, `--verify`) — cross-checks against
+   ClinicalTrials.gov, CMS Open Payments, ORCID, Europe PMC,
+   Retraction Watch.
+6. **Output** — JSON (default) or Markdown report.
+
+The split matters because extraction accuracy is measurable against
+ground truth (numbers either match the paper or don't), assessment
+logic can be improved without re-running extraction, and smaller
+models can reliably do one narrow task per call rather than the
+entire combined problem.
+
+Legacy v1 single-call paths (`--single-call`, for both abstract and
+full text) are still present as fallbacks but are **strongly
+discouraged** — the full-text single-call path collapses to ~50%
+agreement with Claude across all tested model families and
+produces generic "no major red flags" moderate verdicts
+regardless of the input. See
+[INITIAL_FINDINGS_V3.md §4.1](docs/two_step_approach/INITIAL_FINDINGS_V3.md)
+for empirical details.
 
 ### Model Selection
 
 Models use bmlib's `provider:model_name` format:
 
 ```bash
-biasbuster 12345678 --model ollama:qwen3.5-9b-biasbuster  # local fine-tuned
-biasbuster 12345678 --model anthropic:claude-sonnet-4-6    # Anthropic API
-biasbuster 12345678 --model deepseek:deepseek-reasoner     # DeepSeek API
-biasbuster 12345678 --model gpt-oss:20b                    # Ollama (auto-detected)
+# Recommended: gemma4 26B (local, best validated match to Claude on this task)
+biasbuster 12345678 --model ollama:gemma4:26b-a4b-it-q8_0
+
+# Alternatives — also validated against Claude on the motivating failure case
+biasbuster 12345678 --model ollama:gpt-oss:20b
+biasbuster 12345678 --model ollama:gpt-oss:120b
+
+# Cloud fallback for papers where local-model quality matters most
+biasbuster 12345678 --model anthropic:claude-sonnet-4-6
+biasbuster 12345678 --model deepseek:deepseek-reasoner
+
+# Bare model names default to Ollama (auto-detected)
+biasbuster 12345678 --model gpt-oss:20b
 ```
 
-Bare model names without a known provider prefix (e.g. `gpt-oss:20b`) default to
-Ollama. Known providers: anthropic, ollama, openai, deepseek, mistral, gemini.
+Known provider prefixes: anthropic, ollama, openai, deepseek, mistral,
+gemini. Bare model names without a prefix default to Ollama.
+
+**Which model should I use?** Based on the Round 10 reliability
+testing (see
+[INITIAL_FINDINGS_V3.md §3.12](docs/two_step_approach/INITIAL_FINDINGS_V3.md)),
+**gemma4 26B** is currently the most reliable local-model choice —
+it produced a zero-divergence match against Claude's full-text
+annotation on 3/3 reliability runs. It is also the fastest of the
+three families tested (~4 min per full-text paper vs 10+ min for
+gpt-oss 120B). The gpt-oss variants also work but have minor
+known quirks on the motivating failure case (1/3 per-arm noise
+on 120B; 1/3 severity over-escalation on 20B). Multi-paper
+calibration across the full RoB spectrum is in progress.
+
+Fine-tuned models produced by this project's LoRA pipeline are
+still supported via the `ollama:` prefix, but with the v3
+pipeline working this well out-of-the-box, fine-tuning is now an
+optional cost/latency optimisation rather than a quality
+requirement.
 
 ### Download Caching
 
@@ -216,7 +340,12 @@ Settings are read from `~/.biasbuster/config.toml` with environment variable and
 CLI flag overrides. See [docs/BIASBUSTER_CLI.md](docs/BIASBUSTER_CLI.md) for the
 full config reference.
 
-## Dataset Building Pipeline
+## Dataset Building Pipeline (optional)
+
+You only need this section if you want to build training data for
+fine-tuning, generate a curated bias-assessment corpus for research,
+or compare multiple annotators head-to-head against a ground-truth
+set. For ad-hoc analysis of individual papers, use the CLI above.
 
 ```bash
 # Run full pipeline (collect → seed → enrich → annotate → export)
@@ -356,7 +485,33 @@ uv run python -m biasbuster.utils.agreement_analyzer --model-a anthropic --model
 uv run python -m biasbuster.utils.review_gui --model anthropic
 ```
 
-## Fine-Tuning Workbench (GUI)
+## Fine-Tuning (optional)
+
+> **Do you need this?** Probably not. The v3 two-call pipeline with
+> Round 10 prompts (see Project Status at the top of this README)
+> has local open-weight models — notably gemma4 26B — producing
+> output that matches Claude's full-text annotation on the
+> motivating failure case. Fine-tuning is still supported, but it is
+> now an **optional optimisation** for cost, latency, or deployment
+> constraints — not a quality requirement.
+>
+> Reasons you might still want to fine-tune:
+> - **Latency/throughput**: a fine-tuned 9B or 20B runs faster than
+>   a 26B at inference time, which matters for batch analysis of
+>   thousands of papers.
+> - **Cost**: smaller deployment footprint (8–16 GB VRAM vs 24+ GB).
+> - **Specialised domains**: your papers come from a subfield
+>   (e.g. paediatric surgery, rare-disease trials) where you want
+>   to train on domain-specific exemplars.
+> - **Self-consistency**: you want the model to reliably apply the
+>   v3 mechanical rules without the full 20 KB prompt at inference
+>   time.
+>
+> If those don't apply to you, just use
+> `biasbuster ... --model ollama:gemma4:26b-a4b-it-q8_0` and skip
+> this section.
+
+### Fine-Tuning Workbench (GUI)
 
 ```bash
 uv run python -m biasbuster.gui
@@ -365,7 +520,7 @@ uv run python -m biasbuster.gui --port 9090
 
 4-tab NiceGUI application: Settings → Training (live charts) → Evaluation → Export.
 
-## Fine-Tuning (LoRA)
+### Fine-Tuning (LoRA)
 
 ```bash
 # Train (DGX Spark)
@@ -386,18 +541,28 @@ uv run python -m biasbuster.utils.training_monitor
 
 ## Evaluation Harness
 
+Use this for head-to-head comparison of annotators against a
+ground-truth test set — relevant mostly when fine-tuning or
+comparing multiple base models. Not needed for ad-hoc analysis.
+
 ```bash
 # Self-test
 uv run python -m biasbuster.evaluation.selftest
 
-# Compare two models
+# Compare two models head-to-head against a labelled test set
 uv run python -m biasbuster.evaluation.run \
     --test-set dataset/export/alpaca/test.jsonl \
-    --model-a qwen3.5-27b-biasbuster --endpoint-a http://localhost:11434 \
-    --model-b gpt-oss-20b-biasbuster --endpoint-b http://localhost:11434 \
-    --mode fine-tuned --sequential --num-ctx 4096 \
-    --output eval_results/fine_tuned/
+    --model-a gemma4:26b-a4b-it-q8_0 --endpoint-a http://localhost:11434 \
+    --model-b gpt-oss:20b --endpoint-b http://localhost:11434 \
+    --sequential --num-ctx 4096 \
+    --output eval_results/v3_comparison/
 ```
+
+For reliability-testing a single model × paper combination (N runs
+of the same full-text two-call pipeline on the same paper), see
+`scripts/reliability_test_fulltext.py`. For the calibration matrix
+(multiple papers × multiple modes × multiple models), see
+`scripts/run_calibration_test.sh`.
 
 ## Documentation
 
