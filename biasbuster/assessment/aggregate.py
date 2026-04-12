@@ -133,20 +133,24 @@ def assess_extraction(extraction: dict[str, Any]) -> dict[str, Any]:
     """
     # --- Run each domain ---
     stat_flags, stat_rules = statistical_reporting_flags(extraction)
-    stat_severity, stat_rationale = statistical_reporting_severity(stat_flags)
+    stat_severity, stat_rationale, stat_overridable = statistical_reporting_severity(stat_flags)
 
     spin_flag_dict, spin_rules = spin_flags(extraction)
-    spin_sev, spin_rationale = spin_severity(spin_flag_dict)
+    spin_sev, spin_rationale, spin_overridable = spin_severity(spin_flag_dict)
 
     outcome_flag_dict, outcome_rules = outcome_reporting_flags(extraction)
-    outcome_sev, outcome_rationale = outcome_reporting_severity(outcome_flag_dict)
+    outcome_sev, outcome_rationale, outcome_overridable = outcome_reporting_severity(outcome_flag_dict)
 
     coi_flag_dict, coi_rules = conflict_of_interest_flags(extraction)
-    coi_sev, coi_rationale = conflict_of_interest_severity(coi_flag_dict, outcome_flag_dict)
+    coi_sev, coi_rationale, coi_overridable = conflict_of_interest_severity(
+        coi_flag_dict, outcome_flag_dict
+    )
 
     total_endpoints, endpoints_prov = _count_endpoints(extraction)
     meth_flag_dict, meth_rules = methodology_flags(extraction, total_endpoints)
-    meth_sev, meth_rationale = methodology_severity(meth_flag_dict, total_endpoints)
+    meth_sev, meth_rationale, meth_overridable = methodology_severity(
+        meth_flag_dict, total_endpoints
+    )
 
     # --- Aggregate ---
     domain_severities = {
@@ -155,6 +159,18 @@ def assess_extraction(extraction: dict[str, Any]) -> dict[str, Any]:
         "outcome_reporting": outcome_sev,
         "conflict_of_interest": coi_sev,
         "methodology": meth_sev,
+    }
+    # Per-domain overridability — which domain severities can the v4
+    # assessment agent contextually downgrade, and which must it
+    # preserve? Used by AssessmentAgent._enforce_hard_rules to block
+    # LLM downgrades of non-overridable triggers (notably the COI
+    # trigger (d) from DESIGN_RATIONALE_COI.md).
+    domain_overridable = {
+        "statistical_reporting": stat_overridable,
+        "spin": spin_overridable,
+        "outcome_reporting": outcome_overridable,
+        "conflict_of_interest": coi_overridable,
+        "methodology": meth_overridable,
     }
     overall_severity = _compute_overall_severity(domain_severities)
     overall_probability = _compute_overall_probability(overall_severity, domain_severities)
@@ -206,6 +222,7 @@ def assess_extraction(extraction: dict[str, Any]) -> dict[str, Any]:
             "total_endpoints": total_endpoints,
             "total_endpoints_source": endpoints_prov,
             "domain_severities": {k: v.value for k, v in domain_severities.items()},
+            "domain_overridable": dict(domain_overridable),
             "overall_severity_rationale": f"max of domain severities = {overall_severity.value}",
             "rules": {
                 "statistical_reporting": [asdict(r) for r in stat_rules],

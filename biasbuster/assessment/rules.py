@@ -273,7 +273,7 @@ def statistical_reporting_flags(extraction: dict) -> tuple[dict[str, Optional[bo
 
 def statistical_reporting_severity(
     flags: dict[str, Optional[bool]],
-) -> tuple[DomainSeverity, str]:
+) -> tuple[DomainSeverity, str, bool]:
     """Apply the Round 10 statistical_reporting severity cascade.
 
     Rules (from prompts_v3 ASSESSMENT_DOMAIN_CRITERIA §1):
@@ -282,19 +282,27 @@ def statistical_reporting_severity(
       - MODERATE: exactly one TRUE from that set
       - LOW: only minor omission flags
       - NONE: nothing flagged
+
+    Returns:
+        (severity, rationale, overridable). Every branch of this cascade
+        produces an overridable severity — there are no structural
+        statistical-reporting triggers that we refuse to let the LLM
+        context-gate in v4. The LLM may downgrade these severities
+        with contextual reasoning (e.g. "this is an exploratory
+        secondary analysis where subgroup emphasis is customary").
     """
     concern_flags = ["relative_only", "inflated_effect_sizes", "selective_p_values", "subgroup_emphasis"]
     n_true = sum(1 for f in concern_flags if flags.get(f) is True)
 
     if n_true >= 2:
-        return DomainSeverity.HIGH, f"{n_true} concern flags true (>=2 → HIGH)"
+        return DomainSeverity.HIGH, f"{n_true} concern flags true (>=2 → HIGH)", True
     if n_true == 1:
         which = next(f for f in concern_flags if flags.get(f) is True)
-        return DomainSeverity.MODERATE, f"1 concern flag true ({which}) → MODERATE"
+        return DomainSeverity.MODERATE, f"1 concern flag true ({which}) → MODERATE", True
     # No concerns — but if NNT is missing without absolute data, that's LOW
     if flags.get("absolute_reported") is False:
-        return DomainSeverity.LOW, "no absolute measures reported → LOW"
-    return DomainSeverity.NONE, "no concern flags true"
+        return DomainSeverity.LOW, "no absolute measures reported → LOW", True
+    return DomainSeverity.NONE, "no concern flags true", True
 
 
 # ===========================================================================
@@ -377,7 +385,9 @@ def spin_flags(extraction: dict) -> tuple[dict[str, Optional[bool]], list[Rule]]
     return flags, rules
 
 
-def spin_severity(flags: dict[str, Optional[bool]]) -> tuple[DomainSeverity, str]:
+def spin_severity(
+    flags: dict[str, Optional[bool]],
+) -> tuple[DomainSeverity, str, bool]:
     """Apply the spin severity cascade.
 
     Boutron-ish:
@@ -385,15 +395,19 @@ def spin_severity(flags: dict[str, Optional[bool]]) -> tuple[DomainSeverity, str
       - MODERATE: some hedging but overclaiming (inappropriate_extrapolation=True + title_spin=True)
       - LOW: appropriate uncertainty with minor overclaiming (title_spin only)
       - NONE: nothing flagged
+
+    All spin severities are overridable. The LLM can legitimately
+    override title_spin false positives (e.g. a descriptive title
+    that happens to contain a listed verb by coincidence).
     """
     title_spin = flags.get("title_spin") is True
     inappropriate = flags.get("inappropriate_extrapolation") is True
 
     if inappropriate and title_spin:
-        return DomainSeverity.MODERATE, "title_spin + inappropriate_extrapolation → MODERATE"
+        return DomainSeverity.MODERATE, "title_spin + inappropriate_extrapolation → MODERATE", True
     if inappropriate or title_spin:
-        return DomainSeverity.LOW, "single spin flag → LOW"
-    return DomainSeverity.NONE, "no spin flags true"
+        return DomainSeverity.LOW, "single spin flag → LOW", True
+    return DomainSeverity.NONE, "no spin flags true", True
 
 
 # ===========================================================================
@@ -471,7 +485,9 @@ def outcome_reporting_flags(extraction: dict) -> tuple[dict[str, Optional[bool]]
     return flags, rules
 
 
-def outcome_reporting_severity(flags: dict[str, Optional[bool]]) -> tuple[DomainSeverity, str]:
+def outcome_reporting_severity(
+    flags: dict[str, Optional[bool]],
+) -> tuple[DomainSeverity, str, bool]:
     """Apply the outcome_reporting severity cascade.
 
     - HIGH: surrogate_without_validation AND registered_outcome_not_reported
@@ -480,6 +496,10 @@ def outcome_reporting_severity(flags: dict[str, Optional[bool]]) -> tuple[Domain
     - LOW: patient_centred primary with secondary surrogate emphasis (not
            computable here without the subgroup/secondary analysis)
     - NONE: patient_centred primary, nothing else flagged
+
+    All overridable. The LLM can override surrogate_without_validation
+    when the paper is explicitly proof-of-mechanism or when the
+    surrogate has external validation the extraction didn't capture.
     """
     swv = flags.get("surrogate_without_validation") is True
     cnd = flags.get("composite_not_disaggregated") is True
@@ -487,16 +507,16 @@ def outcome_reporting_severity(flags: dict[str, Optional[bool]]) -> tuple[Domain
     primary_type = flags.get("primary_outcome_type")
 
     if swv and ronr:
-        return DomainSeverity.HIGH, "surrogate + registered outcome missing → HIGH"
+        return DomainSeverity.HIGH, "surrogate + registered outcome missing → HIGH", True
     if swv:
-        return DomainSeverity.MODERATE, "surrogate primary without validation → MODERATE"
+        return DomainSeverity.MODERATE, "surrogate primary without validation → MODERATE", True
     if cnd:
-        return DomainSeverity.MODERATE, "composite not disaggregated → MODERATE"
+        return DomainSeverity.MODERATE, "composite not disaggregated → MODERATE", True
     if ronr:
-        return DomainSeverity.MODERATE, "registered outcome not reported → MODERATE"
+        return DomainSeverity.MODERATE, "registered outcome not reported → MODERATE", True
     if primary_type == "patient_centred":
-        return DomainSeverity.LOW, "patient-centred primary → LOW (no concerns found)"
-    return DomainSeverity.NONE, "no concern flags true"
+        return DomainSeverity.LOW, "patient-centred primary → LOW (no concerns found)", True
+    return DomainSeverity.NONE, "no concern flags true", True
 
 
 # ===========================================================================
@@ -604,7 +624,7 @@ def conflict_of_interest_flags(extraction: dict) -> tuple[dict[str, Optional[boo
 def conflict_of_interest_severity(
     flags: dict[str, Optional[bool]],
     outcome_flags: dict[str, Optional[bool]],
-) -> tuple[DomainSeverity, str]:
+) -> tuple[DomainSeverity, str, bool]:
     """Apply the Round 10 COI severity cascade with all 4 HIGH triggers.
 
     HIGH triggers (apply mechanically — any one is sufficient):
@@ -618,6 +638,27 @@ def conflict_of_interest_severity(
     is the single source of truth — any disagreement with the prompt
     version should be resolved by updating the prompt to match this
     module.
+
+    Overridability policy:
+      ALL FOUR HIGH triggers (a/b/c/d) are NON-OVERRIDABLE. These are
+      structural risk signals that the v4 assessment agent is not
+      permitted to downgrade below HIGH regardless of contextual
+      judgment. The post-hoc enforcement check in
+      AssessmentAgent._enforce_hard_rules inspects the third element
+      of this return tuple and forces the severity back up if the LLM
+      attempts a downgrade.
+
+      Why non-overridable: DESIGN_RATIONALE_COI.md documents the
+      risk-of-bias-not-proof-of-bias framing and the explicit user
+      policy that structural COI (sponsor-employed authors, sponsor
+      controlling analysis, etc.) always warrants HIGH categorically.
+      The LLM may adjust overall_bias_probability within the HIGH
+      anchor band (0.65-0.85) but cannot downgrade the categorical
+      rating.
+
+      Moderate/low/none severities are overridable — they reflect
+      gradations within the "non-structural COI" space where
+      contextual judgment is valid.
     """
     funding_type = flags.get("funding_type")
     sca = flags.get("sponsor_controls_analysis") is True
@@ -626,11 +667,12 @@ def conflict_of_interest_severity(
     coi_disclosed = flags.get("coi_disclosed") is True
     primary_type = outcome_flags.get("primary_outcome_type")
 
-    # Trigger (a)
+    # Trigger (a) — NON-OVERRIDABLE
     if sca and scm:
         return DomainSeverity.HIGH, (
-            "trigger (a): sponsor_controls_analysis AND sponsor_controls_manuscript"
-        )
+            "trigger (a) [non-overridable]: sponsor_controls_analysis "
+            "AND sponsor_controls_manuscript"
+        ), False
 
     # Trigger (d) — the Round 10 addition, most commonly firing rule
     # NB: we derive this directly from the extraction authors list rather
@@ -638,45 +680,48 @@ def conflict_of_interest_severity(
     # is supposed to short-circuit on the structural signal even when
     # the drafter field is unpopulated. The scm flag already covers
     # this via the authorship_path — but we keep (d) as an explicit
-    # named trigger for provenance clarity.
+    # named trigger for provenance clarity. NON-OVERRIDABLE.
     if funding_type in ("industry", "mixed") and scm:
         # Note: scm=True when an employee/shareholder author is present
         # because of how sponsor_controls_manuscript is computed
         return DomainSeverity.HIGH, (
-            f"trigger (d): funding_type={funding_type} AND sponsor-employed/shareholder author present"
-        )
+            f"trigger (d) [non-overridable]: funding_type={funding_type} "
+            f"AND sponsor-employed/shareholder author present"
+        ), False
 
-    # Trigger (c)
+    # Trigger (c) — NON-OVERRIDABLE
     if sca and primary_type == "surrogate":
         return DomainSeverity.HIGH, (
-            "trigger (c): sponsor_controls_analysis AND surrogate primary outcomes"
-        )
+            "trigger (c) [non-overridable]: sponsor_controls_analysis "
+            "AND surrogate primary outcomes"
+        ), False
 
-    # Trigger (b)
+    # Trigger (b) — NON-OVERRIDABLE
     if funding_type == "industry" and iaa and not coi_disclosed:
         return DomainSeverity.HIGH, (
-            "trigger (b): industry funding + undisclosed COI + industry author affiliations"
-        )
+            "trigger (b) [non-overridable]: industry funding + undisclosed COI "
+            "+ industry author affiliations"
+        ), False
 
-    # --- Moderate ---
+    # --- Moderate (overridable) ---
     # Industry funding with incomplete disclosure, OR sponsor employees
     # involved in analysis with disclosed independent oversight
     if funding_type == "industry" and not coi_disclosed:
-        return DomainSeverity.MODERATE, "industry funding with incomplete COI disclosure"
+        return DomainSeverity.MODERATE, "industry funding with incomplete COI disclosure", True
     if sca and coi_disclosed:
-        return DomainSeverity.MODERATE, "sponsor-affiliated analyst but COI disclosed"
+        return DomainSeverity.MODERATE, "sponsor-affiliated analyst but COI disclosed", True
 
-    # --- Low ---
+    # --- Low (overridable) ---
     # Any industry involvement without triggering HIGH gets at least LOW
     if funding_type in ("industry", "mixed") and iaa:
-        return DomainSeverity.LOW, "industry funding + industry authors, fully disclosed"
+        return DomainSeverity.LOW, "industry funding + industry authors, fully disclosed", True
     if funding_type in ("industry", "mixed"):
-        return DomainSeverity.LOW, "industry funding, no industry author affiliations"
+        return DomainSeverity.LOW, "industry funding, no industry author affiliations", True
     if iaa:
-        return DomainSeverity.LOW, "industry author affiliations without industry funding"
+        return DomainSeverity.LOW, "industry author affiliations without industry funding", True
 
-    # --- None ---
-    return DomainSeverity.NONE, "no COI concerns found"
+    # --- None (overridable) ---
+    return DomainSeverity.NONE, "no COI concerns found", True
 
 
 # ===========================================================================
@@ -921,7 +966,7 @@ def methodology_flags(
 def methodology_severity(
     flags: dict[str, Optional[bool]],
     total_endpoints: int,
-) -> tuple[DomainSeverity, str]:
+) -> tuple[DomainSeverity, str, bool]:
     """Apply the methodology severity cascade.
 
     HIGH triggers:
@@ -935,6 +980,14 @@ def methodology_severity(
       - per_protocol_only (alone)
       - no_multiplicity_correction AND 3 <= total_endpoints <= 5
       - high_attrition (alone)
+
+    ALL methodology severities are OVERRIDABLE. The Option B
+    validation discovered the rTMS case (PMID 32382720) where the
+    mechanical rule fires correctly but Claude's contextual
+    reasoning correctly overrides it to MODERATE because the paper
+    is an explicitly exploratory secondary analysis where
+    multiplicity correction standards are more lenient. See
+    INITIAL_FINDINGS_V3.md §3.14 and V4_AGENT_DESIGN.md §5.2.
     """
     no_mult = flags.get("no_multiplicity_correction") is True
     per_protocol = flags.get("per_protocol_only") is True
@@ -946,7 +999,7 @@ def methodology_severity(
     if no_mult and total_endpoints >= 6:
         return DomainSeverity.HIGH, (
             f"no_multiplicity_correction AND total_endpoints={total_endpoints} >= 6"
-        )
+        ), True
     if per_protocol and (high_attr or diff_attr):
         reasons = []
         if high_attr:
@@ -955,9 +1008,9 @@ def methodology_severity(
             reasons.append("differential_attrition")
         return DomainSeverity.HIGH, (
             f"per_protocol_only AND ({'/'.join(reasons)})"
-        )
+        ), True
     if inadequate and no_mult:
-        return DomainSeverity.HIGH, "inadequate_sample_size AND no_multiplicity_correction"
+        return DomainSeverity.HIGH, "inadequate_sample_size AND no_multiplicity_correction", True
 
     # Count moderate-level concerns
     moderate_concerns: list[str] = []
@@ -971,9 +1024,9 @@ def methodology_severity(
         moderate_concerns.append("inadequate_sample_size")
 
     if len(moderate_concerns) >= 2:
-        return DomainSeverity.HIGH, f"two+ moderate concerns: {', '.join(moderate_concerns)}"
+        return DomainSeverity.HIGH, f"two+ moderate concerns: {', '.join(moderate_concerns)}", True
     if len(moderate_concerns) == 1:
-        return DomainSeverity.MODERATE, f"one moderate concern: {moderate_concerns[0]}"
+        return DomainSeverity.MODERATE, f"one moderate concern: {moderate_concerns[0]}", True
 
     # LOW cascade — short follow-up etc, but those are text judgments
-    return DomainSeverity.NONE, "no methodology concerns found"
+    return DomainSeverity.NONE, "no methodology concerns found", True

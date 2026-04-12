@@ -188,19 +188,23 @@ async def annotate_paper(
     force: bool = False,
     two_call: bool = True,
     full_text: bool = False,
+    agentic: bool = False,
     identifier: Optional[str] = None,
 ) -> Optional[dict]:
     """Annotate a single paper and store the result.
 
-    Three modes:
+    Four modes:
     - Abstract single-call (``two_call=False, full_text=False``): legacy v1.
     - Abstract two-call (``two_call=True, full_text=False``): default v3.
     - Full-text two-call (``full_text=True``): map-reduce v3 over JATS chunks.
       ``two_call`` must also be True (the script enforces this at the CLI).
+    - Full-text agentic (``agentic=True``): v4 extraction + tool-calling
+      assessment agent. Implies full-text. Phase 2: Claude only.
 
     The full-text result is saved under a distinct DB tag
     (``<model>_fulltext``) so it does not overwrite the abstract
     annotation, which lives under the bare ``<model>`` tag.
+    The agentic result is saved under ``<model>_fulltext_agentic``.
 
     Args:
         pmid: Paper PMID.
@@ -235,8 +239,14 @@ async def annotate_paper(
     # Pipeline uses the backend name (e.g. "deepseek") as the DB key,
     # not the specific model string (e.g. "deepseek-reasoner"). Full-text
     # annotations get their own tag so they don't overwrite the abstract
-    # version under the bare backend name.
-    db_model_name = f"{model_name}_fulltext" if full_text else model_name
+    # version under the bare backend name. Agentic mode gets its own tag
+    # so it doesn't overwrite the v3 full-text results either.
+    if agentic:
+        db_model_name = f"{model_name}_fulltext_agentic"
+    elif full_text:
+        db_model_name = f"{model_name}_fulltext"
+    else:
+        db_model_name = model_name
 
     if db.has_annotation(pmid, db_model_name):
         if force:
@@ -254,23 +264,37 @@ async def annotate_paper(
                 return existing[0]
             return None
 
-    if full_text:
+    if agentic or full_text:
         # Fetch + chunk *before* opening the annotator context so a
         # full-text acquisition failure doesn't waste an API connection.
         sections = _fetch_sections_for_full_text(identifier or pmid)
         if not sections:
             return None
-        logger.info(
-            f"Using full-text two-call (v3) annotation mode "
-            f"({len(sections)} sections)"
-        )
-        async with annotator:
-            result = await annotator.annotate_full_text_two_call(
-                pmid=pmid,
-                title=paper.get("title", ""),
-                sections=sections,
-                metadata=paper,
+
+        if agentic:
+            logger.info(
+                f"Using v4 agentic assessment mode "
+                f"({len(sections)} sections)"
             )
+            async with annotator:
+                result = await annotator.annotate_full_text_agentic(
+                    pmid=pmid,
+                    title=paper.get("title", ""),
+                    sections=sections,
+                    metadata=paper,
+                )
+        else:
+            logger.info(
+                f"Using full-text two-call (v3) annotation mode "
+                f"({len(sections)} sections)"
+            )
+            async with annotator:
+                result = await annotator.annotate_full_text_two_call(
+                    pmid=pmid,
+                    title=paper.get("title", ""),
+                    sections=sections,
+                    metadata=paper,
+                )
     else:
         annotate_fn = (
             annotator.annotate_abstract_two_call if two_call
@@ -349,6 +373,16 @@ async def main() -> int:
              "PDF availability via Europe PMC; errors out if only the abstract "
              "is reachable. Result is stored under the DB tag '<model>_fulltext' "
              "so it does not overwrite the abstract annotation.",
+    )
+    mode_group.add_argument(
+        "--agentic",
+        action="store_true",
+        help="Use the v4 agentic assessment pipeline: extraction (identical "
+             "to --full-text) followed by a tool-calling assessment agent that "
+             "runs the mechanical rules in Python and lets the LLM apply "
+             "contextual overrides. Requires Anthropic API key (Phase 2: "
+             "Claude only). Result is stored under '<model>_fulltext_agentic'. "
+             "See docs/two_step_approach/V4_AGENT_DESIGN.md for design details.",
     )
     parser.add_argument(
         "--output", "-o",
@@ -431,7 +465,8 @@ async def main() -> int:
             pmid, paper, db, config, args.model,
             force=args.force,
             two_call=not args.single_call,
-            full_text=args.full_text,
+            full_text=args.full_text or args.agentic,
+            agentic=args.agentic,
             identifier=original_identifier,
         )
         if result is None:

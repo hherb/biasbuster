@@ -877,49 +877,34 @@ class BaseAnnotator(abc.ABC):
     # Full-text two-call annotation (v3, map-reduce)
     # ------------------------------------------------------------------
 
-    async def annotate_full_text_two_call(
+    async def _extract_full_text_sections(
         self,
         pmid: str,
         title: str,
         sections: list[tuple[str, str]],
-        metadata: Optional[dict] = None,
-    ) -> Optional[dict]:
-        """Map-reduce two-call annotation for full-text papers.
+    ) -> Optional[tuple[dict, list[dict], list[dict], int]]:
+        """Run Stage 1 extraction (map+reduce) on a sectioned full-text paper.
 
-        Stage 1 (map): extract facts from each section independently using
-            the section-level extraction prompt. **Sections are processed
-            sequentially**, not in parallel — local LLM backends like
-            Ollama serialise requests anyway, and parallel calls can
-            cause non-deterministic content drops on some chunks. Cost
-            is wall-clock time; benefit is reproducibility.
-        Stage 1 (reduce): merge the partial extractions into a single
-            extraction dict via field-type-specific rules. See
-            ``merge_section_extractions`` and
-            ``docs/two_step_approach/MERGE_STRATEGY.md``.
-        Stage 2: assess bias from the merged extraction.
+        Shared by ``annotate_full_text_two_call`` (v3) and
+        ``annotate_full_text_agentic`` (v4). The Stage 2 assessment
+        differs between the two but the extraction phase is identical:
+        per-section sequential extraction → merge → return the merged
+        extraction plus per-section debugging metadata.
 
         Args:
-            pmid: Paper identifier (used for logging and result metadata).
-            title: Paper title (used for logging and result metadata).
-            sections: List of (section_name, section_text) tuples. Typically
-                      produced by ``biasbuster.cli.chunking.chunk_jats_article``
-                      or ``chunk_plain_text``.
-            metadata: Optional paper metadata (retraction context, Cochrane
-                      RoB, effect-size audit hints). Passed through to
-                      Stage 2 assessment for severity calibration.
+            pmid: Paper identifier (used for logging).
+            title: Paper title (passed in the per-section user message).
+            sections: List of (section_name, section_text) tuples.
 
         Returns:
-            Parsed assessment dict with nested ``extraction`` and
-            ``_annotation_mode: "two_call_full_text_v3"``. The full
-            per-section partial extractions are also preserved under
-            ``_section_extractions`` for retrospective debugging without
-            having to re-run the model. None if any stage fails after
-            retries.
+            Tuple of:
+              - merged extraction dict (with _merge_conflicts removed)
+              - per-section partial extractions for debugging
+              - merge_conflicts list (may be empty)
+              - failed_count of sections that did not extract cleanly
+            None if every section failed and we can't proceed.
         """
-        from biasbuster.prompts_v3 import (
-            SECTION_EXTRACTION_SYSTEM_PROMPT,
-            ASSESSMENT_SYSTEM_PROMPT,
-        )
+        from biasbuster.prompts_v3 import SECTION_EXTRACTION_SYSTEM_PROMPT
 
         if not sections:
             logger.error(f"PMID {pmid}: no sections to annotate")
@@ -1003,6 +988,56 @@ class BaseAnnotator(abc.ABC):
                 f"(preserved in extraction metadata for assessment)"
             )
 
+        return extraction, section_extractions, merge_conflicts, failed_count
+
+    async def annotate_full_text_two_call(
+        self,
+        pmid: str,
+        title: str,
+        sections: list[tuple[str, str]],
+        metadata: Optional[dict] = None,
+    ) -> Optional[dict]:
+        """Map-reduce two-call annotation for full-text papers.
+
+        Stage 1 (map): extract facts from each section independently using
+            the section-level extraction prompt. **Sections are processed
+            sequentially**, not in parallel — local LLM backends like
+            Ollama serialise requests anyway, and parallel calls can
+            cause non-deterministic content drops on some chunks. Cost
+            is wall-clock time; benefit is reproducibility.
+        Stage 1 (reduce): merge the partial extractions into a single
+            extraction dict via field-type-specific rules. See
+            ``merge_section_extractions`` and
+            ``docs/two_step_approach/MERGE_STRATEGY.md``.
+        Stage 2: assess bias from the merged extraction.
+
+        Args:
+            pmid: Paper identifier (used for logging and result metadata).
+            title: Paper title (used for logging and result metadata).
+            sections: List of (section_name, section_text) tuples. Typically
+                      produced by ``biasbuster.cli.chunking.chunk_jats_article``
+                      or ``chunk_plain_text``.
+            metadata: Optional paper metadata (retraction context, Cochrane
+                      RoB, effect-size audit hints). Passed through to
+                      Stage 2 assessment for severity calibration.
+
+        Returns:
+            Parsed assessment dict with nested ``extraction`` and
+            ``_annotation_mode: "two_call_full_text_v3"``. The full
+            per-section partial extractions are also preserved under
+            ``_section_extractions`` for retrospective debugging without
+            having to re-run the model. None if any stage fails after
+            retries.
+        """
+        from biasbuster.prompts_v3 import ASSESSMENT_SYSTEM_PROMPT
+
+        extraction_result = await self._extract_full_text_sections(
+            pmid, title, sections,
+        )
+        if extraction_result is None:
+            return None
+        extraction, section_extractions, merge_conflicts, failed_count = extraction_result
+
         # Stage 2: assessment from merged extraction
         assessment_message = build_assessment_user_message(extraction, metadata)
         if merge_conflicts:
@@ -1046,6 +1081,118 @@ class BaseAnnotator(abc.ABC):
             f"PMID {pmid}: all assessment parse attempts failed"
         )
         return None
+
+    # ------------------------------------------------------------------
+    # v4 Agentic annotation (tool-calling assessment agent)
+    # ------------------------------------------------------------------
+
+    async def annotate_full_text_agentic(
+        self,
+        pmid: str,
+        title: str,
+        sections: list[tuple[str, str]],
+        metadata: Optional[dict] = None,
+        api_key: Optional[str] = None,
+    ) -> Optional[dict]:
+        """v4 agentic annotation: extraction → tool-calling assessment agent.
+
+        Stage 1: identical to ``annotate_full_text_two_call`` — per-section
+            sequential extraction → merge. Shared via
+            ``_extract_full_text_sections``.
+        Stage 2: instead of a single LLM assessment call with the v3
+            ASSESSMENT_SYSTEM_PROMPT (20 KB of in-prompt rules), hands the
+            merged extraction to an ``AssessmentAgent`` that:
+            1. Calls ``run_mechanical_assessment`` (Python aggregator)
+            2. Reviews the draft severities + provenance
+            3. Optionally overrides severity on contextual grounds
+            4. Optionally calls verification tools for borderline cases
+            5. Emits a final assessment JSON with ``_overrides``
+            Post-hoc enforcement blocks downgrades of non-overridable
+            COI triggers (``DESIGN_RATIONALE_COI.md`` policy).
+
+        Phase 2 scope: Anthropic Claude only. The *api_key* parameter
+        is mandatory for this path (it's passed to the
+        ``AssessmentAgent`` which creates its own Anthropic client).
+        Phase 3 will add a bmlib-based code path for local models.
+
+        Args:
+            pmid: Paper identifier.
+            title: Paper title.
+            sections: Chunked (section_name, section_text) tuples.
+            metadata: Optional paper metadata (authors, DOI, etc.)
+                for verification tool dispatch.
+            api_key: Anthropic API key (Phase 2 only). If None, tries
+                ``self.api_key`` (available on LLMAnnotator).
+
+        Returns:
+            Assessment dict with ``_annotation_mode: "agentic_v4"``
+            and ``_overrides: [...]``. None on failure.
+        """
+        from biasbuster.assessment_agent import AssessmentAgent
+
+        # Resolve API key — the LLMAnnotator subclass has self.api_key;
+        # other backends must pass it explicitly
+        resolved_key = api_key or getattr(self, "api_key", None)
+        if not resolved_key:
+            logger.error(
+                f"PMID {pmid}: annotate_full_text_agentic requires an "
+                f"Anthropic API key (Phase 2). Pass api_key= or use "
+                f"LLMAnnotator which has self.api_key."
+            )
+            return None
+
+        # Stage 1: extraction (shared with v3)
+        extraction_result = await self._extract_full_text_sections(
+            pmid, title, sections,
+        )
+        if extraction_result is None:
+            return None
+        extraction, section_extractions, merge_conflicts, failed_count = extraction_result
+
+        # Stage 2: agentic assessment
+        logger.info(
+            f"PMID {pmid}: starting v4 assessment agent "
+            f"({len(section_extractions)} sections extracted, "
+            f"{len(merge_conflicts)} merge conflicts)"
+        )
+        async with AssessmentAgent(
+            api_key=resolved_key,
+            model=getattr(self, "model", "claude-sonnet-4-5-20250929"),
+        ) as agent:
+            agent_result = await agent.assess(
+                pmid=pmid,
+                title=title,
+                extraction=extraction,
+                paper_metadata=metadata,
+            )
+
+        if agent_result.assessment is None:
+            logger.error(
+                f"PMID {pmid}: v4 agent did not produce a valid assessment "
+                f"after {agent_result.iterations} iterations "
+                f"(hit_cap={agent_result.hit_iteration_cap})"
+            )
+            return None
+
+        # Decorate the result in the same shape as v3 for DB storage
+        assessment = agent_result.assessment
+        assessment["pmid"] = pmid
+        assessment["title"] = title
+        assessment["_annotation_model"] = self.model
+        assessment["_annotation_mode"] = "agentic_v4"
+        assessment["extraction"] = extraction
+        assessment["_section_extractions"] = section_extractions
+        if merge_conflicts:
+            assessment["_merge_conflicts"] = merge_conflicts
+        if failed_count:
+            assessment["_failed_sections"] = failed_count
+        # v4-specific metadata
+        assessment["_agent_iterations"] = agent_result.iterations
+        assessment["_agent_tool_calls"] = agent_result.tool_calls_made
+        if agent_result.enforcement_notes:
+            assessment["_enforcement_notes"] = agent_result.enforcement_notes
+
+        return assessment
 
     # ------------------------------------------------------------------
     # Two-call annotation (v3)
