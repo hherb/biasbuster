@@ -18,31 +18,71 @@ for the full justification.
 
 ## Project Status (April 2026)
 
-**The v3 two-call pipeline with Round 10 prompts is the current
-recommended production path.** Ten rounds of prompt engineering on a
-split extraction-then-assessment architecture produced local-model
-results that match Claude's full-text annotation on the project's
-motivating failure case (PMID 41750436, Seed Health synbiotic RCT):
+**The v3 two-call pipeline is the current production default.**
+The v4 tool-calling assessment agent is in active development —
+see [`docs/two_step_approach/V4_AGENT_DESIGN.md`](docs/two_step_approach/V4_AGENT_DESIGN.md)
+for the design and the implementation roadmap.
 
-| Local model (v3 full-text two-call) | Match to Claude GT |
+**v3 — production today.** Ten rounds of prompt engineering on a
+split extraction-then-assessment architecture brought local-model
+results within reach of Claude's full-text annotation on the
+motivating Seed Health failure case (PMID 41750436):
+
+| Local model (v3 full-text two-call) | Single-paper reliability vs Claude GT |
 |---|---|
-| **gemma4 26B** (a4b-it-q8_0) | **9/9 reliability runs match Claude exactly** on every per-flag value AND on `overall_bias_probability` to two decimal places |
-| gpt-oss 20B | 3/3 flags match with one run over-escalating to `critical` (in the correct direction on a HIGH paper) |
+| gemma4 26B (a4b-it-q8_0) | 9/9 reliability runs exactly match Claude on every flag and `overall_bias_probability` to two decimal places |
+| gpt-oss 20B | 3/3 flags match with one run over-escalating to `critical` |
 | gpt-oss 120B | 3/3 flags match, one run in the 1/3 per-arm extraction noise band |
 
-**This changes the project's positioning.** The original goal was to
-build training data and fine-tune a dedicated model. The v3 pipeline
-with a well-prompted 26B open-weight model now reaches Claude-equivalent
-output on the failure case that motivated the rebuild. Fine-tuning is
-**still supported** via the LoRA infrastructure below, but it is now
-an **optional cost/latency optimisation**, not a necessity for
-quality. If you want to analyse papers and can run Ollama with a
-~26B model, try the v3 pipeline first — you probably don't need to
-fine-tune anything.
+**Multi-paper calibration revealed a ceiling.** A subsequent
+calibration test across 4 papers spanning the full RoB spectrum
+(see `INITIAL_FINDINGS_V3.md` §3.13) inverted the single-paper
+ranking. **120b f2 matched Claude's headline severity on 4/4
+calibration papers**; gemma4 and 20b each failed two of four,
+in different directions. Every failure was an arithmetic or
+boolean-logic problem (`n_primary_endpoints=0` extracted on a
+paper with 8+ outcomes; multiplicity threshold not firing despite
+correct extraction; trigger (d) misapplied to consulting-only
+roles). None was a text-reasoning failure.
 
-Full empirical history, including the iteration loop, reliability
-tests, and ongoing multi-paper calibration:
-[docs/two_step_approach/INITIAL_FINDINGS_V3.md](docs/two_step_approach/INITIAL_FINDINGS_V3.md).
+**v4 — in development.** Asking a transformer to perform
+arithmetic and boolean threshold logic in natural language is
+the wrong framing for the wrong tool. v4 splits the work:
+extraction stays as an LLM call; assessment becomes an agent
+loop where the LLM calls a `run_mechanical_assessment` tool
+(pure-Python aggregator that consumes the extraction and applies
+all the threshold rules deterministically), reviews the result
+with the contextual judgment that an LLM does well, and
+optionally calls verification tools (ClinicalTrials.gov, CMS
+Open Payments, ORCID, etc.). The assessment prompt shrinks from
+~43 KB to ~2 KB. The mechanical rule logic moves to
+`biasbuster/assessment/`. The COI design policy from
+[`DESIGN_RATIONALE_COI.md`](docs/two_step_approach/DESIGN_RATIONALE_COI.md)
+is enforced both in Python (the mechanical aggregator) and
+post-hoc (a Python check that prevents the LLM from downgrading
+non-overridable rules like trigger (d)).
+
+The v4 work has a prerequisite: **bmlib does not yet support
+native tool calling**. Phase 1 of v4 extends bmlib for tool
+calling on a feature branch. Phase 2 wires the v4 agent into
+biasbuster validated against Anthropic Claude. Phase 3 extends
+to local Ollama models (gemma4 / gpt-oss support tool calling
+per Ollama metadata, but cross-family validation is the Phase 3
+job).
+
+**Position on fine-tuning.** Unchanged from the v3 conclusion.
+The original goal was to build training data and fine-tune a
+dedicated model. The v3 pipeline with a well-prompted 26B
+open-weight model already reaches good calibration on most papers,
+and v4 should close the remaining gap. **Fine-tuning is now an
+optional cost/latency optimisation, not a quality requirement.**
+If you want to analyse papers and can run Ollama with a ~26B
+model, try the pipeline first.
+
+Full empirical history including the v3 iteration loop, the
+calibration test, and the v4 architecture pivot:
+[docs/two_step_approach/INITIAL_FINDINGS_V3.md](docs/two_step_approach/INITIAL_FINDINGS_V3.md)
++ [docs/two_step_approach/V4_AGENT_DESIGN.md](docs/two_step_approach/V4_AGENT_DESIGN.md).
 
 ## Quick Start — Analyse a Publication
 
@@ -572,4 +612,5 @@ of the same full-text two-call pipeline on the same paper), see
 - [MLX Training](docs/MLX_TRAINING.md) — Apple Silicon training guide
 - [Model Card](docs/MODEL_CARD.md) — fine-tuned model documentation
 - [COI Design Rationale](docs/two_step_approach/DESIGN_RATIONALE_COI.md) — why BiasBuster's COI domain is intentionally more aggressive than Cochrane RoB 2 (*risk of bias*, not *proof of bias*)
-- [v3 Two-Call Findings](docs/two_step_approach/INITIAL_FINDINGS_V3.md) — empirical history of the v3 architecture: 10 rounds of prompt iteration, 3-family verification, calibration test
+- [v3 Two-Call Findings](docs/two_step_approach/INITIAL_FINDINGS_V3.md) — empirical history of the v3 architecture: 10 rounds of prompt iteration, 3-family verification, calibration test, and the §3.14 architectural pivot to v4
+- [v4 Tool-Calling Agent Design](docs/two_step_approach/V4_AGENT_DESIGN.md) — design and rationale for the v4 architecture: extraction (LLM) → assessment agent (LLM with `run_mechanical_assessment` + verification tools), with a post-hoc Python check that enforces non-overridable rules like the COI trigger (d)

@@ -994,6 +994,233 @@ The remaining validation is now **only** the calibration paper test
 miscalibrated when the pipeline meets papers that *should* rate
 LOW or MODERATE.
 
+### 3.13 Calibration test — the v3 ranking inverts on multi-paper
+
+Ran `scripts/run_calibration_test.sh` (commit `e00c951`) on the four
+calibration papers selected in §6.2 plus the Seed Health motivating
+paper. Each paper × each of three local-model families × all four
+modes (a1/a2/f1/f2) + Claude full-text as ground truth = 52
+annotations. Stored in DB under standard tags.
+
+The calibration test was designed to answer one question: **does the
+single-paper Round 10 ranking (gemma4 winning, see §3.12) generalise
+across the RoB spectrum?** The answer is **no** — the ranking inverts.
+
+#### Headline severity matches against Claude full-text GT
+
+| Paper | Cochrane | Claude GT | 120b f2 | 20b f2 | gemma4 f2 |
+|---|---|---|---|---|---|
+| 32382720 rTMS (academic LOW) | low (5/5) | moderate/0.35 | mod/0.62 ✓ | high/0.75 ✗ | low/0.25 ✗ |
+| 39777610 tapinarof (industry LOW) | low | high/0.68 | high/0.78 ✓ | high/0.80 ✓ | high/0.80 ✓ |
+| 39905419 balneotherapy (some_concerns) | some_concerns | moderate/0.42 | mod/0.58 ✓ | mod/0.55 ✓ | mod/0.45 ✓ |
+| 39691748 lidocaine (academic HIGH) | high | high/0.68 | high/0.68 ✓ | **low/0.25 ✗** | **moderate/0.45 ✗** |
+| **Headline matches** | | | **4/4** | 2/4 | 2/4 |
+
+**120b f2 is the calibration leader.** Tracks Claude's headline on
+every paper. gemma4 (the Round 10 winner) and 20b each fail two of
+the four calibration papers, in different directions.
+
+#### Three distinct failure modes
+
+**1. 20b is bipolar.** It over-calls COI on the rTMS paper from
+`moderate → high` on the strength of consulting-only ties (Brainsway,
+Magventure, Janssen, Lundbeck). None of those authors are
+*employees*, so trigger (d) shouldn't fire, but the 20b's in-prompt
+assessment applied the trigger anyway. Then on the lidocaine paper
+(genuinely HIGH), it dismisses `no_multiplicity_correction=True`
+with 8+ endpoints as "minor concerns" and rates methodology=low,
+overall=low. Catastrophic under-call — the worst possible failure
+on a HIGH paper. The 20b is simultaneously over-calling consulting
+COI and under-calling methodological multiplicity.
+
+**2. gemma4 systematically under-calls when mechanical rules should
+fire.** On the lidocaine paper, gemma4 was the ONLY model that
+extracted `n_primary=1, n_secondary=7` correctly (gpt-oss models
+both extracted `0,0` despite the same outcome lists). But the
+in-prompt assessment then failed to apply
+`no_multiplicity_correction=True AND total_endpoints≥6 → HIGH`
+even with the correct counts in hand. Methodology rated `MODERATE`,
+overall rated `moderate/0.45`. The extraction was correct; the
+rule application failed in the assessment LLM call.
+
+**3. The endpoint extraction bug on gpt-oss.** Both 120b and 20b
+extracted `n_primary_endpoints=0, n_secondary_endpoints=0` on the
+lidocaine paper despite the paper having 1 primary (VAS pain at
+24h) and ~7 secondary outcomes. The Round 3 schema rule
+(*"If the paper does not explicitly label outcomes as primary,
+count every distinct outcome with a reported p-value or effect
+size as an endpoint"*) is in the prompt but isn't firing on
+either gpt-oss model. 120b's reasoning text recovered ("at least
+six distinct outcome tests") and reached HIGH anyway. 20b's
+reasoning trusted the broken counts and reached LOW.
+
+#### What this tells us about the v3 architecture
+
+Every one of these failures is an arithmetic or boolean-logic
+problem, not a reasoning problem:
+
+- 20b applying trigger (d) to consulting-tie roles → boolean role
+  check (consulting ∉ {employee, shareholder})
+- gemma4 not firing the multiplicity rule → threshold comparison
+  (`total_endpoints ≥ 6 AND no_multiplicity_correction`)
+- gpt-oss `n_*_endpoints=0` → counting items in a list
+- 20b under-calling lidocaine methodology → severity cascade
+  (multiple True flags should produce HIGH)
+
+The v3 prompt-side rule logic does not generalise across the RoB
+spectrum on local models. Asking a transformer to perform reliable
+arithmetic and boolean threshold logic in natural language is the
+wrong framing for the wrong tool.
+
+Note also that **the COI trigger (d) ranking holds across all
+three models on the tapinarof paper** — every model correctly
+rates COI=high via the structural mechanism. The COI policy from
+`DESIGN_RATIONALE_COI.md` is generalising. The cells where v3 fails
+are specifically the methodology / multiplicity / endpoint-counting
+cells where arithmetic matters most.
+
+Also note one minor inconsistency in Claude's own structured output:
+on the lidocaine paper, Claude's reasoning text says
+"methodology=HIGH" but its structured `methodology.severity` field
+is `moderate`, while `overall_severity = high`. Claude recovered
+via reasoning text but its own structured fields are not internally
+consistent under the v3 architecture.
+
+### 3.14 Option B — Python aggregator validates the architecture (and exposes its limit)
+
+After §3.13 made the architectural diagnosis clear (every failure
+is arithmetic, not reasoning), I built a proof-of-concept Python
+aggregator at `biasbuster/assessment/` (commit `12d8e59`) that
+translates the entire v3 ASSESSMENT_DOMAIN_CRITERIA prompt — all
+~240 lines of mechanical rules — into pure Python. The aggregator
+consumes the existing v3 extraction JSON from any model, ignores
+the unreliable `n_*_endpoints` count fields, counts the
+`primary_outcomes_stated` and `secondary_outcomes_stated` lists
+directly, and applies every rule and severity cascade
+deterministically with full provenance.
+
+`scripts/validate_v4_aggregator.py` runs the aggregator against the
+existing v3 extractions in the database for all 5 calibration
+papers, holding the EXTRACTION constant and only changing the
+assessment algorithm. This isolates the contribution of moving the
+rule logic out of the LLM prompt and into Python.
+
+#### Headline matches against Claude GT
+
+| Annotator | v3 stored | v4 algorithmic | Δ |
+|---|---:|---:|---:|
+| 120b f2 | 4/5 | 3/5 | −1 |
+| 20b f2 | 3/5 | 4/5 | +1 |
+| gemma4 f2 | 3/5 | 3/5 | 0 |
+
+Aggregate looks like a wash. **The aggregate is misleading because
+the wins and losses are in completely different categories.**
+
+#### What the aggregator fixed (the unambiguous wins)
+
+**The lidocaine catastrophic under-call disappears on every model.**
+This was the worst v3 failure (20b f2 = `low/0.25` on a Cochrane-HIGH
+paper). The aggregator counts the extracted outcome lists directly,
+ignores the broken `n_*_endpoints=0` count fields, and applies
+`total_endpoints ≥ 6 AND no_multiplicity_correction → HIGH`
+deterministically:
+
+| Model | v3 stored | v4 algorithmic |
+|---|---|---|
+| 120b f2 | high/0.68 ✓ | high/0.72 ✓ |
+| 20b f2 | **low/0.25 ✗** | **high/0.72 ✓** |
+| gemma4 f2 | **moderate/0.45 ✗** | **high/0.72 ✓** |
+
+**Trigger (d) becomes deterministic.** Every v4 result correctly
+applies trigger (d) on the tapinarof paper. The COI policy is now
+Python code, single source of truth, audit-ready. Provenance trace:
+*"trigger (d): funding_type=industry AND sponsor-employed/shareholder
+author present"*.
+
+**Seed Health motivating case is preserved.** Round 10 verification
+holds. No regression.
+
+#### What the aggregator broke (the unambiguous loss)
+
+**On the rTMS paper (Cochrane LOW), v4 fires methodology HIGH on
+every annotator's extraction.** This is the most informative finding
+in the experiment. Claude's reasoning text on the same paper:
+
+> *"The HIGH boundary triggers: no_multiplicity_correction = TRUE
+> AND total_endpoints ≥ 6. **However, calibrating against Cochrane
+> RoB2 = LOW overall and the fact this is an explicitly exploratory
+> secondary analysis of an RCT** (lower standard for multiplicity
+> correction is common in this context, and the paper itself
+> acknowledges exploratory/overfitting limitations), I rate
+> MODERATE rather than HIGH for methodology."*
+
+Claude **knows the rule fires.** Claude **chooses to override it**
+based on contextual judgment that:
+- this is an exploratory secondary analysis
+- the standard for multiplicity correction in exploratory analyses
+  is more lenient
+- the paper itself acknowledges its limitations
+- Cochrane RoB 2 expert assessment is LOW
+
+**This is the architectural floor.** The multiplicity rule, applied
+mechanically, over-fires on legitimate exploratory analyses. There
+is a category of decisions that cannot live in pure Python because
+they require reading the paper for context, not just counting items.
+Pure-LLM-with-rules-in-prompt cannot do the arithmetic reliably
+(§3.13 calibration failures). Pure-Python cannot do the contextual
+override (this Option B finding).
+
+**Both halves are necessary.** Hence v4.
+
+#### The v4 architecture decision
+
+Two options were on the table after Option B:
+
+**Option (i)** — three-stage pipeline:
+```
+extraction (LLM) → mechanical aggregation (Python)
+                 → context gate (LLM mini-call)
+                 → final assessment (Python with overrides)
+```
+
+**Option (ii)** — single agent loop with Python as a tool:
+```
+extraction (LLM) → assessment agent (LLM + tools)
+                       │
+                       ├─ run_mechanical_assessment(extraction)  ← Python
+                       ├─ check_clinicaltrials(nct)              ← API
+                       └─ ... more tools
+```
+
+The user proposed option (ii) on the grounds that:
+- One agent loop is simpler than three pipeline stages — the
+  override decision and the verification decision are the same
+  kind of decision
+- New tools (database lookups, additional Python checkers, API
+  queries) cost almost nothing in the agent architecture
+- The existing 6 verification tool wrappers in
+  `biasbuster/agent/tools.py` plug in directly
+- Local models that support native tool calling (gemma4, gpt-oss
+  per Ollama metadata) use the same architecture as Claude
+
+**Architecture chosen: option (ii).** The full design is in
+[`V4_AGENT_DESIGN.md`](./V4_AGENT_DESIGN.md). The implementation
+plan is at `~/.claude/plans/serialized-snacking-dragonfly.md`.
+
+#### Status of the v3 architecture
+
+v3 is preserved as the production default until v4 has validated
+across all three model families. The v3 prompt + assessment flow
+is unchanged. v4 is opt-in via a new `--agentic` flag. The
+calibration paper results from §3.13 stand as the v3 ceiling on
+this corpus.
+
+The Option B aggregator at `biasbuster/assessment/` ships as
+library code (commit `12d8e59`) — it is currently dead code that
+v4 Phase 2 will wrap as a tool. Anyone who wants to run the
+algorithmic assessment standalone can call `assess_extraction()`
+directly; future contributors should not delete it.
+
 ---
 
 ## 4. Surprises
