@@ -101,10 +101,21 @@ def parse_model_output(raw_output: str, pmid: str = "", model_id: str = "") -> P
     """
     result = ParsedAssessment(pmid=pmid, model_id=model_id, raw_output=raw_output)
 
-    # Extract <think> block if present
+    # Extract reasoning text — supports multiple formats:
+    # 1. v3 training format: <think>...</think> XML tags
+    # 2. v4 agentic format: "reasoning" field in the JSON annotation
     think_match = re.search(r'<think>(.*?)</think>', raw_output, re.DOTALL)
     if think_match:
         result.thinking_text = think_match.group(1).strip()
+    else:
+        # Try to extract "reasoning" from the JSON (v4 agentic output)
+        try:
+            data = json.loads(raw_output) if raw_output.strip().startswith("{") else {}
+            reasoning = data.get("reasoning", "")
+            if reasoning:
+                result.thinking_text = str(reasoning).strip()
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     # Try JSON parse first (strip think block and markdown fences)
     json_text = raw_output
@@ -403,43 +414,91 @@ def _parse_from_text(text: str, result: ParsedAssessment) -> ParsedAssessment:
 
 
 def _score_verification_mentions(result: ParsedAssessment) -> ParsedAssessment:
-    """Score how many verification sources the model recommends."""
+    """Score how many verification sources the model used or recommended.
+
+    Checks three evidence channels:
+    1. Text mentions in raw_output and recommended_verification_steps
+       (v3 text-based annotations)
+    2. Tool call names from ``_agent_tool_calls`` stored in the
+       annotation JSON (v4 agentic annotations)
+    3. The ``reasoning`` field which may reference verification results
+    """
+    # Build a combined text corpus from all text-bearing fields
     text_lower = (
         result.raw_output.lower()
-        + " ".join(result.verification_steps_mentioned).lower()
+        + " " + " ".join(result.verification_steps_mentioned).lower()
     )
 
+    # For v4 agentic annotations, extract tool call names from
+    # the raw_output JSON (which contains the full annotation dict).
+    # The _agent_tool_calls field is a list of [tool_name, args] pairs.
+    tool_names_used: set[str] = set()
+    try:
+        data = json.loads(result.raw_output)
+        for tc in data.get("_agent_tool_calls", []):
+            if isinstance(tc, (list, tuple)) and len(tc) >= 1:
+                tool_names_used.add(str(tc[0]).lower())
+        # Also fold the reasoning field into the text corpus
+        reasoning = data.get("reasoning", "")
+        if reasoning:
+            text_lower += " " + reasoning.lower()
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
+
+    # Map source keys to text patterns AND v4 tool names
     sources = {
-        "open_payments": [
-            "open payments", "openpaymentsdata", "cms open",
-            "sunshine act", "physician payments",
-        ],
-        "clinicaltrials_gov": [
-            "clinicaltrials.gov", "clinical trials registry",
-            "nct", "trial registry", "registered outcome",
-        ],
-        "orcid": ["orcid"],
-        "retraction_watch": [
-            "retraction watch", "retraction database", "crossref retraction",
-        ],
-        "europmc": [
-            "europe pmc", "europepmc", "europmc",
-            "europe pubmed central",
-        ],
+        "open_payments": {
+            "text": [
+                "open payments", "openpaymentsdata", "cms open",
+                "sunshine act", "physician payments",
+            ],
+            "tools": ["check_open_payments"],
+        },
+        "clinicaltrials_gov": {
+            "text": [
+                "clinicaltrials.gov", "clinical trials registry",
+                "nct", "trial registry", "registered outcome",
+            ],
+            "tools": ["check_clinicaltrials"],
+        },
+        "orcid": {
+            "text": ["orcid"],
+            "tools": ["check_orcid"],
+        },
+        "retraction_watch": {
+            "text": [
+                "retraction watch", "retraction database",
+                "crossref retraction",
+            ],
+            "tools": ["check_retraction_status"],
+        },
+        "europmc": {
+            "text": [
+                "europe pmc", "europepmc", "europmc",
+                "europe pubmed central",
+            ],
+            "tools": ["check_europmc_funding"],
+        },
     }
 
-    # Additional verification sources worth tracking
     extra_sources = {
-        "who_ictrp": ["who ictrp", "who trial", "international clinical trials registry"],
-        "medicines_australia": ["medicines australia"],
-        "efpia": ["efpia", "betransparent"],
-        "cochrane_rob": ["cochrane risk of bias", "rob 2", "cochrane rob"],
+        "who_ictrp": {
+            "text": ["who ictrp", "who trial", "international clinical trials registry"],
+            "tools": [],
+        },
+        "effect_size_audit": {
+            "text": ["effect size audit", "effect-size audit"],
+            "tools": ["run_effect_size_audit"],
+        },
+        "cochrane_rob": {
+            "text": ["cochrane risk of bias", "rob 2", "cochrane rob"],
+            "tools": [],
+        },
     }
 
     count = 0
     total = len(sources) + len(extra_sources)
 
-    # Map source keys to dataclass field names
     field_map = {
         "open_payments": "mentions_open_payments",
         "clinicaltrials_gov": "mentions_clinicaltrials_gov",
@@ -448,16 +507,22 @@ def _score_verification_mentions(result: ParsedAssessment) -> ParsedAssessment:
         "europmc": "mentions_europmc",
     }
 
-    for source_key, patterns in sources.items():
-        found = any(p in text_lower for p in patterns)
+    for source_key, spec in sources.items():
+        found = (
+            any(p in text_lower for p in spec["text"])
+            or any(t in tool_names_used for t in spec["tools"])
+        )
         field_name = field_map.get(source_key)
         if field_name and hasattr(result, field_name):
             setattr(result, field_name, found)
         if found:
             count += 1
 
-    for _, patterns in extra_sources.items():
-        if any(p in text_lower for p in patterns):
+    for _, spec in extra_sources.items():
+        if (
+            any(p in text_lower for p in spec["text"])
+            or any(t in tool_names_used for t in spec["tools"])
+        ):
             count += 1
 
     result.verification_score = count / total if total > 0 else 0.0

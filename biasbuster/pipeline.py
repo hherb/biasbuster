@@ -598,10 +598,18 @@ async def stage_export(
         )
 
 
-async def stage_compare(config: Config, db: Database) -> None:
+async def stage_compare(
+    config: Config,
+    db: Database,
+    models: list[str] | None = None,
+) -> None:
     """Compare annotations from multiple models against human-validated labels.
 
-    Reads annotations from the database and generates a comparison report.
+    Args:
+        config: Pipeline config.
+        db: Database handle.
+        models: If provided, only compare these model names. Otherwise
+            compare every model with annotations in the DB.
     """
     from biasbuster.evaluation.scorer import parse_model_output, attach_ground_truth
     from biasbuster.evaluation.metrics import evaluate_model
@@ -611,7 +619,16 @@ async def stage_compare(config: Config, db: Database) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Discover models
-    model_names = [m for m in db.get_model_names() if m != "human"]
+    all_model_names = [m for m in db.get_model_names() if m != "human"]
+    if models:
+        # Filter to requested models; warn about any that don't exist
+        missing = [m for m in models if m not in all_model_names]
+        if missing:
+            logger.warning(f"Models not found in DB: {missing}")
+            logger.info(f"Available models: {sorted(all_model_names)}")
+        model_names = [m for m in models if m in all_model_names]
+    else:
+        model_names = all_model_names
     if not model_names:
         logger.warning(
             "No model annotations found in DB. "
@@ -882,7 +899,7 @@ def main() -> None:
             two_call=not args.single_call,
         ),
         "export": lambda cfg: stage_export(cfg, db, export_dir=args.export_dir, export_model=export_model),
-        "compare": lambda cfg: stage_compare(cfg, db),
+        "compare": lambda cfg: stage_compare(cfg, db, models=annotation_models),
     }
 
     # Handle --reset-undetectable-annotations before running stages

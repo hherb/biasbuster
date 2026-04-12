@@ -338,8 +338,10 @@ def generate_comparison(
     raw_outputs: dict[str, list[dict]] = None,
     mode: str = "zero-shot",
 ) -> ComparisonReport:
-    """
-    Generate a full head-to-head comparison report.
+    """Generate a comparison report for N models (N >= 2).
+
+    Computes pairwise statistical tests for every pair of models and
+    builds an N-column summary table so all models are visible.
     """
     model_ids = list(evaluations.keys())
     report = ComparisonReport(
@@ -354,28 +356,18 @@ def generate_comparison(
         report.summary = "Need at least 2 models for comparison."
         return report
 
-    model_a, model_b = model_ids[0], model_ids[1]
-    eval_a, eval_b = evaluations[model_a], evaluations[model_b]
-
-    # ---- Dimension-level pairwise tests ----
-    tests = []
-    for dim in DIMENSIONS:
-        if assessments.get(model_a) and assessments.get(model_b):
-            # Binary test
-            binary_test = compute_pairwise_binary(
-                model_a, model_b,
-                assessments[model_a], assessments[model_b],
-                dim,
-            )
-            tests.append(binary_test)
-
-            # Ordinal test
-            ordinal_test = compute_pairwise_ordinal(
-                model_a, model_b,
-                assessments[model_a], assessments[model_b],
-                dim,
-            )
-            tests.append(ordinal_test)
+    # ---- Pairwise tests for ALL model pairs ----
+    from itertools import combinations
+    all_tests: list[PairwiseTest] = []
+    for mid_a, mid_b in combinations(model_ids, 2):
+        for dim in DIMENSIONS:
+            if assessments.get(mid_a) and assessments.get(mid_b):
+                all_tests.append(compute_pairwise_binary(
+                    mid_a, mid_b, assessments[mid_a], assessments[mid_b], dim,
+                ))
+                all_tests.append(compute_pairwise_ordinal(
+                    mid_a, mid_b, assessments[mid_a], assessments[mid_b], dim,
+                ))
 
     report.pairwise_tests = [
         {
@@ -391,44 +383,53 @@ def generate_comparison(
             "winner": t.winner,
             "test": t.test_used,
         }
-        for t in tests
+        for t in all_tests
     ]
 
-    # Determine dimension winners
+    # Dimension winners: model with most pairwise wins per dimension
     for dim in DIMENSIONS:
-        binary_tests = [t for t in tests if t.metric_name == f"{dim}_binary"]
-        if binary_tests:
-            report.dimension_winners[dim] = binary_tests[0].winner
+        dim_tests = [t for t in all_tests if t.metric_name == f"{dim}_binary"]
+        win_counts: dict[str, int] = defaultdict(int)
+        for t in dim_tests:
+            if t.winner != "tie":
+                win_counts[t.winner] += 1
+        if win_counts:
+            report.dimension_winners[dim] = max(win_counts, key=win_counts.get)
+        else:
+            report.dimension_winners[dim] = "tie"
 
-    # ---- Flag-level comparison (especially relative_only) ----
-    flag_comparison = {}
+    # ---- Flag-level comparison (all models) ----
+    flag_comparison: dict[str, dict] = {}
     for dim in DIMENSIONS:
-        dim_eval_a = getattr(eval_a, dim)
-        dim_eval_b = getattr(eval_b, dim)
-        for flag_a in dim_eval_a.flags:
-            for flag_b in dim_eval_b.flags:
-                if flag_a.flag_name == flag_b.flag_name:
-                    flag_comparison[f"{dim}.{flag_a.flag_name}"] = {
-                        model_a: flag_a.to_dict(),
-                        model_b: flag_b.to_dict(),
-                        "winner": (
-                            model_a if flag_a.accuracy > flag_b.accuracy
-                            else model_b if flag_b.accuracy > flag_a.accuracy
-                            else "tie"
-                        ),
-                    }
+        # Collect all flag names from the first model that has them
+        all_flag_names: set[str] = set()
+        for mid in model_ids:
+            dim_eval = getattr(evaluations[mid], dim)
+            all_flag_names.update(f.flag_name for f in dim_eval.flags)
+        for flag_name in sorted(all_flag_names):
+            entry: dict = {}
+            best_acc, best_mid = -1.0, "tie"
+            for mid in model_ids:
+                dim_eval = getattr(evaluations[mid], dim)
+                flag_data = next((f for f in dim_eval.flags if f.flag_name == flag_name), None)
+                if flag_data:
+                    entry[mid] = flag_data.to_dict()
+                    if flag_data.accuracy > best_acc:
+                        best_acc = flag_data.accuracy
+                        best_mid = mid
+                    elif flag_data.accuracy == best_acc:
+                        best_mid = "tie"
+            entry["winner"] = best_mid
+            flag_comparison[f"{dim}.{flag_name}"] = entry
     report.flag_comparison = flag_comparison
 
-    # ---- Verification quality comparison ----
+    # ---- Verification quality comparison (all models) ----
     report.verification_comparison = {
-        model_a: {
-            "mean_score": eval_a.mean_verification_score,
-            "source_rates": eval_a.verification_source_rates,
-        },
-        model_b: {
-            "mean_score": eval_b.mean_verification_score,
-            "source_rates": eval_b.verification_source_rates,
-        },
+        mid: {
+            "mean_score": evaluations[mid].mean_verification_score,
+            "source_rates": evaluations[mid].verification_source_rates,
+        }
+        for mid in model_ids
     }
 
     # ---- Efficiency ----
@@ -450,147 +451,198 @@ def generate_comparison(
         report.radar_data[mid]["overall_f1"] = ev.overall_binary.f1
 
     # ---- Executive summary ----
-    report.summary = _generate_summary(report, eval_a, eval_b, model_a, model_b, tests)
+    report.summary = _generate_summary(report, evaluations, model_ids, all_tests)
 
     return report
 
 
 def _generate_summary(
     report: ComparisonReport,
-    eval_a: ModelEvaluation,
-    eval_b: ModelEvaluation,
-    model_a: str,
-    model_b: str,
+    evaluations: dict[str, ModelEvaluation],
+    model_ids: list[str],
     tests: list[PairwiseTest],
 ) -> str:
-    """Generate a human-readable executive summary."""
-    lines = []
-    lines.append(f"# Bias Detection Model Comparison: {model_a} vs {model_b}")
+    """Generate a human-readable executive summary for N models."""
+    lines: list[str] = []
+
+    # Short display names for readability in tables
+    short = _short_model_names(model_ids)
+
+    title_models = " vs ".join(short[m] for m in model_ids)
+    lines.append(f"# Bias Detection Model Comparison: {title_models}")
     lines.append(f"Mode: {report.mode} | Examples: {report.n_examples}")
     lines.append(f"Date: {report.timestamp}")
+    if any(short[m] != m for m in model_ids):
+        lines.append("")
+        lines.append("Model key:")
+        for mid in model_ids:
+            lines.append(f"  - **{short[mid]}** = `{mid}`")
     lines.append("")
 
-    # Overall performance
+    # --- Overall performance (N-column table) ---
     lines.append("## Overall Performance")
-    lines.append(f"| Metric | {model_a} | {model_b} |")
-    lines.append("|--------|" + "-" * (len(model_a) + 2) + "|" + "-" * (len(model_b) + 2) + "|")
-    lines.append(
-        f"| F1 (binary) | {eval_a.overall_binary.f1:.3f} | {eval_b.overall_binary.f1:.3f} |"
-    )
-    lines.append(
-        f"| Precision | {eval_a.overall_binary.precision:.3f} | {eval_b.overall_binary.precision:.3f} |"
-    )
-    lines.append(
-        f"| Recall | {eval_a.overall_binary.recall:.3f} | {eval_b.overall_binary.recall:.3f} |"
-    )
-    lines.append(
-        f"| Severity κ | {eval_a.overall_ordinal.weighted_kappa():.3f} "
-        f"| {eval_b.overall_ordinal.weighted_kappa():.3f} |"
-    )
-    lines.append(
-        f"| Calibration Error | {eval_a.calibration_error:.3f} | {eval_b.calibration_error:.3f} |"
-    )
-    lines.append(
-        f"| Parse Failures | {eval_a.n_parse_failures} | {eval_b.n_parse_failures} |"
-    )
+    hdr = "| Metric | " + " | ".join(short[m] for m in model_ids) + " |"
+    sep = "|--------|" + "|".join("-" * (len(short[m]) + 2) for m in model_ids) + "|"
+    lines.append(hdr)
+    lines.append(sep)
+
+    # Severity kappa is the meaningful overall metric; binary F1 is
+    # trivially 1.0 when all papers have bias so we omit it.
+    def _row(label: str, getter) -> str:
+        vals = " | ".join(f"{getter(evaluations[m]):.3f}" for m in model_ids)
+        return f"| {label} | {vals} |"
+
+    lines.append(_row("Severity κ (overall)", lambda e: e.overall_ordinal.weighted_kappa()))
+    lines.append(_row("Calibration Error", lambda e: e.calibration_error))
+    pf_vals = " | ".join(str(evaluations[m].n_parse_failures) for m in model_ids)
+    lines.append(f"| Parse Failures | {pf_vals} |")
     lines.append("")
 
-    # Per-dimension breakdown
-    lines.append("## Per-Dimension F1 Scores")
-    lines.append(f"| Dimension | {model_a} | {model_b} | Winner | Significant? |")
-    lines.append("|-----------|" + "-" * (len(model_a) + 2) + "|" + "-" * (len(model_b) + 2) + "|--------|--------------|")
-
+    # --- Per-dimension severity kappa (the metric that matters) ---
+    lines.append("## Per-Dimension Severity Agreement (κ)")
+    hdr = "| Dimension | " + " | ".join(short[m] for m in model_ids) + " |"
+    sep = "|-----------|" + "|".join("-" * (len(short[m]) + 2) for m in model_ids) + "|"
+    lines.append(hdr)
+    lines.append(sep)
     for dim in DIMENSIONS:
-        f1_a = getattr(eval_a, dim).binary.f1
-        f1_b = getattr(eval_b, dim).binary.f1
-        winner = report.dimension_winners.get(dim, "tie")
-        sig_tests = [t for t in tests if t.metric_name == f"{dim}_binary"]
-        sig = "Yes*" if sig_tests and sig_tests[0].significant else "No"
         label = DIMENSION_LABELS.get(dim, dim)
-        lines.append(f"| {label} | {f1_a:.3f} | {f1_b:.3f} | {winner} | {sig} |")
-
+        vals = []
+        for mid in model_ids:
+            kappa = getattr(evaluations[mid], dim).ordinal.weighted_kappa()
+            vals.append(f"{kappa:.3f}")
+        lines.append(f"| {label} | {' | '.join(vals)} |")
     lines.append("")
 
-    # Key flag: relative_only detection
+    # --- Per-dimension binary F1 ---
+    lines.append("## Per-Dimension Binary F1")
+    hdr = "| Dimension | " + " | ".join(short[m] for m in model_ids) + " | Winner |"
+    sep = "|-----------|" + "|".join("-" * (len(short[m]) + 2) for m in model_ids) + "|--------|"
+    lines.append(hdr)
+    lines.append(sep)
+    for dim in DIMENSIONS:
+        label = DIMENSION_LABELS.get(dim, dim)
+        vals = []
+        for mid in model_ids:
+            f1 = getattr(evaluations[mid], dim).binary.f1
+            vals.append(f"{f1:.3f}")
+        winner = report.dimension_winners.get(dim, "tie")
+        winner_display = short.get(winner, winner)
+        lines.append(f"| {label} | {' | '.join(vals)} | {winner_display} |")
+    lines.append("")
+
+    # --- Key flag: relative_only ---
     lines.append("## Key Flag: Relative-Only Reporting Detection")
     rel_flag = report.flag_comparison.get("statistical_reporting.relative_only", {})
     if rel_flag:
-        a_data = rel_flag.get(model_a, {})
-        b_data = rel_flag.get(model_b, {})
-        lines.append(
-            f"- {model_a}: {a_data.get('accuracy', 0):.1%} accuracy "
-            f"({a_data.get('correct', 0)}/{a_data.get('total', 0)})"
-        )
-        lines.append(
-            f"- {model_b}: {b_data.get('accuracy', 0):.1%} accuracy "
-            f"({b_data.get('correct', 0)}/{b_data.get('total', 0)})"
-        )
-        lines.append(f"- Winner: **{rel_flag.get('winner', 'tie')}**")
+        for mid in model_ids:
+            data = rel_flag.get(mid, {})
+            lines.append(
+                f"- {short[mid]}: {data.get('accuracy', 0):.1%} accuracy "
+                f"({data.get('correct', 0)}/{data.get('total', 0)})"
+            )
+        lines.append(f"- Winner: **{short.get(rel_flag.get('winner', 'tie'), 'tie')}**")
     else:
         lines.append("- Not enough data for this flag comparison")
     lines.append("")
 
-    # Verification quality
+    # --- Verification quality ---
     lines.append("## Verification Source Knowledge")
-    lines.append(f"| Source | {model_a} | {model_b} |")
-    lines.append("|--------|" + "-" * (len(model_a) + 2) + "|" + "-" * (len(model_b) + 2) + "|")
+    hdr = "| Source | " + " | ".join(short[m] for m in model_ids) + " |"
+    sep = "|--------|" + "|".join("-" * (len(short[m]) + 2) for m in model_ids) + "|"
+    lines.append(hdr)
+    lines.append(sep)
     sources = ["open_payments", "clinicaltrials_gov", "orcid", "retraction_watch", "europmc"]
     for source in sources:
-        rate_a = eval_a.verification_source_rates.get(source, 0)
-        rate_b = eval_b.verification_source_rates.get(source, 0)
-        lines.append(f"| {source} | {rate_a:.0%} | {rate_b:.0%} |")
-    lines.append(
-        f"| **Mean score** | **{eval_a.mean_verification_score:.3f}** "
-        f"| **{eval_b.mean_verification_score:.3f}** |"
-    )
+        vals = []
+        for mid in model_ids:
+            rate = evaluations[mid].verification_source_rates.get(source, 0)
+            vals.append(f"{rate:.0%}")
+        lines.append(f"| {source} | {' | '.join(vals)} |")
+    mean_vals = []
+    for mid in model_ids:
+        mean_vals.append(f"**{evaluations[mid].mean_verification_score:.3f}**")
+    lines.append(f"| **Mean score** | {' | '.join(mean_vals)} |")
     lines.append("")
 
-    # Reasoning quality
+    # --- Reasoning quality ---
     lines.append("## Reasoning Quality")
-    lines.append(
-        f"- {model_a}: thinking present in {eval_a.thinking_present_rate:.0%} of outputs, "
-        f"mean length {eval_a.mean_thinking_length:.0f} chars"
-    )
-    lines.append(
-        f"- {model_b}: thinking present in {eval_b.thinking_present_rate:.0%} of outputs, "
-        f"mean length {eval_b.mean_thinking_length:.0f} chars"
-    )
+    for mid in model_ids:
+        ev = evaluations[mid]
+        lines.append(
+            f"- {short[mid]}: reasoning present in "
+            f"{ev.thinking_present_rate:.0%} of outputs, "
+            f"mean length {ev.mean_thinking_length:.0f} chars"
+        )
     lines.append("")
 
-    # Efficiency
+    # --- Efficiency ---
     if report.efficiency:
-        lines.append("## Efficiency (DGX Spark)")
-        for mid in [model_a, model_b]:
+        lines.append("## Efficiency")
+        for mid in model_ids:
             eff = report.efficiency.get(mid, {})
             if eff:
                 lines.append(
-                    f"- {mid}: {eff.get('mean_latency_s', 0):.1f}s mean latency, "
+                    f"- {short[mid]}: {eff.get('mean_latency_s', 0):.1f}s mean, "
                     f"{eff.get('tokens_per_second', 0):.1f} tok/s, "
                     f"{eff.get('error_rate', 0):.1%} errors"
                 )
         lines.append("")
 
-    # Bottom line
+    # --- Bottom line ---
     lines.append("## Bottom Line")
-    a_wins = sum(1 for w in report.dimension_winners.values() if w == model_a)
-    b_wins = sum(1 for w in report.dimension_winners.values() if w == model_b)
-    ties = sum(1 for w in report.dimension_winners.values() if w == "tie")
+    win_counts: dict[str, int] = defaultdict(int)
+    for w in report.dimension_winners.values():
+        win_counts[w] += 1
+    ties = win_counts.pop("tie", 0)
     sig_wins = sum(1 for t in tests if t.significant and "binary" in t.metric_name)
 
-    if a_wins > b_wins:
-        verdict = model_a
-    elif b_wins > a_wins:
-        verdict = model_b
-    else:
-        verdict = "No clear winner"
-
+    parts = []
+    for mid in model_ids:
+        parts.append(f"{short[mid]}={win_counts.get(mid, 0)}")
     lines.append(
-        f"Dimension wins: {model_a}={a_wins}, {model_b}={b_wins}, ties={ties} "
+        f"Dimension wins: {', '.join(parts)}, ties={ties} "
         f"({sig_wins} statistically significant)"
     )
+
+    if win_counts:
+        best = max(win_counts, key=win_counts.get)
+        verdict = short[best]
+    else:
+        verdict = "No clear winner"
     lines.append(f"Overall verdict: **{verdict}**")
 
     return "\n".join(lines)
+
+
+def _short_model_names(model_ids: list[str]) -> dict[str, str]:
+    """Create readable short names for model IDs.
+
+    Long Ollama model IDs like ``ollama:gemma4:26b-a4b-it-q8_0_fulltext_agentic``
+    are unwieldy in table headers. This extracts a short, unique suffix.
+    """
+    short: dict[str, str] = {}
+    for mid in model_ids:
+        # Strip common prefixes
+        name = mid
+        if name.startswith("ollama:"):
+            name = name[len("ollama:"):]
+        elif name.startswith("ollama_"):
+            name = name[len("ollama_"):]
+        # Collapse colons to slashes for readability
+        name = name.replace(":", "/")
+        # Truncate very long names at the model size indicator
+        # e.g. "gemma4/26b-a4b-it-q8_0_fulltext_agentic" → "gemma4/26b_agentic"
+        # Keep it simple: just use the name as-is but capped
+        if len(name) > 30:
+            # Keep first part (model family + size) and last part (harness tag)
+            parts = name.replace("-", "_").split("_")
+            if len(parts) > 3:
+                name = "_".join(parts[:2]) + "_…_" + parts[-1]
+        short[mid] = name
+    # Check for collisions — if any, fall back to full IDs
+    if len(set(short.values())) < len(short):
+        return {mid: mid for mid in model_ids}
+    return short
 
 
 def save_report(report: ComparisonReport, output_dir: Path, evaluations: dict = None):

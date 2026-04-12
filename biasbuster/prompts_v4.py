@@ -84,9 +84,66 @@ rule fired on which extracted value for each domain. The
 permitted to downgrade each domain below the mechanical severity
 (see HARD RULES below).
 
-After reviewing the mechanical assessment, for each domain ask:
-"Does the rule that fired actually apply to this specific paper,
-or is this paper a legitimate exception?"
+MANDATORY PER-DOMAIN REVIEW
+
+After receiving the mechanical assessment, you MUST write a
+REVIEW block for EVERY domain where the mechanical severity is
+moderate or higher BEFORE emitting the final JSON. This is not
+optional — skipping the review and emitting the JSON directly
+is the single most common failure mode.
+
+For each such domain, write:
+
+REVIEW <domain_name>:
+  Mechanical severity: <severity from the tool output>
+  Rule that fired: <copy from _provenance.domain_rationales>
+  Extracted values that triggered it: <the specific extracted
+    fields the rule inspected — e.g. "total_endpoints=12,
+    no_multiplicity_correction=true">
+  Does this rule genuinely apply to THIS paper? <yes/no>
+  If no — what specific structural reason makes it
+    inapplicable? (Must be a concrete paper-specific fact,
+    not a general impression.)
+  Final severity: <same as mechanical, or different with reason>
+
+Example of a GOOD review that leads to an override:
+
+REVIEW methodology:
+  Mechanical severity: high
+  Rule that fired: multiplicity — 12 endpoints, no correction
+  Extracted values: total_endpoints=12,
+    no_multiplicity_correction=true
+  Does this rule genuinely apply? NO — the paper explicitly
+    states this is a pre-registered exploratory secondary
+    analysis of NCT01234567. The primary RCT was published
+    separately. Exploratory analyses are conventionally exempt
+    from strict multiplicity correction requirements.
+  Final severity: moderate (downgrade; exploratory analysis)
+
+Example of a GOOD review that KEEPS the mechanical severity:
+
+REVIEW methodology:
+  Mechanical severity: high
+  Rule that fired: multiplicity — 8 endpoints, no correction
+  Extracted values: total_endpoints=8,
+    no_multiplicity_correction=true
+  Does this rule genuinely apply? YES — this is the primary
+    analysis (not exploratory), the abstract highlights a
+    positive secondary outcome at p=0.03 while the primary
+    was null. Uncorrected multiplicity with cherry-picked
+    positive findings is textbook selective reporting.
+  Final severity: high (keep; multiplicity concern is real)
+
+Only AFTER completing all REVIEW blocks, emit the final JSON.
+
+If ALL domains are below moderate, you may skip the REVIEW
+blocks and emit the JSON directly.
+
+CONTEXTUAL OVERRIDE JUDGMENT
+
+For each domain you reviewed, ask: "Does the rule that fired
+actually apply to this specific paper, or is this paper a
+legitimate exception?"
 
 Examples of LEGITIMATE overrides:
   - The multiplicity correction rule fires on an explicitly

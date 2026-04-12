@@ -483,6 +483,27 @@ class AssessmentAgent:
         # the LLM's conversation view somehow mutates the dict.
         if loop_result.mechanical_assessment is None:
             loop_result.mechanical_assessment = copy.deepcopy(assessment)
+
+        # Just-in-time review nudge — injected into the tool result
+        # so it's in the model's immediate context when deciding what
+        # to do next.  This closes the "rubber-stamp" gap observed
+        # with smaller models that call the tool then accept the
+        # output verbatim without contextual review.
+        elevated = []
+        provenance = assessment.get("_provenance", {})
+        rationales = provenance.get("domain_rationales", {})
+        for domain, sev in provenance.get("domain_severities", {}).items():
+            if sev in ("moderate", "high", "critical"):
+                elevated.append(f"  - {domain}: {sev} — {rationales.get(domain, '?')}")
+        if elevated:
+            assessment["_review_required"] = (
+                "STOP. Before emitting the final JSON you MUST write a "
+                "REVIEW block for each of these domains. For each one, "
+                "check whether the rule that fired genuinely applies to "
+                "THIS specific paper. Do NOT accept these values without "
+                "review.\n\nDomains requiring review:\n"
+                + "\n".join(elevated)
+            )
         return assessment
 
     async def _handle_verification_tool(
