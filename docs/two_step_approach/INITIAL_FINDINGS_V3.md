@@ -1,19 +1,15 @@
 # BiasBuster v3 Two-Call Architecture — Initial Findings
 
-**Status:** rounds 1–10 complete and verified across all three local model
-families (gpt-oss 120b, gpt-oss 20b, gemma4 26B). Claude full-text ground
-truth obtained (Round 7). 120b sequential-extraction fix verified (Round 8).
-Round 9 verification (§3.10): 3 of 4 fix targets landed; Round 10
-(commit `c34885a`) patched the remaining COI failure. Round 10 verification
-(§3.12) is clean: gemma4 26B matches Claude ground truth exactly on every
-flag and on bias_probability to two decimal places; 120b matches on severity
-with one run in the per-arm extraction noise band; 20b matches on every flag
-with one run over-escalating to `critical` (in the correct direction on a
-genuinely HIGH paper). **Calibration paper test is the next experiment** —
-orchestration script at `scripts/run_calibration_test.sh` runs 4 papers ×
-4 modes × 3 local models + Claude GT = 52 annotations.
+**Status:** v4 tool-calling assessment agent is live (commits `4961ded`,
+`10800c7`). Claude v4 matches Claude v3 on 4/5 calibration papers. gemma4
+26B v4 matches Claude v4 on 3/5, with the critical lidocaine HIGH-paper fix
+landed (v3 gemma4: moderate/0.45 → v4 gemma4: high/0.72). Local models
+rubber-stamp the mechanical result without contextual overrides — the
+architecture degrades gracefully. See §3.15 for full Phase 2/3 results,
+`V4_AGENT_DESIGN.md` for the design, and `DESIGN_RATIONALE_COI.md` for the
+COI policy that the post-hoc enforcement layer preserves.
 
-**Date of these findings:** 2026-04-09 → 2026-04-11.
+**Date of these findings:** 2026-04-09 → 2026-04-12.
 
 **Document scope:** what we built, what we measured, what surprised us, what's
 still uncertain. Read this together with `CONTEXT_FOR_CLAUDE_CODE.md` (the
@@ -1216,10 +1212,116 @@ calibration paper results from §3.13 stand as the v3 ceiling on
 this corpus.
 
 The Option B aggregator at `biasbuster/assessment/` ships as
-library code (commit `12d8e59`) — it is currently dead code that
-v4 Phase 2 will wrap as a tool. Anyone who wants to run the
-algorithmic assessment standalone can call `assess_extraction()`
-directly; future contributors should not delete it.
+library code (commit `12d8e59`) and is now wired in as the
+`run_mechanical_assessment` tool that the v4 assessment agent
+calls. Anyone who wants to run the algorithmic assessment
+standalone can call `assess_extraction()` directly.
+
+### 3.15 v4 agentic assessment — Phase 2 (Claude) + Phase 3 (gemma4)
+
+The v4 tool-calling assessment agent was implemented in commits
+`4961ded` (Phase 2, Anthropic Claude only) and `10800c7` (Phase 3,
+bmlib provider path for local models). Full design in
+[`V4_AGENT_DESIGN.md`](./V4_AGENT_DESIGN.md).
+
+Architecture: extraction (LLM, unchanged from v3) → assessment
+agent (LLM + tools). The agent always calls
+`run_mechanical_assessment` first (the Python aggregator from
+§3.14), reviews the draft severities + provenance, optionally
+overrides with contextual reasoning, and optionally calls
+verification tools (ClinicalTrials.gov, CMS Open Payments, etc.).
+Post-hoc enforcement prevents the LLM from downgrading
+non-overridable COI triggers. The assessment prompt shrank from
+v3's ~43 KB to ~11 KB of policy — no mechanical rules in the
+prompt, all in Python.
+
+#### Phase 2 results — Claude v4 agentic (5 calibration papers)
+
+| Paper | Cochrane | Claude v3 | Claude v4 | Match |
+|---|---|---|---|---|
+| 32382720 rTMS | low (5/5) | moderate/0.35 | moderate/0.42 | ✓ |
+| 39777610 tapinarof | low (industry) | high/0.68 | high/0.78 | ✓ |
+| 39905419 balneotherapy | some_concerns | moderate/0.42 | high/0.68 | ✗ (upgrade) |
+| 39691748 lidocaine | high | high/0.68 | high/0.62 | ✓ |
+| 41750436 Seed Health | n/a | high/0.82 | high/0.84 | ✓ |
+
+4/5 headline match. The one disagreement (balneotherapy) is the
+agent upgrading domains above the mechanical value based on
+substantive concerns it found: open-label design with 100%
+subjective PROs, mislabelled ITT (claims ITT but analyses
+completers without imputation), and spin ("clear effectiveness"
+language for an open-label trial). These are real concerns Claude
+v3 missed. The upgrade direction is consistent with the risk-not-
+proof framing.
+
+Key observations from Phase 2:
+- The agent called verification tools on 4 of 5 papers
+  (ClinicalTrials.gov on 3, Open Payments on 1, effect-size audit
+  on 1). The tool-calling architecture has real value beyond the
+  mechanical assessment.
+- The rTMS paper override (methodology high → moderate) required
+  prompt iteration. The agent initially over-applied the
+  exploratory-analysis override to the lidocaine paper too (which
+  promotes an uncorrected subgroup finding — textbook selective
+  reporting). The final prompt includes explicit counter-examples
+  for both legitimate and illegitimate overrides.
+- Post-hoc enforcement of trigger (d) was validated: the tapinarof
+  paper's COI=high cannot be downgraded by the LLM.
+
+#### Phase 3 results — gemma4 26B v4 agentic (5 calibration papers)
+
+| Paper | Cochrane | Claude v4 | gemma4 v4 | Match |
+|---|---|---|---|---|
+| 32382720 rTMS | low (5/5) | moderate/0.42 | **high/0.72** | ✗ |
+| 39777610 tapinarof | low (industry) | high/0.78 | **high/0.80** | ✓ |
+| 39905419 balneotherapy | some_concerns | high/0.68 | **low/0.18** | ✗ |
+| 39691748 lidocaine | high | high/0.62 | **high/0.72** | ✓ |
+| 41750436 Seed Health | n/a | high/0.84 | **high/0.84** | ✓ |
+
+3/5 headline match against Claude v4. The critical result:
+**the lidocaine catastrophic under-call (v3 gemma4: moderate/0.45)
+is fixed — v4 gemma4: high/0.72.** The Python mechanical rules
+do the heavy lifting: `_count_endpoints` counts 28 outcomes from
+the list, `no_multiplicity_correction AND total_endpoints >= 6`
+fires deterministically, and gemma4 accepts the result.
+
+The two mismatches reveal the expected Phase 3 limitation:
+**gemma4 rubber-stamps the mechanical result without applying
+contextual overrides.** Every gemma4 run used exactly 2 iterations
+(one tool call, one final answer) with zero overrides. It calls
+the tool and emits the result verbatim. This means:
+
+- **On the rTMS paper** (Cochrane LOW, exploratory secondary
+  analysis): Claude v4 correctly overrides methodology from high
+  to moderate because the paper is explicitly exploratory. gemma4
+  doesn't override — it doesn't have the clinical reasoning depth
+  to identify an exploratory secondary analysis and contextually
+  adjust the multiplicity standard.
+
+- **On the balneotherapy paper** (Cochrane some_concerns): Claude
+  v4 upgraded several domains based on structural concerns it
+  identified (open-label + subjective PROs, mislabelled ITT).
+  gemma4 doesn't upgrade — it lacks the contextual judgment to
+  identify concerns the mechanical rules didn't flag.
+
+**The architecture degrades gracefully.** A local model that
+rubber-stamps the mechanical result is still better than v3,
+where the same model had to do extraction AND rule application AND
+contextual judgment in a single prompt. The v3 gemma4 calibration
+was 2/4 headline matches (§3.13); v4 gemma4 is 3/5, with the
+critical HIGH-paper fix landed. The contextual override capability
+is a Claude-tier feature that local models don't yet match, but
+the mechanical foundation ensures they can't produce catastrophic
+arithmetic-driven under-calls anymore.
+
+The separation also makes the quality gap **measurable and
+addressable**: when a local model's tool-calling improves (larger
+context, better instruction-following, fine-tuning on override
+examples), the v4 architecture captures that improvement directly
+without any pipeline changes.
+
+gpt-oss 20B Phase 3 results pending at time of writing — will be
+appended here.
 
 ---
 
