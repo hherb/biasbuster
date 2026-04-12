@@ -10,15 +10,19 @@ See ``docs/two_step_approach/V4_AGENT_DESIGN.md`` for the design,
 ``biasbuster.assessment`` for the Python rules. Verification
 tool wrappers are reused from ``biasbuster.agent.tools``.
 
-Phase 2 scope: Anthropic Claude only. Phase 3 adds local models
-via bmlib's feature/tool-calling branch.
+Supports two provider backends:
+  - ``provider="anthropic"`` (Phase 2): direct ``anthropic.AsyncAnthropic``
+    SDK. Requires an Anthropic API key.
+  - ``provider="bmlib"`` (Phase 3): bmlib's ``LLMClient.chat(tools=...)``
+    which routes to any bmlib-supported provider (Ollama for local models,
+    Anthropic, DeepSeek, etc.). Requires a bmlib model string.
 
-Companion modules (split to keep this file under the 500-line
-guideline): ``assessment_agent_tools`` for TOOL_DEFINITIONS,
+Companion modules: ``assessment_agent_tools`` for TOOL_DEFINITIONS,
 ``assessment_agent_enforcement`` for the post-hoc enforcement pass.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -73,6 +77,29 @@ class AgentLoopResult:
 
 
 # ---------------------------------------------------------------------------
+# Provider-agnostic turn result
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _TurnResult:
+    """Normalised result from one agent turn, regardless of provider.
+
+    Both the Anthropic and bmlib code paths return this shape so the
+    main ``assess()`` loop is provider-agnostic.
+    """
+    text: str = ""
+    tool_uses: list[dict[str, Any]] = field(default_factory=list)
+    # Each tool_use dict has: {"id": str, "name": str, "input": dict}
+    # This is the union shape that both Anthropic and bmlib produce.
+
+    # Raw content blocks from the provider (Anthropic only — used to
+    # reconstruct the assistant turn when re-sending the conversation).
+    # For bmlib this stays empty; the LLMMessage reconstruction happens
+    # inside the bmlib path instead.
+    raw_blocks: list[Any] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # AssessmentAgent
 # ---------------------------------------------------------------------------
 
@@ -81,37 +108,51 @@ class AssessmentAgent:
 
     Use via ``async with AssessmentAgent(...) as agent: await agent.assess(...)``.
 
-    Phase 2 implementation: Anthropic Claude only. The
-    ``_call_llm_with_tools_anthropic`` method talks directly to
-    ``anthropic.AsyncAnthropic`` because the existing ``LLMAnnotator``
-    already uses it — no need to route through bmlib for the
-    reference backend. Phase 3 will add a bmlib-based code path
-    for local Ollama models.
+    Two provider backends:
+
+    - ``provider="anthropic"`` (default): direct ``anthropic.AsyncAnthropic``
+      SDK. Pass ``api_key=``.
+    - ``provider="bmlib"``: bmlib's ``LLMClient.chat(tools=...)``. Pass
+      ``model=`` in bmlib format (e.g. ``"ollama:gemma4:26b-a4b-it-q8_0"``).
+      The LLMClient is synchronous; calls are wrapped in
+      ``asyncio.to_thread`` so the agent loop remains async.
     """
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str = "",
         model: str = "claude-sonnet-4-5-20250929",
         max_iterations: int = 5,
         max_tokens_per_turn: int = 4096,
         temperature: float = 0.0,
+        provider: str = "anthropic",
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.max_iterations = max_iterations
         self.max_tokens_per_turn = max_tokens_per_turn
         self.temperature = temperature
-        self._client: Optional[anthropic.AsyncAnthropic] = None
+        self.provider = provider
+        self._anthropic_client: Optional[anthropic.AsyncAnthropic] = None
+        self._bmlib_client: Any = None  # bmlib.llm.LLMClient (lazy import)
 
     async def __aenter__(self) -> "AssessmentAgent":
-        self._client = anthropic.AsyncAnthropic(api_key=self.api_key)
+        if self.provider == "anthropic":
+            self._anthropic_client = anthropic.AsyncAnthropic(api_key=self.api_key)
+        elif self.provider == "bmlib":
+            from bmlib.llm import LLMClient
+            self._bmlib_client = LLMClient(
+                anthropic_api_key=self.api_key or None,
+            )
+        else:
+            raise ValueError(f"Unknown provider: {self.provider!r}")
         return self
 
     async def __aexit__(self, *args) -> None:
-        if self._client is not None:
-            await self._client.close()
-            self._client = None
+        if self._anthropic_client is not None:
+            await self._anthropic_client.close()
+            self._anthropic_client = None
+        self._bmlib_client = None
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -126,6 +167,12 @@ class AssessmentAgent:
     ) -> AgentLoopResult:
         """Run the assessment agent loop on a single paper.
 
+        The loop is provider-agnostic: each iteration calls
+        ``_do_turn()`` which dispatches to the Anthropic or bmlib
+        backend and returns a normalised ``_TurnResult``. The loop
+        logic itself — terminal detection, tool dispatch, conversation
+        management — is shared.
+
         Args:
             pmid: Paper identifier.
             title: Paper title.
@@ -138,106 +185,61 @@ class AssessmentAgent:
         Returns:
             AgentLoopResult with the final assessment and full provenance.
         """
-        if self._client is None:
+        if self.provider == "anthropic" and self._anthropic_client is None:
+            raise RuntimeError("AssessmentAgent must be used as an async context manager")
+        if self.provider == "bmlib" and self._bmlib_client is None:
             raise RuntimeError("AssessmentAgent must be used as an async context manager")
 
         result = AgentLoopResult()
         extraction_json = json.dumps(extraction, indent=2, default=str)
         user_message = build_agent_user_message(pmid, title, extraction_json)
 
-        # Running conversation. Anthropic's `messages` list is
-        # everything except the system prompt. Content can be text or
-        # content-block lists depending on whether the turn carried
-        # tool_use / tool_result.
-        conversation: list[dict[str, Any]] = [
-            {"role": "user", "content": user_message},
-        ]
+        # Running conversation — provider-specific format.
+        # Anthropic: list of dicts with role + content (blocks or text).
+        # bmlib: list of bmlib.llm.data_types.LLMMessage objects.
+        conversation: list[Any] = self._init_conversation(user_message)
 
         for iteration in range(1, self.max_iterations + 1):
             result.iterations = iteration
             logger.info(f"[agent {pmid}] iteration {iteration}/{self.max_iterations}")
 
-            # Force a final-answer turn on the last iteration so we
-            # don't spin indefinitely if the model keeps calling tools.
             force_final = iteration == self.max_iterations
-            response = await self._anthropic_turn(
-                conversation, force_final=force_final
-            )
+            turn = await self._do_turn(conversation, force_final=force_final)
 
-            # Collect text content and tool use blocks from this turn.
-            text_parts: list[str] = []
-            tool_uses: list[dict[str, Any]] = []
-            for block in response.content:
-                btype = getattr(block, "type", None)
-                if btype == "text":
-                    text_parts.append(getattr(block, "text", "") or "")
-                elif btype == "tool_use":
-                    tool_uses.append({
-                        "id": getattr(block, "id", ""),
-                        "name": getattr(block, "name", ""),
-                        "input": dict(getattr(block, "input", {}) or {}),
-                    })
-
-            if not tool_uses:
+            if not turn.tool_uses:
                 # Terminal turn — extract final JSON and exit the loop
-                final_text = "".join(text_parts)
                 logger.info(
                     f"[agent {pmid}] terminal turn in {iteration} iterations, "
                     f"{len(result.tool_calls_made)} tool calls made"
                 )
-                parsed = parse_llm_json(final_text, pmid=pmid)
+                parsed = parse_llm_json(turn.text, pmid=pmid)
                 if parsed is None:
                     logger.error(
                         f"[agent {pmid}] final turn did not produce valid "
-                        f"JSON; raw length={len(final_text)}"
+                        f"JSON; raw length={len(turn.text)}"
                     )
                     return result
                 result.assessment = parsed
-                # Enforce non-overridable rules before returning
                 self._enforce_hard_rules(result)
                 return result
 
-            # Append the assistant turn to the conversation as-is so
-            # the model can correlate the upcoming tool results.
-            conversation.append({
-                "role": "assistant",
-                "content": [
-                    block.model_dump() if hasattr(block, "model_dump")
-                    else _block_to_dict(block)
-                    for block in response.content
-                ],
-            })
+            # Append the assistant turn and dispatch tool calls.
+            self._append_assistant_turn(conversation, turn)
 
-            # Dispatch every tool call in this turn and collect results.
-            tool_result_blocks: list[dict[str, Any]] = []
-            for tu in tool_uses:
+            tool_results: list[tuple[str, str]] = []  # [(tool_use_id, json_output)]
+            for tu in turn.tool_uses:
                 tool_name = tu["name"]
                 tool_args = tu["input"]
                 result.tool_calls_made.append((tool_name, dict(tool_args)))
-
-                logger.info(
-                    f"[agent {pmid}] tool call: {tool_name}({tool_args})"
-                )
+                logger.info(f"[agent {pmid}] tool call: {tool_name}({tool_args})")
                 tool_output = await self._dispatch_tool(
                     tool_name, tool_args, pmid, title, extraction, paper_metadata, result,
                 )
-                tool_result_blocks.append({
-                    "type": "tool_result",
-                    "tool_use_id": tu["id"],
-                    "content": json.dumps(tool_output, default=str),
-                })
+                tool_results.append((tu["id"], json.dumps(tool_output, default=str)))
 
-            # Feed all tool results back in a single user turn —
-            # Anthropic's preferred shape for parallel tool calls
-            conversation.append({
-                "role": "user",
-                "content": tool_result_blocks,
-            })
+            self._append_tool_results(conversation, tool_results)
 
             if force_final:
-                # We issued the loop with tool_choice={"type": "none"}
-                # but the model still emitted a tool call (should be
-                # impossible, but guard anyway). Treat as failure.
                 result.hit_iteration_cap = True
                 logger.error(
                     f"[agent {pmid}] hit iteration cap while still calling "
@@ -249,28 +251,83 @@ class AssessmentAgent:
         return result
 
     # ------------------------------------------------------------------
+    # Provider-agnostic conversation helpers
+    # ------------------------------------------------------------------
+
+    def _init_conversation(self, user_message: str) -> list[Any]:
+        """Create the initial conversation with the first user message."""
+        if self.provider == "bmlib":
+            from bmlib.llm import LLMMessage
+            return [LLMMessage(role="user", content=user_message)]
+        # Anthropic format
+        return [{"role": "user", "content": user_message}]
+
+    def _append_assistant_turn(self, conversation: list[Any], turn: _TurnResult) -> None:
+        """Append the assistant's tool-calling turn to the conversation."""
+        if self.provider == "bmlib":
+            from bmlib.llm import LLMMessage, LLMToolCall
+            tool_calls = [
+                LLMToolCall(id=tu["id"], name=tu["name"], arguments=tu["input"])
+                for tu in turn.tool_uses
+            ]
+            conversation.append(
+                LLMMessage(role="assistant", content=turn.text, tool_calls=tool_calls)
+            )
+        else:
+            # Anthropic — re-send the raw content blocks so the model
+            # can correlate tool results
+            conversation.append({
+                "role": "assistant",
+                "content": [
+                    block.model_dump() if hasattr(block, "model_dump")
+                    else _block_to_dict(block)
+                    for block in turn.raw_blocks
+                ],
+            })
+
+    def _append_tool_results(
+        self, conversation: list[Any], results: list[tuple[str, str]],
+    ) -> None:
+        """Append tool results to the conversation."""
+        if self.provider == "bmlib":
+            from bmlib.llm import LLMMessage
+            for tool_use_id, output_json in results:
+                conversation.append(
+                    LLMMessage(role="tool", content=output_json, tool_call_id=tool_use_id)
+                )
+        else:
+            # Anthropic — all tool results in one user message
+            conversation.append({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_id,
+                        "content": output_json,
+                    }
+                    for tool_use_id, output_json in results
+                ],
+            })
+
+    async def _do_turn(
+        self, conversation: list[Any], force_final: bool,
+    ) -> _TurnResult:
+        """Send one agent turn and return a normalised result."""
+        if self.provider == "bmlib":
+            return await self._bmlib_turn(conversation, force_final)
+        return await self._anthropic_turn(conversation, force_final)
+
+    # ------------------------------------------------------------------
     # Anthropic tool-calling transport
     # ------------------------------------------------------------------
 
     async def _anthropic_turn(
         self,
-        conversation: list[dict[str, Any]],
+        conversation: list[Any],
         force_final: bool,
-    ) -> Any:
-        """Send one agent turn to Anthropic and return the raw response.
-
-        Args:
-            conversation: The running message list (Anthropic format,
-                no system message — that goes in the top-level `system`
-                parameter).
-            force_final: If True, set tool_choice={"type": "none"} so
-                the model cannot call any more tools and must produce
-                a final answer.
-
-        Returns:
-            The raw anthropic.types.Message response object.
-        """
-        assert self._client is not None
+    ) -> _TurnResult:
+        """Send one agent turn to Anthropic and return a normalised result."""
+        assert self._anthropic_client is not None
 
         request_kwargs: dict[str, Any] = {
             "model": self.model,
@@ -283,7 +340,87 @@ class AssessmentAgent:
         if force_final:
             request_kwargs["tool_choice"] = {"type": "none"}
 
-        return await self._client.messages.create(**request_kwargs)
+        response = await self._anthropic_client.messages.create(**request_kwargs)
+
+        text_parts: list[str] = []
+        tool_uses: list[dict[str, Any]] = []
+        for block in response.content:
+            btype = getattr(block, "type", None)
+            if btype == "text":
+                text_parts.append(getattr(block, "text", "") or "")
+            elif btype == "tool_use":
+                tool_uses.append({
+                    "id": getattr(block, "id", ""),
+                    "name": getattr(block, "name", ""),
+                    "input": dict(getattr(block, "input", {}) or {}),
+                })
+
+        return _TurnResult(
+            text="".join(text_parts),
+            tool_uses=tool_uses,
+            raw_blocks=list(response.content),
+        )
+
+    async def _bmlib_turn(
+        self,
+        conversation: list[Any],
+        force_final: bool,
+    ) -> _TurnResult:
+        """Send one agent turn via bmlib LLMClient and return a normalised result.
+
+        bmlib's ``LLMClient.chat()`` is synchronous. We wrap it in
+        ``asyncio.to_thread`` so the agent loop stays async (consistent
+        with how ``BmlibAnnotator`` works).
+        """
+        from bmlib.llm import LLMMessage, LLMToolDefinition
+
+        assert self._bmlib_client is not None
+
+        # Convert our tool definitions to bmlib LLMToolDefinition objects
+        bmlib_tools = [
+            LLMToolDefinition(
+                name=td["name"],
+                description=td["description"],
+                parameters=td.get("input_schema", {}),
+            )
+            for td in TOOL_DEFINITIONS
+        ]
+
+        # Prepend system message to the conversation for bmlib
+        # (bmlib forwards it to the provider which handles it natively)
+        messages = [
+            LLMMessage(role="system", content=ASSESSMENT_AGENT_SYSTEM_PROMPT),
+            *conversation,
+        ]
+
+        tool_choice = "none" if force_final else "auto"
+
+        def _sync_call():
+            return self._bmlib_client.chat(
+                messages=messages,
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens_per_turn,
+                tools=bmlib_tools,
+                tool_choice=tool_choice,
+            )
+
+        response = await asyncio.to_thread(_sync_call)
+
+        # Normalise bmlib's LLMResponse into _TurnResult
+        tool_uses: list[dict[str, Any]] = []
+        if response.tool_calls:
+            for tc in response.tool_calls:
+                tool_uses.append({
+                    "id": tc.id,
+                    "name": tc.name,
+                    "input": tc.arguments,
+                })
+
+        return _TurnResult(
+            text=response.content or "",
+            tool_uses=tool_uses,
+        )
 
     # ------------------------------------------------------------------
     # Tool dispatch

@@ -513,10 +513,13 @@ def create_annotator(
 
     Args:
         config: Application configuration.
-        model_name: Backend identifier ("anthropic" or "deepseek").
+        model_name: Backend identifier. Built-in names: ``"anthropic"``,
+            ``"deepseek"``. Any other string is treated as a bmlib model
+            string (e.g. ``"ollama:gemma4:26b-a4b-it-q8_0"``) and routed
+            through ``BmlibAnnotator``.
 
     Returns:
-        Annotator instance, or None if the model name is unknown.
+        Annotator instance, or None if instantiation fails.
     """
     if model_name == "anthropic":
         from biasbuster.annotators.llm_prelabel import LLMAnnotator
@@ -534,8 +537,21 @@ def create_annotator(
             max_tokens=config.deepseek_max_tokens,
         )
     else:
-        logger.error(f"Unknown annotator model: {model_name}")
-        return None
+        # Treat as a bmlib model string (e.g. "ollama:gemma4:26b-a4b-it-q8_0")
+        try:
+            from bmlib.llm import LLMClient
+            from biasbuster.annotators.bmlib_backend import BmlibAnnotator
+            client = LLMClient(
+                anthropic_api_key=config.anthropic_api_key or None,
+            )
+            return BmlibAnnotator(
+                client=client,
+                model=model_name,
+                extra_chat_kwargs={"think": False},
+            )
+        except Exception as exc:
+            logger.error(f"Failed to create BmlibAnnotator for {model_name!r}: {exc}")
+            return None
 
 
 async def stage_export(

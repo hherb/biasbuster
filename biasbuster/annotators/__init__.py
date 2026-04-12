@@ -1093,27 +1093,27 @@ class BaseAnnotator(abc.ABC):
         sections: list[tuple[str, str]],
         metadata: Optional[dict] = None,
         api_key: Optional[str] = None,
+        agent_provider: Optional[str] = None,
+        agent_model: Optional[str] = None,
     ) -> Optional[dict]:
         """v4 agentic annotation: extraction → tool-calling assessment agent.
 
         Stage 1: identical to ``annotate_full_text_two_call`` — per-section
             sequential extraction → merge. Shared via
             ``_extract_full_text_sections``.
-        Stage 2: instead of a single LLM assessment call with the v3
-            ASSESSMENT_SYSTEM_PROMPT (20 KB of in-prompt rules), hands the
-            merged extraction to an ``AssessmentAgent`` that:
-            1. Calls ``run_mechanical_assessment`` (Python aggregator)
-            2. Reviews the draft severities + provenance
-            3. Optionally overrides severity on contextual grounds
-            4. Optionally calls verification tools for borderline cases
-            5. Emits a final assessment JSON with ``_overrides``
-            Post-hoc enforcement blocks downgrades of non-overridable
-            COI triggers (``DESIGN_RATIONALE_COI.md`` policy).
+        Stage 2: hands the merged extraction to an ``AssessmentAgent``
+            that calls ``run_mechanical_assessment`` (Python aggregator),
+            reviews the draft, optionally overrides with contextual
+            judgment, and optionally calls verification tools.
 
-        Phase 2 scope: Anthropic Claude only. The *api_key* parameter
-        is mandatory for this path (it's passed to the
-        ``AssessmentAgent`` which creates its own Anthropic client).
-        Phase 3 will add a bmlib-based code path for local models.
+        Two provider modes for the assessment agent (Stage 2 only —
+        Stage 1 always uses this annotator's ``_call_llm``):
+
+        - ``agent_provider="anthropic"`` (default for LLMAnnotator):
+          direct Anthropic SDK. Requires ``api_key``.
+        - ``agent_provider="bmlib"`` (for BmlibAnnotator / local models):
+          bmlib's ``LLMClient.chat(tools=...)``. Requires ``agent_model``
+          in bmlib format (e.g. ``"ollama:gemma4:26b-a4b-it-q8_0"``).
 
         Args:
             pmid: Paper identifier.
@@ -1121,8 +1121,13 @@ class BaseAnnotator(abc.ABC):
             sections: Chunked (section_name, section_text) tuples.
             metadata: Optional paper metadata (authors, DOI, etc.)
                 for verification tool dispatch.
-            api_key: Anthropic API key (Phase 2 only). If None, tries
-                ``self.api_key`` (available on LLMAnnotator).
+            api_key: Anthropic API key (for agent_provider="anthropic").
+                If None, tries ``self.api_key``.
+            agent_provider: ``"anthropic"`` or ``"bmlib"``. Defaults to
+                ``"anthropic"`` unless the annotator is a BmlibAnnotator.
+            agent_model: Model string for the assessment agent. Defaults
+                to ``self.model``. For bmlib, pass the full bmlib model
+                string (e.g. ``"ollama:gemma4:26b-a4b-it-q8_0"``).
 
         Returns:
             Assessment dict with ``_annotation_mode: "agentic_v4"``
@@ -1130,16 +1135,23 @@ class BaseAnnotator(abc.ABC):
         """
         from biasbuster.assessment_agent import AssessmentAgent
 
-        # Resolve API key — the LLMAnnotator subclass has self.api_key;
-        # other backends must pass it explicitly
-        resolved_key = api_key or getattr(self, "api_key", None)
-        if not resolved_key:
+        # Resolve provider — default to anthropic for LLMAnnotator,
+        # bmlib for BmlibAnnotator
+        if agent_provider is None:
+            from biasbuster.annotators.bmlib_backend import BmlibAnnotator
+            agent_provider = "bmlib" if isinstance(self, BmlibAnnotator) else "anthropic"
+
+        # Resolve API key for Anthropic path
+        resolved_key = api_key or getattr(self, "api_key", "") or ""
+        if agent_provider == "anthropic" and not resolved_key:
             logger.error(
-                f"PMID {pmid}: annotate_full_text_agentic requires an "
-                f"Anthropic API key (Phase 2). Pass api_key= or use "
-                f"LLMAnnotator which has self.api_key."
+                f"PMID {pmid}: annotate_full_text_agentic with provider=anthropic "
+                f"requires an API key. Pass api_key= or use LLMAnnotator."
             )
             return None
+
+        # Resolve model for the assessment agent
+        resolved_model = agent_model or getattr(self, "model", "claude-sonnet-4-5-20250929")
 
         # Stage 1: extraction (shared with v3)
         extraction_result = await self._extract_full_text_sections(
@@ -1152,12 +1164,14 @@ class BaseAnnotator(abc.ABC):
         # Stage 2: agentic assessment
         logger.info(
             f"PMID {pmid}: starting v4 assessment agent "
-            f"({len(section_extractions)} sections extracted, "
+            f"(provider={agent_provider}, model={resolved_model}, "
+            f"{len(section_extractions)} sections extracted, "
             f"{len(merge_conflicts)} merge conflicts)"
         )
         async with AssessmentAgent(
             api_key=resolved_key,
-            model=getattr(self, "model", "claude-sonnet-4-5-20250929"),
+            model=resolved_model,
+            provider=agent_provider,
         ) as agent:
             agent_result = await agent.assess(
                 pmid=pmid,

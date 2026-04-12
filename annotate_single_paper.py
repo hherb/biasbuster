@@ -272,9 +272,22 @@ async def annotate_paper(
             return None
 
         if agentic:
+            # Determine the agent provider from the model name:
+            # "anthropic" or any "anthropic:*" → provider="anthropic"
+            # anything else (ollama, deepseek, etc.) → provider="bmlib"
+            if model_name.startswith("anthropic"):
+                agent_provider = "anthropic"
+                # For anthropic, the agent creates its own client
+                agent_model = annotator.model
+            else:
+                agent_provider = "bmlib"
+                # For bmlib, pass the full model string as-is
+                agent_model = model_name
+
             logger.info(
                 f"Using v4 agentic assessment mode "
-                f"({len(sections)} sections)"
+                f"(agent_provider={agent_provider}, agent_model={agent_model}, "
+                f"{len(sections)} sections)"
             )
             async with annotator:
                 result = await annotator.annotate_full_text_agentic(
@@ -282,6 +295,8 @@ async def annotate_paper(
                     title=paper.get("title", ""),
                     sections=sections,
                     metadata=paper,
+                    agent_provider=agent_provider,
+                    agent_model=agent_model,
                 )
         else:
             logger.info(
@@ -343,8 +358,9 @@ async def main() -> int:
         "--model",
         type=str,
         default="deepseek",
-        choices=["anthropic", "deepseek"],
-        help="Annotator backend (default: deepseek)",
+        help="Annotator backend. Built-in: 'anthropic', 'deepseek'. "
+             "For local models via Ollama, pass a bmlib model string "
+             "(e.g. 'ollama:gemma4:26b-a4b-it-q8_0'). Default: deepseek.",
     )
     parser.add_argument(
         "--source",
