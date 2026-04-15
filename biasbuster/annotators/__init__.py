@@ -1209,6 +1209,137 @@ class BaseAnnotator(abc.ABC):
         return assessment
 
     # ------------------------------------------------------------------
+    # v5A Decomposed annotation (per-domain override LLM calls)
+    # ------------------------------------------------------------------
+
+    async def annotate_full_text_decomposed(
+        self,
+        pmid: str,
+        title: str,
+        sections: list[tuple[str, str]],
+        metadata: Optional[dict] = None,
+        api_key: Optional[str] = None,
+        agent_provider: Optional[str] = None,
+        agent_model: Optional[str] = None,
+        synthesise_reasoning: bool = True,
+    ) -> Optional[dict]:
+        """v5A decomposed annotation: extraction → per-domain override calls.
+
+        Stage 1: identical to ``annotate_full_text_two_call`` /
+            ``annotate_full_text_agentic`` — per-section extraction +
+            merge. Shared via ``_extract_full_text_sections``.
+        Stage 2+: hands the merged extraction to a
+            ``DecomposedAssessor`` which runs mechanical assessment,
+            then issues one focused LLM call per elevated + overridable
+            domain (parallel), applies decisions deterministically,
+            runs hard-rule enforcement, and optionally generates a
+            2-3 sentence reasoning summary via one more small LLM call.
+
+        Provider selection mirrors ``annotate_full_text_agentic``:
+        anthropic for LLMAnnotator, bmlib for BmlibAnnotator, with
+        explicit override via the ``agent_provider`` / ``agent_model``
+        kwargs.
+
+        Args:
+            pmid: Paper identifier.
+            title: Paper title.
+            sections: Chunked (section_name, section_text) tuples.
+            metadata: Optional paper metadata — not currently used by
+                the V5A assessor (no verification tool calls in V5A v1)
+                but accepted for signature compatibility.
+            api_key: Anthropic API key (for agent_provider="anthropic").
+            agent_provider: ``"anthropic"`` or ``"bmlib"``. Defaults to
+                ``"anthropic"`` unless the annotator is a BmlibAnnotator.
+            agent_model: Model string for the assessor. Defaults to
+                ``self.model``.
+            synthesise_reasoning: If True, issue one final small LLM
+                call to produce a 2-3 sentence reasoning summary. If
+                False, use the Python-generated boilerplate reasoning
+                from the mechanical draft (saves one call per paper).
+
+        Returns:
+            Assessment dict with ``_annotation_mode="decomposed_v5a"``
+            and ``_overrides=[...]``. None on failure.
+        """
+        from biasbuster.assessment_decomposed import DecomposedAssessor
+
+        # Resolve provider — same pattern as annotate_full_text_agentic
+        if agent_provider is None:
+            from biasbuster.annotators.bmlib_backend import BmlibAnnotator
+            agent_provider = "bmlib" if isinstance(self, BmlibAnnotator) else "anthropic"
+
+        resolved_key = api_key or getattr(self, "api_key", "") or ""
+        if agent_provider == "anthropic" and not resolved_key:
+            logger.error(
+                f"PMID {pmid}: annotate_full_text_decomposed with "
+                f"provider=anthropic requires an API key."
+            )
+            return None
+
+        resolved_model = agent_model or getattr(self, "model", "claude-sonnet-4-5-20250929")
+
+        # Stage 1: extraction (shared with v3 / v4)
+        extraction_result = await self._extract_full_text_sections(
+            pmid, title, sections,
+        )
+        if extraction_result is None:
+            return None
+        extraction, section_extractions, merge_conflicts, failed_count = extraction_result
+
+        logger.info(
+            f"PMID {pmid}: starting v5A decomposed assessor "
+            f"(provider={agent_provider}, model={resolved_model}, "
+            f"{len(section_extractions)} sections extracted, "
+            f"{len(merge_conflicts)} merge conflicts)"
+        )
+
+        async with DecomposedAssessor(
+            api_key=resolved_key,
+            model=resolved_model,
+            provider=agent_provider,
+            synthesise_reasoning=synthesise_reasoning,
+        ) as assessor:
+            result = await assessor.assess(
+                pmid=pmid,
+                title=title,
+                extraction=extraction,
+            )
+
+        if result.assessment is None:
+            logger.error(f"PMID {pmid}: v5A decomposed assessor produced no assessment")
+            return None
+
+        # Decorate result for DB storage (shape parallel to v4)
+        assessment = result.assessment
+        assessment["pmid"] = pmid
+        assessment["title"] = title
+        assessment["_annotation_model"] = self.model
+        assessment["_annotation_mode"] = "decomposed_v5a"
+        assessment["extraction"] = extraction
+        assessment["_section_extractions"] = section_extractions
+        if merge_conflicts:
+            assessment["_merge_conflicts"] = merge_conflicts
+        if failed_count:
+            assessment["_failed_sections"] = failed_count
+        # v5A-specific metadata
+        assessment["_decomposed_llm_calls"] = result.n_llm_calls
+        assessment["_decomposed_decisions"] = [
+            {
+                "domain": d.domain,
+                "mechanical_severity": d.mechanical_severity,
+                "decision": d.decision,
+                "target_severity": d.target_severity,
+                "reason": d.reason,
+                "parse_error": d.parse_error,
+            }
+            for d in result.domain_decisions
+        ]
+        if result.enforcement_notes:
+            assessment["_enforcement_notes"] = result.enforcement_notes
+
+        return assessment
+
+    # ------------------------------------------------------------------
     # Two-call annotation (v3)
     # ------------------------------------------------------------------
 

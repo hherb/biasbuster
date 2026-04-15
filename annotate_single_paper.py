@@ -189,22 +189,26 @@ async def annotate_paper(
     two_call: bool = True,
     full_text: bool = False,
     agentic: bool = False,
+    decomposed: bool = False,
     identifier: Optional[str] = None,
 ) -> Optional[dict]:
     """Annotate a single paper and store the result.
 
-    Four modes:
+    Five modes:
     - Abstract single-call (``two_call=False, full_text=False``): legacy v1.
     - Abstract two-call (``two_call=True, full_text=False``): default v3.
     - Full-text two-call (``full_text=True``): map-reduce v3 over JATS chunks.
-      ``two_call`` must also be True (the script enforces this at the CLI).
     - Full-text agentic (``agentic=True``): v4 extraction + tool-calling
-      assessment agent. Implies full-text. Phase 2: Claude only.
+      assessment agent.
+    - Full-text decomposed (``decomposed=True``): v5A extraction + Python
+      mechanical assessment + per-domain LLM override calls. Result is
+      stored under ``<model>_fulltext_decomposed``.
 
     The full-text result is saved under a distinct DB tag
     (``<model>_fulltext``) so it does not overwrite the abstract
     annotation, which lives under the bare ``<model>`` tag.
     The agentic result is saved under ``<model>_fulltext_agentic``.
+    The decomposed result is saved under ``<model>_fulltext_decomposed``.
 
     Args:
         pmid: Paper PMID.
@@ -241,7 +245,9 @@ async def annotate_paper(
     # annotations get their own tag so they don't overwrite the abstract
     # version under the bare backend name. Agentic mode gets its own tag
     # so it doesn't overwrite the v3 full-text results either.
-    if agentic:
+    if decomposed:
+        db_model_name = f"{model_name}_fulltext_decomposed"
+    elif agentic:
         db_model_name = f"{model_name}_fulltext_agentic"
     elif full_text:
         db_model_name = f"{model_name}_fulltext"
@@ -264,26 +270,25 @@ async def annotate_paper(
                 return existing[0]
             return None
 
-    if agentic or full_text:
+    if agentic or decomposed or full_text:
         # Fetch + chunk *before* opening the annotator context so a
         # full-text acquisition failure doesn't waste an API connection.
         sections = _fetch_sections_for_full_text(identifier or pmid)
         if not sections:
             return None
 
-        if agentic:
-            # Determine the agent provider from the model name:
+        if agentic or decomposed:
+            # Determine the assessor provider from the model name:
             # "anthropic" or any "anthropic:*" → provider="anthropic"
             # anything else (ollama, deepseek, etc.) → provider="bmlib"
             if model_name.startswith("anthropic"):
                 agent_provider = "anthropic"
-                # For anthropic, the agent creates its own client
                 agent_model = annotator.model
             else:
                 agent_provider = "bmlib"
-                # For bmlib, pass the full model string as-is
                 agent_model = model_name
 
+        if agentic:
             logger.info(
                 f"Using v4 agentic assessment mode "
                 f"(agent_provider={agent_provider}, agent_model={agent_model}, "
@@ -291,6 +296,21 @@ async def annotate_paper(
             )
             async with annotator:
                 result = await annotator.annotate_full_text_agentic(
+                    pmid=pmid,
+                    title=paper.get("title", ""),
+                    sections=sections,
+                    metadata=paper,
+                    agent_provider=agent_provider,
+                    agent_model=agent_model,
+                )
+        elif decomposed:
+            logger.info(
+                f"Using v5A decomposed assessment mode "
+                f"(agent_provider={agent_provider}, agent_model={agent_model}, "
+                f"{len(sections)} sections)"
+            )
+            async with annotator:
+                result = await annotator.annotate_full_text_decomposed(
                     pmid=pmid,
                     title=paper.get("title", ""),
                     sections=sections,
@@ -400,6 +420,18 @@ async def main() -> int:
              "Claude only). Result is stored under '<model>_fulltext_agentic'. "
              "See docs/two_step_approach/V4_AGENT_DESIGN.md for design details.",
     )
+    mode_group.add_argument(
+        "--decomposed",
+        action="store_true",
+        help="Use the v5A decomposed assessment pipeline: extraction "
+             "(identical to --full-text) → Python mechanical assessment → "
+             "one focused LLM call per elevated overridable domain → "
+             "deterministic synthesis. Designed to make small local "
+             "models (gemma4-26B, gpt-oss-20B) reliably produce "
+             "contextual overrides by giving each call a single narrow "
+             "task. Result is stored under '<model>_fulltext_decomposed'. "
+             "See docs/three_step_approach/V5A_DECOMPOSED.md for design.",
+    )
     parser.add_argument(
         "--output", "-o",
         type=str,
@@ -481,8 +513,9 @@ async def main() -> int:
             pmid, paper, db, config, args.model,
             force=args.force,
             two_call=not args.single_call,
-            full_text=args.full_text or args.agentic,
+            full_text=args.full_text or args.agentic or args.decomposed,
             agentic=args.agentic,
+            decomposed=args.decomposed,
             identifier=original_identifier,
         )
         if result is None:
