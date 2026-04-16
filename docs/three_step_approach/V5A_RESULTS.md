@@ -10,10 +10,10 @@
   - Validation: same file regenerated at 23:22 on 16 papers
   - Cochrane: `dataset/annotation_comparison/cochrane_comparison_2026-04-15.md`
 
-> **16-paper update (2026-04-15 evening):** Validation run completed
-> for Sonnet and gemma4 (16/16). gpt-oss still running (7/16 at time
-> of writing). Findings from the 11-paper expansion added inline as
-> "16-paper validation" callouts.
+> **16-paper update (2026-04-16):** Validation run complete for all
+> three models. Headline: gemma4 passes the +0.30 threshold; gpt-oss
+> fails it. Findings from the 11-paper expansion added inline as
+> "16-paper validation" callouts below.
 
 ## Headline
 
@@ -30,27 +30,45 @@ V5A successfully closes the small-model contextual-judgment gap identified in [`
 
 | Model       | V5A overall κ | Pass threshold | Status |
 |-------------|---------------|----------------|--------|
-| gemma4-26B  | **+0.429**    | +0.30          | ✓ pass  |
-| gpt-oss-20B | (pending)     | +0.30          | TBD    |
+| gemma4-26B  | **+0.429**    | +0.30          | ✓ pass |
+| gpt-oss-20B | **+0.158**    | +0.30          | ✗ fail |
 
-### Critical finding: **both Sonnet and gemma4 achieve perfect κ=1.000 against Cochrane expert labels** on the methodology and outcome-reporting domains (15 Cochrane papers). On the two biasbuster domains that map directly to Cochrane RoB 2, the models are expert-level accurate.
+### Critical finding: **Sonnet and gemma4 both achieve κ=1.000 against Cochrane expert labels** on the methodology and outcome-reporting domains (15 Cochrane papers). On the two biasbuster domains that map directly to Cochrane RoB 2, these two models are expert-level accurate.
 
-V5B fine-tuning is no longer needed. The recommendation remains: focus on **gemma4-26B as the primary local model**, with V5A as the inference pipeline.
+gpt-oss fails the same comparison with methodology κ = 0.000 vs Cochrane — it systematically misses methodological concerns that both Cochrane experts and the other two models catch.
+
+### Final model recommendations (updated)
+
+1. **gemma4-26B is the recommended local model for V5A deployment.** Pilot result replicates at scale, with expert-level methodology/reporting accuracy.
+2. **gpt-oss-20B is not recommended.** Below the pass threshold on inter-model κ and fails against Cochrane on methodology. Its capacity (20B) is the likely ceiling.
+3. **V5B fine-tuning is not needed for gemma4.** For gpt-oss, fine-tuning *could* theoretically close the gap but isn't worth the investment given gemma4 already works.
 
 ## 16-paper validation — detailed findings
 
-### Agreement matrix (Sonnet ↔ gemma4, 16 papers)
+### Agreement matrix vs Sonnet (16 papers)
 
-| Dimension                 | 5-paper κ | **16-paper κ** | Δ       |
-|---------------------------|-----------|----------------|---------|
-| Overall severity          | 0.783     | **0.429**      | -0.354  |
-| Statistical Reporting     | 0.615     | 0.285          | -0.330  |
-| Spin                      | 0.737     | 0.333          | -0.404  |
-| Outcome Reporting         | 0.375     | 0.595          | +0.220  |
-| **Conflict of Interest**  | 1.000     | **0.868**      | -0.132  |
-| Methodology               | 0.643     | 0.546          | -0.097  |
+| Dimension                 | gemma4 pilot κ | **gemma4 16p κ** | **gpt-oss 16p κ** |
+|---------------------------|----------------|------------------|-------------------|
+| Overall severity          | 0.783          | **0.429**        | **0.158** ✗       |
+| Statistical Reporting     | 0.615          | 0.285            | 0.082             |
+| Spin                      | 0.737          | 0.333            | 0.500             |
+| Outcome Reporting         | 0.375          | 0.595            | 0.778             |
+| Conflict of Interest      | 1.000          | **0.868**        | 0.598             |
+| Methodology               | 0.643          | 0.546            | 0.546             |
 
-The pilot kappas were clearly inflated by N=5. The validation numbers are the real signal — still well above V4 baselines (-0.154 gemma4 vs Sonnet in V4 → +0.429 V5A), but no longer "nearly perfect."
+The pilot kappas were clearly inflated by N=5. The validation numbers are the real signal — gemma4 still well above V4 baselines (-0.154 in V4 → +0.429 in V5A) and above the pass threshold. gpt-oss underperforms with scale.
+
+### Agreement with Cochrane experts (15 Cochrane papers)
+
+| Comparison                           | Sonnet    | gemma4    | gpt-oss   |
+|--------------------------------------|-----------|-----------|-----------|
+| Methodology κ vs Cochrane            | **1.000** | **1.000** | 0.000 ✗   |
+| Outcome-reporting κ vs Cochrane      | **1.000** | **1.000** | **1.000** |
+| Overall κ raw (includes COI)         | -0.013    | +0.027    | +0.118    |
+| Overall κ (COI-only HIGH excluded)   | +0.027    | +0.058    | +0.167    |
+| Papers rated HIGH solely due to COI  | 4         | 2         | 2         |
+
+gpt-oss's apparent win on raw overall κ vs Cochrane (+0.118 vs Sonnet's -0.013) is misleading — it's achieved by being more lenient across the board, which accidentally aligns with Cochrane's LOW ratings on industry trials but misses real methodological concerns (κ=0.000 on methodology). Sonnet and gemma4 trade a worse overall-κ for perfect methodology agreement with experts, which is the correct trade given biasbuster's COI policy extension.
 
 ### Why the drop is misleading (and V5A is still winning)
 
@@ -170,11 +188,11 @@ This is a qualitatively different and more tractable problem than the V4 judgmen
 
 ## Recommendations
 
-Updated after the 16-paper validation:
+Final (after the 16-paper 3-model validation):
 
-1. **V5A is production-ready for local deployment with gemma4-26B.** The headline is no longer the +0.78 κ vs Sonnet (that was small-N inflation), but the **κ=1.000 vs Cochrane expert labels on the two directly-comparable domains**. That's an expert-level accuracy result on an externally validated standard.
-2. **Focus further work on gemma4-26B.** The pilot already identified it as stronger than gpt-oss-20B on most dimensions; the validation confirms it tracks expert methodology/reporting judgments perfectly.
-3. **Defer V5B.** Fine-tuning effort is not justified given these results. Keep it as a fallback option.
+1. **Ship V5A + gemma4-26B as the local-model deployment target.** The headline is no longer the +0.78 pilot κ vs Sonnet (inflated by N=5), but the **κ=1.000 vs Cochrane expert labels on the two directly-comparable domains**. That's an expert-level accuracy result on an externally validated standard, holding across the 15-paper validation cohort.
+2. **Drop gpt-oss-20B from consideration.** Below the pass threshold on inter-model κ (0.158 < 0.30) and failed against Cochrane on methodology (κ=0.000). The 20B capacity appears insufficient for this task; gemma4's 26B + a4b MoE architecture is more robust.
+3. **Defer V5B fine-tuning.** Not needed for gemma4 (already expert-level on shared domains). Not worth the investment for gpt-oss when gemma4 already works.
 4. **The next optimisation target is 5-level calibration, not 3-level accuracy.** Sonnet and gemma4 disagree with each other within Cochrane categories (e.g. "moderate" vs "high" within a Cochrane "some concerns" call). Tightening the severity-boundary definitions in `prompts_v5a.py` per-domain criteria may close this drift.
 5. **Invest in extraction quality as a parallel workstream.** A handful of gemma4-vs-Sonnet disagreements trace back to Stage 1 extraction misses, not Stage 3 override judgment.
 6. **Consider a larger Cochrane-cohort evaluation (~50 papers).** The 15 Cochrane papers in the validation set were biased toward industry trials (crisaborole, tapinarof, salivary-glucose series). A more diverse cohort — including public-funded trials, Cochrane "some concerns" examples, and Cochrane "high" examples — would give a cleaner measure of 3-level accuracy without the COI-divergence dominating the signal.
