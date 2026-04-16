@@ -18,71 +18,54 @@ for the full justification.
 
 ## Project Status (April 2026)
 
-**The v3 two-call pipeline is the current production default.**
-The v4 tool-calling assessment agent is in active development —
-see [`docs/two_step_approach/V4_AGENT_DESIGN.md`](docs/two_step_approach/V4_AGENT_DESIGN.md)
-for the design and the implementation roadmap.
+**The V5A decomposed pipeline is the current recommended architecture
+for local models.** gemma4-26B running through V5A achieves perfect
+weighted-kappa agreement (κ = 1.000) with Cochrane RoB 2 expert labels
+on the two directly-comparable domains (methodology, outcome reporting)
+across a 15-paper validation cohort.
 
-**v3 — production today.** Ten rounds of prompt engineering on a
-split extraction-then-assessment architecture brought local-model
-results within reach of Claude's full-text annotation on the
-motivating Seed Health failure case (PMID 41750436):
+### Architecture evolution
 
-| Local model (v3 full-text two-call) | Single-paper reliability vs Claude GT |
-|---|---|
-| gemma4 26B (a4b-it-q8_0) | 9/9 reliability runs exactly match Claude on every flag and `overall_bias_probability` to two decimal places |
-| gpt-oss 20B | 3/3 flags match with one run over-escalating to `critical` |
-| gpt-oss 120B | 3/3 flags match, one run in the 1/3 per-arm extraction noise band |
+| Version | Architecture | Status |
+|---------|-------------|--------|
+| **v3** — two-call | LLM extraction → LLM assessment (single prompt) | Production-grade for abstract-only; ceiling on multi-paper calibration due to LLM arithmetic errors |
+| **v4** — agentic | LLM extraction → LLM agent with `run_mechanical_assessment` tool | Works for Claude; **fails for small local models** (gemma4/gpt-oss rubber-stamp the tool output without contextual review) |
+| **v5A** — decomposed | LLM extraction → Python mechanical rules → **per-domain focused LLM override calls** → Python synthesis | **Recommended for local models.** Closes the small-model gap by giving each LLM call a single narrow task (3-field JSON output) instead of the v4 agent's "review 5 domains and emit 30-field JSON" |
 
-**Multi-paper calibration revealed a ceiling.** A subsequent
-calibration test across 4 papers spanning the full RoB spectrum
-(see `INITIAL_FINDINGS_V3.md` §3.13) inverted the single-paper
-ranking. **120b f2 matched Claude's headline severity on 4/4
-calibration papers**; gemma4 and 20b each failed two of four,
-in different directions. Every failure was an arithmetic or
-boolean-logic problem (`n_primary_endpoints=0` extracted on a
-paper with 8+ outcomes; multiplicity threshold not firing despite
-correct extraction; trigger (d) misapplied to consulting-only
-roles). None was a text-reasoning failure.
+### V5A validation results (16 papers, 15 Cochrane)
 
-**v4 — in development.** Asking a transformer to perform
-arithmetic and boolean threshold logic in natural language is
-the wrong framing for the wrong tool. v4 splits the work:
-extraction stays as an LLM call; assessment becomes an agent
-loop where the LLM calls a `run_mechanical_assessment` tool
-(pure-Python aggregator that consumes the extraction and applies
-all the threshold rules deterministically), reviews the result
-with the contextual judgment that an LLM does well, and
-optionally calls verification tools (ClinicalTrials.gov, CMS
-Open Payments, ORCID, etc.). The assessment prompt shrinks from
-~43 KB to ~2 KB. The mechanical rule logic moves to
-`biasbuster/assessment/`. The COI design policy from
-[`DESIGN_RATIONALE_COI.md`](docs/two_step_approach/DESIGN_RATIONALE_COI.md)
-is enforced both in Python (the mechanical aggregator) and
-post-hoc (a Python check that prevents the LLM from downgrading
-non-overridable rules like trigger (d)).
+| Metric | gemma4-26B | gpt-oss-20B |
+|--------|------------|-------------|
+| Overall severity κ vs Sonnet | +0.429 (pass ≥ 0.30) | +0.158 (fail) |
+| Methodology κ vs Cochrane experts | **1.000** | 0.000 |
+| Outcome-reporting κ vs Cochrane experts | **1.000** | **1.000** |
+| COI κ vs Sonnet | 0.868 | 0.598 |
+| Overall κ vs Cochrane (raw) | +0.027 | +0.118 |
 
-The v4 work has a prerequisite: **bmlib does not yet support
-native tool calling**. Phase 1 of v4 extends bmlib for tool
-calling on a feature branch. Phase 2 wires the v4 agent into
-biasbuster validated against Anthropic Claude. Phase 3 extends
-to local Ollama models (gemma4 / gpt-oss support tool calling
-per Ollama metadata, but cross-family validation is the Phase 3
-job).
+The raw overall κ vs Cochrane is low for all models by design —
+biasbuster's COI policy extension (see
+[DESIGN_RATIONALE_COI.md](docs/two_step_approach/DESIGN_RATIONALE_COI.md))
+rates industry-funded trials HIGH where Cochrane rates them LOW because
+Cochrane RoB 2 does not assess COI. The per-domain methodology and
+outcome-reporting kappas are the clean signal: both Sonnet and gemma4
+track the experts perfectly on the domains Cochrane actually assesses.
 
-**Position on fine-tuning.** Unchanged from the v3 conclusion.
-The original goal was to build training data and fine-tune a
-dedicated model. The v3 pipeline with a well-prompted 26B
-open-weight model already reaches good calibration on most papers,
-and v4 should close the remaining gap. **Fine-tuning is now an
-optional cost/latency optimisation, not a quality requirement.**
-If you want to analyse papers and can run Ollama with a ~26B
-model, try the pipeline first.
+Disagreement analysis on 80 domain-level comparisons showed **86% of
+gemma4–Sonnet disagreements trace to Stage 1 extraction quality**
+(gemma4 missing facts that Sonnet catches), not Stage 3 override
+judgment. Zero calibration drift was observed — when both models
+extract the same facts, they produce identical override decisions.
 
-Full empirical history including the v3 iteration loop, the
-calibration test, and the v4 architecture pivot:
-[docs/two_step_approach/INITIAL_FINDINGS_V3.md](docs/two_step_approach/INITIAL_FINDINGS_V3.md)
-+ [docs/two_step_approach/V4_AGENT_DESIGN.md](docs/two_step_approach/V4_AGENT_DESIGN.md).
+**Recommendation: gemma4-26B + V5A** for fully-local deployment.
+gpt-oss-20B is not recommended (fails methodology agreement with
+Cochrane experts). Fine-tuning is not needed.
+
+Full empirical details:
+[docs/three_step_approach/V5A_RESULTS.md](docs/three_step_approach/V5A_RESULTS.md),
+[docs/three_step_approach/OVERVIEW.md](docs/three_step_approach/OVERVIEW.md).
+Earlier architecture history:
+[docs/two_step_approach/INITIAL_FINDINGS_V3.md](docs/two_step_approach/INITIAL_FINDINGS_V3.md),
+[docs/two_step_approach/V4_AGENT_DESIGN.md](docs/two_step_approach/V4_AGENT_DESIGN.md).
 
 ## Quick Start — Analyse a Publication
 
@@ -281,9 +264,10 @@ reports.
 
 ### How It Works
 
-The v3 **two-call architecture** is the default. Each paper goes
-through two distinct LLM calls that solve independently-evaluable
-subtasks:
+The **V5A decomposed pipeline** is the recommended architecture for
+local models. Cloud models (Claude) can also use V5A, or the v4
+agentic loop which works well for large models. Each paper goes
+through these stages:
 
 1. **Content acquisition** — fetches full text via bmlib's 3-tier
    fallback chain (Europe PMC JATS XML → Unpaywall PDF →
@@ -300,13 +284,20 @@ subtasks:
    etc. No bias judgement at this stage, only facts. Full-text
    mode merges per-section extractions into a single structured
    object.
-4. **Stage 2 — Assessment**: the merged extraction object is passed
-   to a second LLM call that applies domain-specific rules and
-   severity boundaries to produce the 5-domain assessment with
-   per-flag evidence quotes, mechanical HIGH triggers (including
-   the COI trigger documented in
-   [DESIGN_RATIONALE_COI.md](docs/two_step_approach/DESIGN_RATIONALE_COI.md)),
-   and recommended verification steps.
+4. **Stage 2 — Mechanical assessment** (V5A): the merged extraction
+   is fed to a pure-Python rule engine (`biasbuster/assessment/`)
+   that applies deterministic severity thresholds and produces a
+   draft per-domain assessment with full provenance.
+5. **Stage 3 — Per-domain override review** (V5A): for each domain
+   the mechanical rules flagged as moderate or higher *and*
+   overridable, one focused LLM call asks "does this rule genuinely
+   apply to THIS paper?" with a 3-field JSON output. Calls run in
+   parallel. Non-overridable domains (structural COI triggers)
+   skip the LLM entirely.
+6. **Stage 4 — Synthesis**: Python assembles the final assessment
+   from the mechanical draft + per-domain decisions, runs hard-rule
+   enforcement, and optionally generates a reasoning summary via
+   one small LLM call.
 5. **Verification** (optional, `--verify`) — cross-checks against
    ClinicalTrials.gov, CMS Open Payments, ORCID, Europe PMC,
    Retraction Watch.
@@ -350,23 +341,18 @@ biasbuster 12345678 --model gpt-oss:20b
 Known provider prefixes: anthropic, ollama, openai, deepseek, mistral,
 gemini. Bare model names without a prefix default to Ollama.
 
-**Which model should I use?** Based on the Round 10 reliability
-testing (see
-[INITIAL_FINDINGS_V3.md §3.12](docs/two_step_approach/INITIAL_FINDINGS_V3.md)),
-**gemma4 26B** is currently the most reliable local-model choice —
-it produced a zero-divergence match against Claude's full-text
-annotation on 3/3 reliability runs. It is also the fastest of the
-three families tested (~4 min per full-text paper vs 10+ min for
-gpt-oss 120B). The gpt-oss variants also work but have minor
-known quirks on the motivating failure case (1/3 per-arm noise
-on 120B; 1/3 severity over-escalation on 20B). Multi-paper
-calibration across the full RoB spectrum is in progress.
+**Which model should I use?** Based on the V5A 16-paper validation
+against Cochrane RoB 2 expert labels (see
+[V5A_RESULTS.md](docs/three_step_approach/V5A_RESULTS.md)),
+**gemma4 26B** is the recommended local model. It achieves perfect
+weighted-kappa agreement (κ = 1.000) with Cochrane experts on the
+methodology and outcome-reporting domains. gpt-oss 20B is not
+recommended (fails on methodology accuracy vs Cochrane).
 
-Fine-tuned models produced by this project's LoRA pipeline are
-still supported via the `ollama:` prefix, but with the v3
-pipeline working this well out-of-the-box, fine-tuning is now an
-optional cost/latency optimisation rather than a quality
-requirement.
+Fine-tuning is not needed. The V5A decomposed pipeline with gemma4
+26B achieves expert-level accuracy on shared Cochrane domains
+without any fine-tuning. The remaining gap vs Sonnet traces to
+Stage 1 extraction quality, not assessment judgment.
 
 ### Download Caching
 
@@ -527,27 +513,21 @@ uv run python -m biasbuster.utils.review_gui --model anthropic
 
 ## Fine-Tuning (optional)
 
-> **Do you need this?** Probably not. The v3 two-call pipeline with
-> Round 10 prompts (see Project Status at the top of this README)
-> has local open-weight models — notably gemma4 26B — producing
-> output that matches Claude's full-text annotation on the
-> motivating failure case. Fine-tuning is still supported, but it is
-> now an **optional optimisation** for cost, latency, or deployment
-> constraints — not a quality requirement.
+> **Do you need this?** Almost certainly not. The V5A decomposed
+> pipeline with gemma4-26B achieves expert-level accuracy on shared
+> Cochrane RoB 2 domains **without any fine-tuning** (see
+> [V5A Results](docs/three_step_approach/V5A_RESULTS.md)). The V5A
+> pipeline moves bias-assessment logic to deterministic Python rules,
+> leaving the LLM only the extraction and narrow override tasks —
+> which gemma4-26B handles reliably out of the box.
 >
 > Reasons you might still want to fine-tune:
-> - **Latency/throughput**: a fine-tuned 9B or 20B runs faster than
->   a 26B at inference time, which matters for batch analysis of
->   thousands of papers.
-> - **Cost**: smaller deployment footprint (8–16 GB VRAM vs 24+ GB).
-> - **Specialised domains**: your papers come from a subfield
->   (e.g. paediatric surgery, rare-disease trials) where you want
->   to train on domain-specific exemplars.
-> - **Self-consistency**: you want the model to reliably apply the
->   v3 mechanical rules without the full 20 KB prompt at inference
->   time.
+> - **Smaller deployment**: a fine-tuned 9B model uses less VRAM
+>   (~8 GB vs 24+ GB for 26B), which matters on constrained hardware.
+> - **Specialised domains**: your papers come from a subfield where
+>   you want domain-specific extraction exemplars.
 >
-> If those don't apply to you, just use
+> If those don't apply, just use
 > `biasbuster ... --model ollama:gemma4:26b-a4b-it-q8_0` and skip
 > this section.
 
@@ -612,5 +592,8 @@ of the same full-text two-call pipeline on the same paper), see
 - [MLX Training](docs/MLX_TRAINING.md) — Apple Silicon training guide
 - [Model Card](docs/MODEL_CARD.md) — fine-tuned model documentation
 - [COI Design Rationale](docs/two_step_approach/DESIGN_RATIONALE_COI.md) — why BiasBuster's COI domain is intentionally more aggressive than Cochrane RoB 2 (*risk of bias*, not *proof of bias*)
-- [v3 Two-Call Findings](docs/two_step_approach/INITIAL_FINDINGS_V3.md) — empirical history of the v3 architecture: 10 rounds of prompt iteration, 3-family verification, calibration test, and the §3.14 architectural pivot to v4
-- [v4 Tool-Calling Agent Design](docs/two_step_approach/V4_AGENT_DESIGN.md) — design and rationale for the v4 architecture: extraction (LLM) → assessment agent (LLM with `run_mechanical_assessment` + verification tools), with a post-hoc Python check that enforces non-overridable rules like the COI trigger (d)
+- [V5A Decomposed Pipeline — Results](docs/three_step_approach/V5A_RESULTS.md) — 16-paper validation of V5A: gemma4 κ=1.000 vs Cochrane experts on methodology/outcome-reporting, disagreement diagnostic showing 86% of remaining gaps are extraction quality not judgment
+- [V5A Decomposed Pipeline — Design](docs/three_step_approach/V5A_DECOMPOSED.md) — architecture, per-domain override prompts, reused code, verification plan
+- [V5A/V5B Overview](docs/three_step_approach/OVERVIEW.md) — problem statement, decision tree, success criteria
+- [v4 Tool-Calling Agent Design](docs/two_step_approach/V4_AGENT_DESIGN.md) — v4 agentic architecture (works for Claude, not for small local models — superseded by V5A for local deployment)
+- [v3 Two-Call Findings](docs/two_step_approach/INITIAL_FINDINGS_V3.md) — empirical history of the v3 architecture: 10 rounds of prompt iteration, 3-family verification, calibration test
