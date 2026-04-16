@@ -46,23 +46,54 @@ def _parse_simple_json(text: str) -> Optional[dict]:
 
     Unlike ``parse_llm_json`` (which validates the full v3 30-field
     annotation schema and rejects anything missing fields), this is a
-    lightweight parser for the V5A per-domain decision blob (3 fields)
-    and the synthesis text. Tries direct parse, then a repair pass,
-    then returns None.
+    lightweight parser for the V5A per-domain decision blob (3 fields).
+
+    Handles common small-model failure modes:
+    1. Clean JSON → direct parse
+    2. JSON wrapped in markdown fences → strip then parse
+    3. JSON embedded in prose (reasoning before/after) → extract
+       the substring between first ``{`` and last ``}``
+    4. Minor malformations (missing commas, trailing commas) → repair
     """
     text = strip_markdown_fences(text or "").strip()
     if not text:
         return None
+
+    # Try 1: direct parse
     try:
         result = json.loads(text)
-        return result if isinstance(result, dict) else None
+        if isinstance(result, dict):
+            return result
     except json.JSONDecodeError:
         pass
+
+    # Try 2: extract JSON object from prose-wrapped output
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace >= 0 and last_brace > first_brace:
+        substring = text[first_brace:last_brace + 1]
+        try:
+            result = json.loads(substring)
+            if isinstance(result, dict):
+                return result
+        except json.JSONDecodeError:
+            # Try repair on the extracted substring
+            try:
+                result = json.loads(repair_json(substring))
+                if isinstance(result, dict):
+                    return result
+            except json.JSONDecodeError:
+                pass
+
+    # Try 3: repair on the full text
     try:
         result = json.loads(repair_json(text))
-        return result if isinstance(result, dict) else None
+        if isinstance(result, dict):
+            return result
     except json.JSONDecodeError:
-        return None
+        pass
+
+    return None
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +310,18 @@ class DecomposedAssessor:
     # Stage 3: per-domain LLM review
     # ------------------------------------------------------------------
 
+    # Retry prompt for parse failures — shorter, more explicit about
+    # JSON-only output. Includes the raw failed output so the model
+    # can self-correct.
+    _RETRY_SYSTEM = (
+        "You are a JSON formatter. The previous response was not valid JSON. "
+        "Read it below and emit ONLY the corrected JSON object on a single "
+        "line. No markdown, no explanation, no commentary.\n\n"
+        "Required schema: {\"decision\": \"keep\"|\"downgrade\", "
+        "\"target_severity\": \"none\"|\"low\"|\"moderate\"|\"high\"|\"critical\", "
+        "\"reason\": \"...\"}"
+    )
+
     async def _decide_one_domain(
         self,
         pmid: str,
@@ -289,7 +332,11 @@ class DecomposedAssessor:
         other_severities: dict[str, str],
         extraction_json: str,
     ) -> DomainDecision:
-        """One focused LLM call asking whether to override this domain."""
+        """One focused LLM call asking whether to override this domain.
+
+        On parse failure, retries once with a shorter "reformat as JSON"
+        prompt that includes the failed output for self-correction.
+        """
         user_msg = build_domain_override_user_message(
             domain=domain,
             mechanical_severity=mechanical_severity,
@@ -306,17 +353,31 @@ class DecomposedAssessor:
         )
 
         parsed = _parse_simple_json(raw_text)
-        if not isinstance(parsed, dict):
+
+        # Retry once on parse failure: ask the model to reformat its
+        # own output as clean JSON
+        if parsed is None:
             logger.warning(
-                f"[v5a {pmid}] {domain} review: JSON parse failed; "
-                f"keeping mechanical severity. raw={raw_text[:200]!r}"
+                f"[v5a {pmid}] {domain} review: first parse failed, "
+                f"retrying with JSON-repair prompt. raw={raw_text[:200]!r}"
+            )
+            retry_text = await self._llm_call(
+                system=self._RETRY_SYSTEM,
+                user=f"Failed output to reformat:\n{raw_text}",
+            )
+            parsed = _parse_simple_json(retry_text)
+
+        if parsed is None:
+            logger.warning(
+                f"[v5a {pmid}] {domain} review: retry also failed; "
+                f"keeping mechanical severity"
             )
             return DomainDecision(
                 domain=domain,
                 mechanical_severity=mechanical_severity,
                 target_severity=mechanical_severity,
-                reason=f"LLM output did not parse as JSON; keeping mechanical",
-                parse_error="json_parse_failed",
+                reason="LLM output did not parse as JSON after retry; keeping mechanical",
+                parse_error="json_parse_failed_after_retry",
             )
 
         decision = str(parsed.get("decision", "keep")).strip().lower()
