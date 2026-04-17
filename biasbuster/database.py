@@ -219,6 +219,20 @@ class Database:
             self.conn.execute(
                 "ALTER TABLE papers ADD COLUMN cochrane_review_title TEXT"
             )
+        # Cochrane rebuild (REBUILD_DESIGN.md §7.1): provenance invariants.
+        # rob_provenance holds the full extraction-traceability record
+        # (review PMID/PMCID, section, table_index, row_index, study_id_text,
+        # resolution_method, extraction_method, etc.). rob_source_version
+        # tags which harvest run populated the row, letting rebuilt rows
+        # co-exist with archived legacy rows without silent conflation.
+        if "rob_provenance" not in cols:
+            self.conn.execute(
+                "ALTER TABLE papers ADD COLUMN rob_provenance JSON"
+            )
+        if "rob_source_version" not in cols:
+            self.conn.execute(
+                "ALTER TABLE papers ADD COLUMN rob_source_version TEXT"
+            )
         # Migrate human_reviews: add annotation JSON, flagged columns if missing
         hr_cols = {
             row[1]

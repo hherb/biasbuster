@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 # Default retryable HTTP status codes
-RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 529})
+RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504, 529})
 
 
 class RetryExhaustedError(Exception):

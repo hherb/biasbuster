@@ -482,15 +482,25 @@ async def main() -> int:
             )
 
         # --- Validate abstract ---
+        # Full-text modes (--full-text / --agentic / --decomposed) get
+        # their content from cached JATS, so a missing DB abstract is
+        # not a blocker for them. Abstract-only modes still require a
+        # usable abstract.
+        is_full_text_mode = args.full_text or args.decomposed or args.agentic
         title = paper.get("title", "")
         abstract = paper.get("abstract", "")
-        if not abstract or not abstract.strip():
+        abstract_present = bool(abstract and abstract.strip())
+
+        if not abstract_present and not is_full_text_mode:
             logger.error(
                 f"PMID {pmid} has no abstract — cannot annotate"
             )
             return 1
-
-        if is_retraction_notice(title, abstract, paper):
+        if not abstract_present and is_full_text_mode:
+            logger.info(
+                f"PMID {pmid} has no DB abstract; proceeding with cached full text"
+            )
+        if abstract_present and is_retraction_notice(title, abstract, paper):
             logger.error(
                 f"PMID {pmid} is a bare retraction/withdrawal notice — "
                 f"no assessable content"
