@@ -16,6 +16,19 @@ Interest domain, which Cochrane deliberately excludes. See
 [COI Design Rationale](docs/two_step_approach/DESIGN_RATIONALE_COI.md)
 for the full justification.
 
+**Design philosophy.** BiasBuster's five bias domains are an
+abstract-level distillation of the full-text risk-of-bias instruments
+used in evidence synthesis — RoB 2 for RCTs, ROBINS-I for
+non-randomised intervention studies, QUADAS-2 for diagnostic accuracy
+studies, PROBAST/PROBAST+AI for prediction models, ROBIS for
+systematic reviews, ROB-ME for missing-evidence bias in
+meta-analyses. Each annotation is a *prediction* of what a domain
+expert applying the appropriate full-text tool would conclude from
+the abstract alone. See
+[Assessing Risk of Bias](docs/ASSESSING_RISK_OF_BIAS.md) for the
+tool-selection cheat sheet, per-tool methodology summaries, and
+primary-source citations.
+
 ## Project Status (April 2026)
 
 **The V5A decomposed pipeline is the current recommended architecture
@@ -591,6 +604,7 @@ of the same full-text two-call pipeline on the same paper), see
 - [Training Guide](docs/TRAINING.md) — LoRA fine-tuning details
 - [MLX Training](docs/MLX_TRAINING.md) — Apple Silicon training guide
 - [Model Card](docs/MODEL_CARD.md) — fine-tuned model documentation
+- [Assessing Risk of Bias](docs/ASSESSING_RISK_OF_BIAS.md) — guideline for choosing and applying established risk-of-bias tools (RoB 2, ROBINS-I, QUADAS-2, PROBAST, ROBIS, ROB-ME, etc.) with primary-source citations
 - [COI Design Rationale](docs/two_step_approach/DESIGN_RATIONALE_COI.md) — why BiasBuster's COI domain is intentionally more aggressive than Cochrane RoB 2 (*risk of bias*, not *proof of bias*)
 - [V5A Decomposed Pipeline — Results](docs/three_step_approach/V5A_RESULTS.md) — 16-paper validation of V5A: gemma4 κ=1.000 vs Cochrane experts on methodology/outcome-reporting, disagreement diagnostic showing 86% of remaining gaps are extraction quality not judgment
 - [V5A Decomposed Pipeline — Design](docs/three_step_approach/V5A_DECOMPOSED.md) — architecture, per-domain override prompts, reused code, verification plan
