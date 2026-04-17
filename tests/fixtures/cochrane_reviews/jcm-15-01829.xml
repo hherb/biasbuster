@@ -1,0 +1,2531 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE article PUBLIC "-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.3 20210610//EN" "JATS-journalpublishing1-3.dtd">
+<article xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:xlink="http://www.w3.org/1999/xlink" article-type="review-article" dtd-version="1.3" xml:lang="en">
+  <front>
+    <journal-meta>
+      <journal-id journal-id-type="publisher-id">jcm</journal-id>
+      <journal-title-group>
+        <journal-title>Journal of Clinical Medicine</journal-title>
+        <abbrev-journal-title abbrev-type="publisher">J. Clin. Med.</abbrev-journal-title>
+        <abbrev-journal-title abbrev-type="pubmed">Journal of Clinical Medicine</abbrev-journal-title>
+      </journal-title-group>
+      <issn pub-type="epub">2077-0383</issn>
+      <publisher>
+        <publisher-name>MDPI</publisher-name>
+      </publisher>
+    </journal-meta>
+    <article-meta>
+      <article-id pub-id-type="doi">10.3390/jcm15051829</article-id>
+      <article-id pub-id-type="publisher-id">jcm-15-01829</article-id>
+      <article-categories>
+        <subj-group>
+          <subject>Systematic Review</subject>
+        </subj-group>
+      </article-categories>
+      <title-group>
+        <article-title>Salivary Glucose Testing for Diabetes Mellitus: A Systematic Review and Meta-Analysis of Current Evidence and Methodological Heterogeneity</article-title>
+      </title-group>
+      <contrib-group>
+        <contrib contrib-type="author">
+          <contrib-id contrib-id-type="orcid" authenticated="true">https://orcid.org/0009-0006-8926-2171</contrib-id>
+          <name>
+            <surname>Haba</surname>
+            <given-names>Kata S&#xE1;ra</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af2-jcm-15-01829" ref-type="aff">2</xref>
+          <xref rid="c1-jcm-15-01829" ref-type="corresp">*</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <contrib-id contrib-id-type="orcid" authenticated="true">https://orcid.org/0000-0002-4587-4284</contrib-id>
+          <name>
+            <surname>Kreuter</surname>
+            <given-names>Patrik Kriszti&#xE1;n</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af3-jcm-15-01829" ref-type="aff">3</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <name>
+            <surname>Qian</surname>
+            <given-names>Xinyi</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af2-jcm-15-01829" ref-type="aff">2</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <contrib-id contrib-id-type="orcid" authenticated="true">https://orcid.org/0000-0003-2489-3790</contrib-id>
+          <name>
+            <surname>Ag&#xF3;cs</surname>
+            <given-names>Gergely</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af4-jcm-15-01829" ref-type="aff">4</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <name>
+            <surname>B&#xE1;nyai</surname>
+            <given-names>Dorottya</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af3-jcm-15-01829" ref-type="aff">3</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <contrib-id contrib-id-type="orcid" authenticated="true">https://orcid.org/0000-0002-8510-7047</contrib-id>
+          <name>
+            <surname>R&#xF3;zsa</surname>
+            <given-names>No&#xE9;mi Katinka</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af3-jcm-15-01829" ref-type="aff">3</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <name>
+            <surname>Hegyi</surname>
+            <given-names>P&#xE9;ter</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af5-jcm-15-01829" ref-type="aff">5</xref>
+          <xref rid="af6-jcm-15-01829" ref-type="aff">6</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <name>
+            <surname>Hermann</surname>
+            <given-names>P&#xE9;ter</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af2-jcm-15-01829" ref-type="aff">2</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <contrib-id contrib-id-type="orcid" authenticated="true">https://orcid.org/0000-0001-7437-4855</contrib-id>
+          <name>
+            <surname>Jurado</surname>
+            <given-names>Carlos</given-names>
+          </name>
+          <xref rid="af7-jcm-15-01829" ref-type="aff">7</xref>
+          <xref rid="af8-jcm-15-01829" ref-type="aff">8</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <contrib-id contrib-id-type="orcid" authenticated="true">https://orcid.org/0000-0003-3760-2016</contrib-id>
+          <name>
+            <surname>Haluszka</surname>
+            <given-names>D&#xF3;ra</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af4-jcm-15-01829" ref-type="aff">4</xref>
+        </contrib>
+        <contrib contrib-type="author">
+          <name>
+            <surname>V&#xE9;gh</surname>
+            <given-names>D&#xE1;niel</given-names>
+          </name>
+          <xref rid="af1-jcm-15-01829" ref-type="aff">1</xref>
+          <xref rid="af2-jcm-15-01829" ref-type="aff">2</xref>
+        </contrib>
+      </contrib-group>
+      <contrib-group>
+        <contrib contrib-type="editor">
+          <name>
+            <surname>Abe</surname>
+            <given-names>Masanobu</given-names>
+          </name>
+          <role>Academic Editor</role>
+        </contrib>
+      </contrib-group>
+      <aff id="af1-jcm-15-01829"><label>1</label>Centre for Translational Medicine, Semmelweis University, 1085 Budapest, Hungary; <email>kreuter.patrik.krisztian@semmelweis.hu</email> (P.K.K.); <email>qian.xinyi@semmelweis.hu</email> (X.Q.); <email>agocs.gergely@semmelweis.hu</email> (G.A.); <email>banyai.dorottya@semmelweis.hu</email> (D.B.); <email>rozsa.noemi@semmelweis.hu</email> (N.K.R.); <email>hegyi.peter@semmelweis.hu</email> (P.H.); <email>hermann.peter@semmelweis.hu</email> (P.H.); <email>haluszkadora@gmail.com</email> (D.H.); <email>vegh.danel@semmelweis.hu</email> (D.V.)</aff>
+      <aff id="af2-jcm-15-01829"><label>2</label>Department of Prosthodontics, Semmelweis University, 1085 Budapest, Hungary</aff>
+      <aff id="af3-jcm-15-01829"><label>3</label>Department of Paediatric Dentistry and Orthodontics, Semmelweis University, 1085 Budapest, Hungary</aff>
+      <aff id="af4-jcm-15-01829"><label>4</label>Department of Biophysics and Radiation Biology, Semmelweis University, 1085 Budapest, Hungary</aff>
+      <aff id="af5-jcm-15-01829"><label>5</label>Institute of Pancreatic Diseases, Semmelweis University, 1085 Budapest, Hungary</aff>
+      <aff id="af6-jcm-15-01829"><label>6</label>Institute for Translational Medicine, Medical School, University of P&#xE9;cs, 7624 P&#xE9;cs, Hungary</aff>
+      <aff id="af7-jcm-15-01829"><label>7</label>Division of Operative Dent., Department of General Dentistry, College of Dentistry, The University of Tennessee Health Science Center, Memphis, TN 38104, USA; <email>cjurado@uthsc.edu</email></aff>
+      <aff id="af8-jcm-15-01829"><label>8</label>School of Dental Medicine, Ponce Health Sciences University, Ponce 00732, Puerto Rico</aff>
+      <author-notes>
+        <corresp id="c1-jcm-15-01829"><label>*</label>Correspondence: <email>haba.kata@semmelweis.hu</email></corresp>
+      </author-notes>
+      <pub-date pub-type="epub">
+        <day>27</day>
+        <month>02</month>
+        <year>2026</year>
+      </pub-date>
+      <pub-date pub-type="collection">
+        <month>03</month>
+        <year>2026</year>
+      </pub-date>
+      <volume>15</volume>
+      <issue>5</issue>
+      <elocation-id>1829</elocation-id>
+      <history>
+        <date date-type="received">
+          <day>11</day>
+          <month>01</month>
+          <year>2026</year>
+        </date>
+        <date date-type="rev-recd">
+          <day>14</day>
+          <month>02</month>
+          <year>2026</year>
+        </date>
+        <date date-type="accepted">
+          <day>24</day>
+          <month>02</month>
+          <year>2026</year>
+        </date>
+      </history>
+      <permissions>
+        <copyright-statement>&#xA9; 2026 by the authors.</copyright-statement>
+        <copyright-year>2026</copyright-year>
+        <license license-type="open-access">
+          <license-p>Licensee MDPI, Basel, Switzerland. This article is an open access article distributed under the terms and conditions of the <ext-link ext-link-type="uri" xlink:href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution (CC BY) license</ext-link>.</license-p>
+        </license>
+      </permissions>
+      <abstract>
+        <p><bold>Background/Objectives</bold>: As current methods of measuring blood glucose levels are inconvenient and painful for patients, using salivary glucose as a non-invasive biomarker to estimate glucose levels may improve patient compliance. This study aims to quantify the association between salivary glucose levels and blood glucose levels and to assess how heterogeneity between studies and the methodological differences affect the potential clinical use of salivary glucose. <bold>Methods</bold>: The PRISMA guidelines were used for this review, and the protocol was registered on PROSPERO (CRD42023471213). Four databases were searched: PubMed, EMBASE, Cochrane&#x2019;s Library Trials, and Web of Science. The search was conducted on 22 November 2023 and updated on 18 August 2025. No filters were applied for the search. Human studies, where paired salivary and blood samples were taken both from patients with diabetes and healthy individuals after at least 8 h of fasting, were included in the analysis. We extracted correlation coefficients and group means differences. Risk of bias was assessed with QUADAS-2, and the between-study heterogeneity was examined using random-effects models. <bold>Results</bold>: Through the systematic search, 15,162 articles were found, 25 of which were included in our meta-analysis. The analysis showed a weak correlation between whole-mouth saliva samples and blood samples (r<sup>2</sup> value: 0.05) and a slightly stronger correlation between parotid saliva samples and blood samples (r<sup>2</sup> value: 0.11). These low r<sup>2</sup> values reflect weak associations and are reported descriptively. The difference between the mean salivary glucose level of patients with diabetes and controls was 4.43 mg/dL (95% CI: 2.05; 6.80). The high heterogeneity (I<sup>2</sup> values approaching 100% for mean difference analyses) limits the interpretability of pooled estimates. <bold>Conclusions</bold>: Current evidence indicates that salivary and blood glucose levels associate weakly, and the study results are highly heterogeneous. Given the weak and highly heterogeneous associations observed across studies, current evidence does not support the use of salivary glucose measurement as an alternative to blood glucose measurement for the time being. Further standardized research is required before any conclusion about clinical applicability can be drawn.</p>
+      </abstract>
+      <kwd-group>
+        <kwd>diabetes mellitus</kwd>
+        <kwd>saliva</kwd>
+        <kwd>blood glucose</kwd>
+        <kwd>dentistry</kwd>
+        <kwd>oral medicine</kwd>
+        <kwd>meta-analysis</kwd>
+      </kwd-group>
+      <funding-group>
+        <award-group>
+          <funding-source>Semmelweis University</funding-source>
+        </award-group>
+        <funding-statement>The APC was funded by Semmelweis University.</funding-statement>
+      </funding-group>
+    </article-meta>
+  </front>
+  <body>
+    <sec id="sec1-jcm-15-01829" sec-type="intro">
+      <title>1. Introduction</title>
+      <p>Diabetes mellitus (DM) is a chronic metabolic disorder affecting 540 million people worldwide, and this number is increasing; by 2045, it is expected to rise to 783 million [<xref ref-type="bibr" rid="B1-jcm-15-01829">1</xref>]. In addition to confirmed cases, many patients remain undiagnosed [<xref ref-type="bibr" rid="B2-jcm-15-01829">2</xref>]. The care of patients with DM places a heavy burden on society, and there is a need to improve their quality of life [<xref ref-type="bibr" rid="B3-jcm-15-01829">3</xref>].</p>
+      <p>DM affects several organs, including the oral cavity, causing serious microvascular and macrovascular complications [<xref ref-type="bibr" rid="B4-jcm-15-01829">4</xref>]. Patients with DM also have a higher rate of oral infections, such as fungal infections. Furthermore, DM also predisposes patients to periodontal disease and potentially deteriorates the status of pre-existing periodontitis [<xref ref-type="bibr" rid="B5-jcm-15-01829">5</xref>]. Hyperglycemia not only elevates the frequency of infections and exacerbates hard tissue loss but also heightens the occurrence of xerostomia and hyposalivation, leading to burning mouth syndrome, diminished taste perception, and a greater prevalence of carious lesions [<xref ref-type="bibr" rid="B6-jcm-15-01829">6</xref>].</p>
+      <p>Patients with DM need to regularly monitor their glucose levels to manage their condition effectively and reduce the risk of complications. Blood glucose measurement is a gold standard for controlling the metabolic status of patients with DM. However, it is inconvenient, causes pain, and is not cost-effective [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>]. Two main types of blood glucose monitoring methods are known: point-of-care (POC) and continuous glucose monitoring (CGM). Although POC devices are generally effective, their accuracy can be affected by factors such as circulatory issues, e.g., dehydration or shock, as well as operator errors, e.g., inadequate sample volume or poor hygiene [<xref ref-type="bibr" rid="B8-jcm-15-01829">8</xref>]. Repeated needle sticks can cause discomfort and deterioration in the quality of life of the patient [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>]. CGM-based measurement systems, which operate subcutaneously or intravascularly, reduce the frequency of needle pricks and allow for continuous glucose monitoring. However, their accuracy can be affected by tissue perfusion and body temperature, and sensor application can be uncomfortable for patients [<xref ref-type="bibr" rid="B8-jcm-15-01829">8</xref>]. A non-invasive, easy-access test would also significantly help diagnose patients with diabetes in countries where access to healthcare is severely limited. This is evidenced by the fact that most of our studies come from regions in India, where the number of people living with diabetes is around 89.8 million and rising [<xref ref-type="bibr" rid="B9-jcm-15-01829">9</xref>]. On the other hand, the cost of health care and diagnostics in developed Western countries is expensive, so an easily available test, which could potentially be used as part of an annual dental check-up, could indicate if a patient&#x2019;s glycemic control differs from the normoglycemic range.</p>
+      <p>These limitations have motivated interest in non-invasive approaches, including salivary glucose measurement, as a possible alternative for screening or monitoring. Previous studies have already shown that people with DM have changes in saliva composition in different salivary glands and have increased salivary glucose levels [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>,<xref ref-type="bibr" rid="B10-jcm-15-01829">10</xref>,<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>]. Glucose is not directly filtered out of the blood into saliva by passive diffusion but is facilitated by the SGLT1 (sodium-glucose cotransporter 1) protein. In addition to transporting glucose into the saliva, it also functions as a water channel, aiding water reabsorption. The expression of the SGLT1 protein is increased in diabetes mellitus, mainly in the parotid and submandibular glands [<xref ref-type="bibr" rid="B12-jcm-15-01829">12</xref>]. These potential alterations in the amount of SGLT1 in the salivary glands raise the question of how salivary and blood glucose levels correlate. The already known alterations do not establish that salivary glucose reliably reflects the blood glucose level, and the true nature of this association remains uncertain [<xref ref-type="bibr" rid="B6-jcm-15-01829">6</xref>].</p>
+      <p>The aim of this study was to compare the results of different clinical studies reporting paired fasting salivary and blood glucose measurements, and to quantify the strength and consistency of the association between the two values in both patients with and without DM. To ensure that saliva sample collection was not affected by DM-induced xerostomia and hyposalivation, patients were screened for these conditions in the included studies, and those affected were excluded. To prevent contamination by bacteria, digestive enzymes, and gingival cervical fluid, patients rinsed their mouths before saliva sample collection, then remained seated upright, permitting saliva to accumulate in the container until the requisite amount was attained, without monitoring the flow rate.</p>
+    </sec>
+    <sec id="sec2-jcm-15-01829">
+      <title>2. Materials and Methods</title>
+      <sec id="sec2dot1-jcm-15-01829">
+        <title>2.1. Search Strategy</title>
+        <p>This systematic review was based on the recommendations of the Cochrane Handbook, and the report was prepared according to the Preferred Reporting Items for Systematic Reviews and Meta-Analyses (PRISMA) statement items [<xref ref-type="bibr" rid="B13-jcm-15-01829">13</xref>,<xref ref-type="bibr" rid="B14-jcm-15-01829">14</xref>]; see <xref ref-type="app" rid="app1-jcm-15-01829">Supplementary Materials S1 and S2</xref>. The protocol was developed and submitted to the International Prospective Register of Systematic Reviews (PROSPERO) database (ID: CRD42023471213) [<xref ref-type="bibr" rid="B14-jcm-15-01829">14</xref>]. This study aimed to answer the following research question: How does the fasting salivary glucose level correlate with blood glucose level?</p>
+        <p>We adopted a PIRT-like organizational framework because all included studies reported paired fasting salivary and blood glucose measurements, and our synthesis procedures naturally required alignment across population, the two paired measurements, and their target relationship. Although the classical PIRT framework is often used in diagnostic accuracy studies, our aim was not to evaluate diagnostic performance but to quantify the statistical association between paired fasting salivary and blood glucose measurements. Therefore, we adapted PIRT into a non-diagnostic, measurement-comparison framework. The indicator and reference components refer to physiologically related measurements rather than index and reference tests in the diagnostic sense. This adaptation aligns the framework with the correlation-focused research question while preserving transparency in the conceptual organization of studies. The PIRT-inspired framework was used as follows:<list list-type="bullet"><list-item><p>For population (P), we chose the general population.</p></list-item><list-item><p>Indicator measurement (I) was a salivary glucose test based on the glucose-oxidase (GOD) method.</p></list-item><list-item><p>Reference measurement (R), we chose the blood glucose test.</p></list-item><list-item><p>The target relationship (T) was the correlation between salivary and blood glucose levels (r<sup>2</sup> value). As a secondary outcome, we chose the group mean difference between diabetic and non-diabetic participants.</p></list-item></list></p>
+      </sec>
+      <sec id="sec2dot2-jcm-15-01829">
+        <title>2.2. Data Sources and Search Strategy</title>
+        <p>Four databases were searched: PubMed, EMBASE, Cochrane&#x2019;s Library Trials, and Web of Science. The search was conducted on 22 November 2023 and updated on the 18 August 2025. The core search string used across databases was:</p>
+        <p>
+          <monospace>("glucose" OR "sugar")</monospace>
+        </p>
+        <p>
+          <monospace>AND</monospace>
+        </p>
+        <p>
+          <monospace>("blood" OR "serum" OR "venous" OR "capillary" OR "glucometer" OR ("glucose" AND "kit") OR "glucose meter")</monospace>
+        </p>
+        <p>
+          <monospace>AND</monospace>
+        </p>
+        <p>
+          <monospace>("saliva" OR "salivary" OR "glucose oxidase" OR "glucose-oxidase")</monospace>
+        </p>
+        <p>Although the Boolean structure of the search terms was intentionally kept consistent across platforms for conceptual comparability, each query was executed using the database-specific interface, field structure, and syntax. No additional search filters were applied within any database. Full database-specific search strings and details are reported in <xref ref-type="app" rid="app1-jcm-15-01829">Supplementary Material S3</xref>.</p>
+        <p>We prioritized a free-text-first strategy because several relevant studies, especially older ones, were not consistently indexed with MeSH or Emtree terms. PubMed&#x2019;s automatic term mapping and Embase&#x2019;s mapping implicitly incorporated these controlled vocabulary terms where available.</p>
+        <p>In addition, we intentionally kept the Boolean structure broad to avoid false-negative retrieval due to terminology heterogeneity. This approach ensured that potentially relevant studies were not lost at the search stage.</p>
+      </sec>
+      <sec id="sec2dot3-jcm-15-01829">
+        <title>2.3. Eligibility Criteria</title>
+        <p>The following inclusion criteria were applied for this study: 1. Human clinical studies: randomized controlled trials, observational studies, and case series; 2. Patients fasted overnight before collecting both blood and salivary samples; 3. Patients rinsed their mouths before sample collection to avoid contamination with bacteria and cervical fluid; 4. Patients in the examined group were diagnosed with DM and confirmed by a clinician; 5. Patients were screened for xerostomia and hyposalivation and were excluded accordingly.</p>
+        <p>We did not restrict inclusion based on the specific assay brand or analytical platform, as they all use the glucose-oxidase method; only minor differences were reported.</p>
+        <p>Exclusion criteria were as follows: 1. Animal studies, case reports, review articles, 2. unavailable full-text version, 3. language other than English used for full-text version, 4. The fasting time needed to be increased, or the patients ate before sample taking.</p>
+        <p>Because our research question concerned the association between paired fasting salivary and blood glucose measurements, not the effect of an intervention or diagnostic accuracy performance, we included all primary human studies that provided such paired measurements, regardless of design (randomized trials, observational studies, cross-sectional studies, case&#x2013;control studies, and case series). These designs can each contribute valid paired glucose data and therefore directly inform the association of interest. Differences in study design were expected to contribute to between-study variability; this was addressed by using random-effect models, design-agnostic extraction of paired biochemical measurements, and study-level risk-of-bias assessment. Because the outcome of interest is a biochemical measurement relationship, and not a clinical effect estimate, mixing study designs does not introduce the same conceptual limitations as in prognostic or interventional meta-analyses.</p>
+      </sec>
+      <sec id="sec2dot4-jcm-15-01829">
+        <title>2.4. Study Selection and Data Extraction Strategy</title>
+        <p>First, two reviewers (K.S.H. and P.K.K.) independently screened titles and abstracts. Next, the same reviewers screened the full texts of all potentially eligible studies. Any disagreements were resolved through discussion and with the help of a third reviewer (X.Q.). After excluding studies that did not meet our eligibility criteria, we developed a standardized table for data extraction.</p>
+      </sec>
+      <sec id="sec2dot5-jcm-15-01829">
+        <title>2.5. Quality Assessment</title>
+        <p>Two reviewers independently analyzed the articles for risk of bias using the QUADAS-2 tool [<xref ref-type="bibr" rid="B15-jcm-15-01829">15</xref>]. The QUADAS-2 tool can assess the risk of bias as it contains four domains, each judged on a three-grade scale (low, unclear, high). Because our study objective was to quantify the association between paired fasting salivary and blood glucose measurements rather than diagnostic accuracy, we adapted QUADAS-2 by renaming &#x201C;index&#x201D; and &#x201C;reference tests&#x201D; to &#x201C;indicator&#x201D; and &#x201C;reference measurements&#x201D;, and tailored the signaling questions to emphasize near-simultaneous sampling after overnight fasting, standardized enzymatic saliva measuring procedures, and paired blood-saliva measurements. A summary of adapted signaling questions is provided in <xref ref-type="app" rid="app1-jcm-15-01829">Supplementary Material S4</xref>. Any discrepancies between the two reviewers were resolved through discussion.</p>
+      </sec>
+      <sec id="sec2dot6-jcm-15-01829">
+        <title>2.6. Statistical Analysis</title>
+        <p>Primary data collection and organization were carried out using Microsoft Excel. Statistical analysis was performed using R version 4.1.3.</p>
+        <p>Where graphically available, individual patient data (IPD) for blood and salivary glucose levels were extracted using WebPlotDigitizer v4.7 [<xref ref-type="bibr" rid="B16-jcm-15-01829">16</xref>]. This method is inherently approximate, as it depends on axis scaling, figure resolution, and potential point overlaps; therefore, extracted values should be considered estimates rather than exact reproductions of the original data.</p>
+        <p>For each study with IPD, we fitted a simple linear regression model using the lm() function of the {stats} package with salivary glucose level as the response variable and blood glucose level as the explanatory variable, and we calculated the coefficient of determination (r<sup>2</sup>) to describe the proportion of variance in salivary glucose explained by blood glucose. Transforming correlation coefficients using Fisher&#x2019;s z and conducting a formal pooled-correlation meta-analysis were not feasible, as many studies did not provide sufficient information (e.g., standard errors or confidence intervals) and used heterogeneous analytical approaches, which limited the feasibility of statistically coherent pooling. Due to this heterogeneity, the r<sup>2</sup> values are reported solely as descriptive, study-level indicators and are not used for inferential or clinical interpretation. To explore a potential overall linear relationship, we attempted to fit a linear mixed-effects model to the combined IPD (salivary glucose level as response, blood glucose level as explanatory variable, random intercept for study) using the lmer() function of the {lme4} package [<xref ref-type="bibr" rid="B17-jcm-15-01829">17</xref>] version 1.1.31; however, substantial between-study variability and model diagnostics indicated that assumptions were not met, so this global model was not used for inferential purposes. Fitting a global model was also attempted for a subset of IPD, specifically based on parotid salivary samples, which yielded similarly poor-fitting and model diagnostic results. The analysis of IPD outcomes is summarized in scatterplots. Each study is indicated by a separate color represents each study. Background shades represent ranges of normoglycemic (65&#x2013;110 mg/dL; green), impaired glucose tolerance (IGT; 110&#x2013;125 mg/dL; orange), and diabetic (&gt;125 mg/dL; red) fasting blood glucose levels.</p>
+        <p>We used the metacont() function of the [<xref ref-type="bibr" rid="B18-jcm-15-01829">18</xref>] package (version 6.1.0 [<xref ref-type="bibr" rid="B19-jcm-15-01829">19</xref>]) to compare the summary statistics of non-euglycemic and normoglycemic patients; the effect size was the mean difference (MD) in blood as well as salivary glucose levels. We anticipated considerable between-study heterogeneity, so we used a random-effects model to pool effect sizes. Given the expected heterogeneity, pooled mean differences were reported for completeness but prespecified to be interpreted descriptively if heterogeneity exceeded conventional thresholds. To calculate the between-study variance (tau squared), we used the restricted maximum likelihood estimator [<xref ref-type="bibr" rid="B20-jcm-15-01829">20</xref>]. We used Knapp-Hartung adjustments [<xref ref-type="bibr" rid="B21-jcm-15-01829">21</xref>] to calculate the confidence interval around the pooled effect. We used funnel plots and Egger&#x2019;s regression test for funnel plot asymmetry to assess small study effects. We identified studies with strong influence on our overall results using the InfluenceAnalysis() function of the {dmetar} package [<xref ref-type="bibr" rid="B22-jcm-15-01829">22</xref>].</p>
+        <p>Finally, we attempted to pool the summary statistics (means) of salivary glucose levels (response variable) and blood glucose levels (explanatory variable) from all included studies using linear meta-regression. First, we fitted a linear mixed-effects meta-regression model to the data of non-euglycemic as well as normoglycemic patients, separately, using the rma() function of the {metafor} (version 3.8.1 [<xref ref-type="bibr" rid="B23-jcm-15-01829">23</xref>]). Then, we fitted all data with a multivariate/multilevel linear mixed-effects meta-regression model using the rma.mv() function of the {metafor} package; the random intercept variables were diabetes status and study. Again, the modeling yielded a very poor fit and model diagnostics revealed that modeling conditions were not met. Again, scatterplots were used to summarize the analysis results, with similar settings as for the IPD analysis.</p>
+      </sec>
+      <sec id="sec2dot7-jcm-15-01829">
+        <title>2.7. Sensitivity Analysis</title>
+        <p>To evaluate whether digitization error could have influenced our conclusions, we conducted a plausibility sensitivity analysis based on hypothetical perturbations of &#xB1;5% and &#xB1;10% of the extracted salivary and blood glucose values. This range reflects a conservative estimate, well above the typical uncertainty reported for WebPlotDigitizer when axis calibration is adequate [<xref ref-type="bibr" rid="B24-jcm-15-01829">24</xref>,<xref ref-type="bibr" rid="B25-jcm-15-01829">25</xref>].</p>
+        <p>Small proportional perturbations in digitized values affect both covariance and variance by similar factors; therefore, the resulting r<sup>2</sup> values shift only minimally because they depend on the squared ratio of these quantities. For the individual-study correlation models, r<sup>2</sup> values were 0.05 (whole-mouth saliva) and 0.11 (parotid saliva). Even under a hypothetical &#xB1;10% perturbation of all digitized values, the resulting r<sup>2</sup> values would vary only minimally (approximately &#xB1;0.01&#x2013;0.03), remaining well within the range interpreted as weak associations. Therefore, digitization error cannot plausibly elevate these values to a level indicating moderate or strong correlation.</p>
+        <p>For the meta-analysis of mean differences, the observed difference in salivary glucose levels between hyperglycemic and normoglycemic participants was 4.43 mg/dL (95 CI: 2.05; 680). Perturbing means and standard deviations by &#xB1;5% or &#xB1;10% changes the magnitude of the difference only slightly (approximately &#xB1;1&#x2013;2 mg/dL) and does not alter the direction or the statistical significance of the effect.</p>
+        <p>Taken together, this sensitivity analysis demonstrates that plausible levels of digitization error would not materially influence the conclusions of our review. The weak association and high heterogeneity reported are therefore unlikely to be attributable to digitization artifacts.</p>
+      </sec>
+    </sec>
+    <sec id="sec3-jcm-15-01829" sec-type="results">
+      <title>3. Results</title>
+      <sec id="sec3dot1-jcm-15-01829">
+        <title>3.1. Selection Process</title>
+        <p>The systematic search identified a total number of 15,716 records across databases and registers: PubMed (n = 4175), EMBASE (n = 6710), Cochrane&#x2019;s Library Trials (n = 554), and Web of Science (n = 4277). After duplicate removal, 9085 studies were left. After selection based on title and abstract, 101 studies remained for full-text selection. See <xref ref-type="app" rid="app1-jcm-15-01829">Supplementary Material S5</xref> for more details on the excluded articles. At the end of the selection process, we included 25 studies that met our objectives using the adapted PIRT framework, with a particular focus on fasting time, specifically overnight fasting, for which full-text versions were available (see <xref ref-type="fig" rid="jcm-15-01829-f001">Figure 1</xref>).</p>
+      </sec>
+      <sec id="sec3dot2-jcm-15-01829">
+        <title>3.2. Characteristics of Studies Included</title>
+        <p>The following types of studies were identified: observational studies (n = 22), a randomized controlled trial (n = 1), a case&#x2013;control (n = 1), and a cross-sectional study (n = 1). We included all study designs, as they can all provide information on the underlying association between salivary and blood glucose levels; however, they differ in their susceptibility to selection bias, confounding factors, and measurement bias, which were expected to contribute to between-study heterogeneity. This was taken into consideration by using random-effects models. In all cases, the index test was the salivary glucose test, and the reference test was the blood glucose test. The particular test types for each study are detailed in <xref ref-type="app" rid="app1-jcm-15-01829">Supplementary Material S6</xref>. The population was a general population of patients with DM, patients with impaired fasting glucose, and healthy people of all ages and sexes, as shown in <xref ref-type="table" rid="jcm-15-01829-t001">Table 1</xref>.</p>
+      </sec>
+      <sec id="sec3dot3-jcm-15-01829">
+        <title>3.3. Results of Individual Patient Data Analysis for Whole-Mouth Saliva</title>
+        <p>Individual patient data were extracted from nine studies [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>,<xref ref-type="bibr" rid="B10-jcm-15-01829">10</xref>,<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>,<xref ref-type="bibr" rid="B26-jcm-15-01829">26</xref>,<xref ref-type="bibr" rid="B28-jcm-15-01829">28</xref>,<xref ref-type="bibr" rid="B29-jcm-15-01829">29</xref>,<xref ref-type="bibr" rid="B30-jcm-15-01829">30</xref>,<xref ref-type="bibr" rid="B31-jcm-15-01829">31</xref>,<xref ref-type="bibr" rid="B35-jcm-15-01829">35</xref>] using the WebPlotDigitizer software, and data on blood and salivary glucose levels were determined for a total of 796 patients. We fitted a linear regression model to the data from each study, as well as a linear mixed-effects model to the entire data set. Individual data and fitted lines are shown in a scatterplot (see <xref ref-type="fig" rid="jcm-15-01829-f002">Figure 2</xref>). The coefficient of determination (r<sup>2</sup>) for the mixed-effects model was 0.05, indicating a poor fit. This value reflects only the proportion of variance explained in this descriptive model and is not intended as an inferential measure of predictive or clinical performance. For a better insight, a meta-regression analysis was also carried out; see <xref ref-type="app" rid="app1-jcm-15-01829">Supplementary Material S7</xref> for details.</p>
+      </sec>
+      <sec id="sec3dot4-jcm-15-01829">
+        <title>3.4. Results of Analysis of Individual Patient Data on Parotid Saliva</title>
+        <p>On the basis of literature recommendations, we investigated the correlation between saliva isolated from the parotid gland and blood glucose levels. After analyzing IPD from three articles [<xref ref-type="bibr" rid="B10-jcm-15-01829">10</xref>,<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>,<xref ref-type="bibr" rid="B26-jcm-15-01829">26</xref>], we found that the r<sup>2</sup> value was 0.11, as shown in <xref ref-type="fig" rid="jcm-15-01829-f003">Figure 3</xref>. Similarly, the r<sup>2</sup> value should be interpreted descriptively, given the methodological heterogeneity of the included studies.</p>
+      </sec>
+      <sec id="sec3dot5-jcm-15-01829">
+        <title>3.5. Forest Plots from Mean Differences Between Salivary and Blood Glucose Levels</title>
+        <p>The forest plots in <xref ref-type="fig" rid="jcm-15-01829-f004">Figure 4</xref> show the distribution of mean saliva and blood glucose levels extracted from the articles at 95% confidence intervals. The results indicate statistically significant (<italic>p</italic> &lt; 0.05) between-group differences on both <xref ref-type="fig" rid="jcm-15-01829-f004">Figure 4</xref>a,b, however the high heterogeneity and small magnitude (I<sup>2</sup> = 100%, <italic>&#x3C4;</italic><sup>2</sup> = 28.1692; and I<sup>2</sup> = 98%, <italic>&#x3C4;</italic><sup>2</sup> = 1443.5460 for plots a and b, respectively) limit their clinical relevance, and the pooled estimate should be interpreted as explanatory rather than inferential.</p>
+      </sec>
+      <sec id="sec3dot6-jcm-15-01829">
+        <title>3.6. Risk of Bias Analysis with QUADAS-2 Tool</title>
+        <p>The QUADAS-2 risk of bias tool [<xref ref-type="bibr" rid="B15-jcm-15-01829">15</xref>] was used to evaluate the quality of methodologies used in the articles included. The risk levels for the selected articles in the four domains are detailed in <xref ref-type="table" rid="jcm-15-01829-t002">Table 2</xref>, based on the investigators&#x2019; decisions. Note that the signaling questions were adapted for an association-focused, paired measurement question (see <xref ref-type="app" rid="app1-jcm-15-01829">Supplementary Material S4</xref>).</p>
+      </sec>
+    </sec>
+    <sec id="sec4-jcm-15-01829" sec-type="discussion">
+      <title>4. Discussion</title>
+      <p>This systematic review and meta-analysis was performed to investigate the relationship between salivary and blood glucose levels in patients with DM and healthy individuals. Our analytical strategy focused mainly on descriptive IPD regression and meta-analyses of mean differences rather than on conventional pooled-correlation meta-analyses. We chose to present study-specific correlation measures and IPD-based models descriptively, while using random-effects models to summarize between-group contrasts. The results of the meta-analysis show that although there is a difference in salivary glucose levels between the non-euglycemic and healthy groups (significant MD observed), these group-level contrasts do not imply adequate diagnostic performance at the individual level, and the pooled mean difference is not clinically interpretable due to the very high heterogeneity, serving only as a descriptive indicator of direction rather than a meaningful summary effect.</p>
+      <p>As mentioned in the introduction, glucose transport into saliva does not occur by simple diffusion, but by facilitated transport with SGLT1 proteins. However, the number of receptors required for this may increase with higher blood glucose levels as gene expression of the receptors increases. Higher receptor numbers may result in higher concentrations of glucose in saliva [<xref ref-type="bibr" rid="B12-jcm-15-01829">12</xref>].</p>
+      <p>First, we investigated the relationship between total oral non-stimulated saliva samples of diabetic and control patients and their blood glucose levels after overnight fasting. Scatter plots suggested a likely, but not significant correlation between blood glucose and salivary glucose levels. We also observed high heterogeneity, which can likely be explained by the inclusion of diverse study designs (RCTs, observational studies, case&#x2013;control studies and case series) with a wide range of methodological and analytical methods.</p>
+      <p>The difference between the results of each study could also be explained by different storage conditions after sampling: in 12 cases (Gupta et al., Cui et al., Wang et al., Choudhry et al., Borg-Andersson et al., Ganesan et al., Harish et al. 2018, Harish et al. 2019, Mussavira et al., Nirmala et al., Ravindran et al., Shahbaz et al. [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>,<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>,<xref ref-type="bibr" rid="B26-jcm-15-01829">26</xref>,<xref ref-type="bibr" rid="B29-jcm-15-01829">29</xref>,<xref ref-type="bibr" rid="B34-jcm-15-01829">34</xref>,<xref ref-type="bibr" rid="B36-jcm-15-01829">36</xref>,<xref ref-type="bibr" rid="B37-jcm-15-01829">37</xref>,<xref ref-type="bibr" rid="B38-jcm-15-01829">38</xref>,<xref ref-type="bibr" rid="B42-jcm-15-01829">42</xref>,<xref ref-type="bibr" rid="B43-jcm-15-01829">43</xref>,<xref ref-type="bibr" rid="B44-jcm-15-01829">44</xref>]), samples were stored refrigerated, and in 2 cases, even sampling tubes were pre-chilled (Cui et al., Mussavira et al. [<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>,<xref ref-type="bibr" rid="B42-jcm-15-01829">42</xref>]). In the other 11 cases (Panda et al., Dhanya et al., Ephraim et al., AlQuyaser et al., Egboh et al., Carramolino-Cu&#xE9;llar et al., Kadashetti et al., Manjrekar et al., Mrag et al., Sharma et al., Sharon et al. [<xref ref-type="bibr" rid="B28-jcm-15-01829">28</xref>,<xref ref-type="bibr" rid="B30-jcm-15-01829">30</xref>,<xref ref-type="bibr" rid="B31-jcm-15-01829">31</xref>,<xref ref-type="bibr" rid="B32-jcm-15-01829">32</xref>,<xref ref-type="bibr" rid="B33-jcm-15-01829">33</xref>,<xref ref-type="bibr" rid="B35-jcm-15-01829">35</xref>,<xref ref-type="bibr" rid="B39-jcm-15-01829">39</xref>,<xref ref-type="bibr" rid="B40-jcm-15-01829">40</xref>,<xref ref-type="bibr" rid="B41-jcm-15-01829">41</xref>,<xref ref-type="bibr" rid="B46-jcm-15-01829">46</xref>,<xref ref-type="bibr" rid="B47-jcm-15-01829">47</xref>]), there is no information on whether samples were stored in cold storage. The study by Forbat et al. [<xref ref-type="bibr" rid="B10-jcm-15-01829">10</xref>] reported that the cooling temperature was below 4 degrees Celsius.</p>
+      <p>Saliva volume used for sample collection was not uniform either: in most cases, no specific amount was mentioned, but where it was, the lowest value was 1.5 mL (Borg-Andersson et al., Ravindran et al. [<xref ref-type="bibr" rid="B34-jcm-15-01829">34</xref>,<xref ref-type="bibr" rid="B44-jcm-15-01829">44</xref>]), 2 mL was mentioned in the studies by Sharma et al., Egboh et al., and Gupta et al. [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>,<xref ref-type="bibr" rid="B33-jcm-15-01829">33</xref>,<xref ref-type="bibr" rid="B46-jcm-15-01829">46</xref>], 3 mL in the study by Ganesan et al. [<xref ref-type="bibr" rid="B36-jcm-15-01829">36</xref>], and a maximum of 10 mL was mentioned in the study by AlQuyaser et al. [<xref ref-type="bibr" rid="B32-jcm-15-01829">32</xref>].</p>
+      <p>Another important physiological difference between blood and saliva is that the latter has a higher proportion of various sugar-degrading enzymes, such as amylase [<xref ref-type="bibr" rid="B12-jcm-15-01829">12</xref>]. Although amylase is mainly involved in the breakdown of starch, bacteria in the oral cavity enzymatically break down the glucose thus released. The carbohydrate release of glycoproteins, also present in higher concentrations in saliva, may also affect measurement results. Glucose consumption by bacteria in the oral cavity may also affect salivary glucose levels [<xref ref-type="bibr" rid="B48-jcm-15-01829">48</xref>]. Avoiding contamination would be very difficult, and the measurement would no longer necessarily remain non-invasive. Therefore, after the first analysis, the literature suggested analyzing the correlation between blood glucose levels and glucose levels in saliva samples from the parotid gland only [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>]. These comparisons gave better results in some cases, but parotid collection is more technically demanding and time-consuming than unstimulated whole mouth sample taking. As in the first analysis, data were collected for individual patients. Here, the r<sup>2</sup> value showed that the correlation was stronger; however, it still remained moderate to support clinical applicability, and even if it offered better analytical performance, its current collection requirements would restrict its translational applicability in everyday clinical practice.</p>
+      <p>Other factors, such as salivary flow rate, alcohol consumption, or even diet type, could also potentially distort analysis results [<xref ref-type="bibr" rid="B48-jcm-15-01829">48</xref>]; however, these were not discussed in the articles included. As mixed-model analyses showed a weak relationship between salivary and blood glucose levels when all studies were included, we also carried out subset analyses based on blood glucose levels. Where only healthy patients were included, the results were statistically significant; this reinforces the assumption that altered physiological conditions in patients with diabetes result in substantial changes in salivary glucose levels.</p>
+      <p>These factors (salivary contamination, variable flow rate, recent diet and alcohol intake, and inconsistent storage conditions) can all alter salivary glucose independently of blood glucose and thus bias the observed association. Because they were reported and handled inconsistently across studies, they likely contribute to the substantial between-study heterogeneity and reduce confidence in translating salivary glucose measurements into clinical practice.</p>
+      <sec id="sec4dot1-jcm-15-01829">
+        <title>4.1. Strengths and Limitations</title>
+        <p>The strength of our study lies in its highlighting of the importance of a non-invasive testing method, which warrants further investigation. However, there are limitations, including the need for more studies and longer follow-ups.</p>
+        <p>IPDs were reconstructed from published scatterplots using the WebPlotDigitizer tool, which may introduce minor measurement error. However, as our sensitivity analysis shows, these inaccuracies are very unlikely to affect our findings based on the observed weak association found in the studies.</p>
+        <p>Additionally, we only included full-text studies published in English; this restriction may have introduced language bias and reduced the completeness and global generalizability of our findings and should be considered when interpreting the results.</p>
+        <p>While our methodological approach may reduce statistical efficiency, it also avoids potentially misleading pooled correlation estimates under incompatible assumptions, and it is consistent with our main conclusion, that the association between salivary and blood glucose is weak and highly heterogeneous across studies, as reflected by small, descriptive r<sup>2</sup> values that were not used for inference.</p>
+      </sec>
+      <sec id="sec4dot2-jcm-15-01829">
+        <title>4.2. Implications for Practice and Research</title>
+        <p>The translation of scientific results into clinical practice is crucial [<xref ref-type="bibr" rid="B49-jcm-15-01829">49</xref>,<xref ref-type="bibr" rid="B50-jcm-15-01829">50</xref>]. Because this review quantified statistical association rather than agreement or diagnostic accuracy, the findings should not be interpreted as evidence for or against clinical interchangeability. The consistently weak associations and substantial methodological heterogeneity instead indicate that salivary glucose cannot currently be evaluated for clinical substitution, and further standardized methodological work is needed to enable such assessments.</p>
+      </sec>
+    </sec>
+    <sec id="sec5-jcm-15-01829" sec-type="conclusions">
+      <title>5. Conclusions</title>
+      <p>The findings reveal poor correlation coefficients, indicating only a weak association between salivary and blood glucose levels. Furthermore, high between-study heterogeneity limits confidence in the pooled estimates. The significant variability in methodologies, such as sample storage conditions and collection techniques, undermines the reliability of the studies. While we did not evaluate accuracy indices regarding salivary glucose, such as specificity, sensitivity or ROC curves, our findings indicate that the current evidence is insufficient to support considering salivary glucose as an alternative for blood glucose monitoring. Therefore, blood glucose level measurement remains the &#x201C;gold standard&#x201D;, while salivary glucose testing remains a possible alternative that needs further research to support its eventual translation from fundamental research into clinical practice.</p>
+    </sec>
+  </body>
+  <back>
+    <app-group>
+      <app id="app1-jcm-15-01829">
+        <title>Supplementary Materials</title>
+        <p>The following supporting information can be downloaded at: <uri>https://www.mdpi.com/article/10.3390/jcm15051829/s1</uri>. S1. PRISMA 2020 Main Checklist; S2. PRISMA 2020 Abstract Checklist; S3. Search keys and number of articles retrieved; S4. Adapted QUADAS-2 signaling questions for paired salivary-blood glucose studies; S5. Excluded articles; S6. Data on storing conditions, analysis methods, and volume of salivary samples; S7. Meta-regression for whole-mouth saliva and blood glucose samples.</p>
+        <supplementary-material xmlns:xlink="http://www.w3.org/1999/xlink" id="jcm-15-01829-s001" xlink:href="jcm-15-01829-s001.zip"/>
+      </app>
+    </app-group>
+    <notes>
+      <title>Author Contributions</title>
+      <p>K.S.H.: Conceptualization, Data curation, Formal Analysis, Investigation, Methodology, Project administration, Visualization, Writing&#x2014;original draft. P.K.K.: Data curation, Investigation, Writing&#x2014;review and editing. X.Q.: Conceptualization, Methodology, Writing&#x2014;review and editing. G.A.: Conceptualization, Formal Analysis, Methodology, Project administration, Software, Visualization, Writing&#x2014;review and editing. D.B.: Supervision, Writing&#x2014;review and editing. N.K.R.: Supervision, Writing&#x2014;review and editing. P.H. (P&#xE9;ter Hegyi): Conceptualization, Supervision, Writing&#x2014;review and editing. P.H. (P&#xE9;ter Hermann): Supervision, Writing&#x2014;review and editing. C.J.: Supervision, Writing&#x2014;review and editing. D.H.: Conceptualization, Project administration, Supervision, Writing&#x2014;review and editing. D.V.: Conceptualization, Project administration, Supervision, Writing&#x2014;review and editing. All authors have read and agreed to the published version of the manuscript.</p>
+    </notes>
+    <notes>
+      <title>Data Availability Statement</title>
+      <p>The raw data supporting the conclusions of this article will be made available by the authors on request.</p>
+    </notes>
+    <notes notes-type="COI-statement">
+      <title>Conflicts of Interest</title>
+      <p>The authors declare no conflicts of interest.</p>
+    </notes>
+    <ref-list>
+      <title>References</title>
+      <ref id="B1-jcm-15-01829">
+        <label>1.</label>
+        <element-citation publication-type="web">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Magliano</surname>
+              <given-names>D.B.E.</given-names>
+            </name>
+          </person-group>
+          <article-title>IDF Diabetes Atlas</article-title>
+          <comment>Available online: <ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://idf.org/about-diabetes/diabetes-facts-figures/" ext-link-type="uri">https://idf.org/about-diabetes/diabetes-facts-figures/</ext-link></comment>
+          <date-in-citation content-type="access-date" iso-8601-date="2025-04-21">(accessed on 21 April 2025)</date-in-citation>
+        </element-citation>
+      </ref>
+      <ref id="B2-jcm-15-01829">
+        <label>2.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Lee</surname>
+              <given-names>D.C.</given-names>
+            </name>
+            <name>
+              <surname>Reddy</surname>
+              <given-names>H.</given-names>
+            </name>
+            <name>
+              <surname>Koziatek</surname>
+              <given-names>C.A.</given-names>
+            </name>
+            <name>
+              <surname>Klein</surname>
+              <given-names>N.</given-names>
+            </name>
+            <name>
+              <surname>Chitnis</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Creary</surname>
+              <given-names>K.</given-names>
+            </name>
+            <name>
+              <surname>Francois</surname>
+              <given-names>G.</given-names>
+            </name>
+            <name>
+              <surname>Akindutire</surname>
+              <given-names>O.</given-names>
+            </name>
+            <name>
+              <surname>Femia</surname>
+              <given-names>R.</given-names>
+            </name>
+            <name>
+              <surname>Caldwell</surname>
+              <given-names>R.</given-names>
+            </name>
+          </person-group>
+          <article-title>Expanding Diabetes Screening to Identify Undiagnosed Cases Among Emergency Department Patients</article-title>
+          <source>West. J. Emerg. Med.</source>
+          <year>2023</year>
+          <volume>24</volume>
+          <fpage>962</fpage>
+          <lpage>966</lpage>
+          <pub-id pub-id-type="doi">10.5811/WESTJEM.59957</pub-id>
+          <pub-id pub-id-type="pmid">37788038</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B3-jcm-15-01829">
+        <label>3.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Willey</surname>
+              <given-names>V.J.</given-names>
+            </name>
+            <name>
+              <surname>Kong</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Wu</surname>
+              <given-names>B.</given-names>
+            </name>
+            <name>
+              <surname>Raval</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Hobbs</surname>
+              <given-names>T.</given-names>
+            </name>
+            <name>
+              <surname>Windsheimer</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Deshpande</surname>
+              <given-names>G.</given-names>
+            </name>
+            <name>
+              <surname>Tunceli</surname>
+              <given-names>O.</given-names>
+            </name>
+            <name>
+              <surname>Sakurada</surname>
+              <given-names>B.</given-names>
+            </name>
+            <name>
+              <surname>Bouchard</surname>
+              <given-names>J.R.</given-names>
+            </name>
+          </person-group>
+          <article-title>Estimating the Real-World Cost of Diabetes Mellitus in the United States During an 8-Year Period Using 2 Cost Methodologies</article-title>
+          <source>Am. Health Drug Benefits</source>
+          <year>2018</year>
+          <volume>11</volume>
+          <fpage>310</fpage>
+          <lpage>318</lpage>
+          <pub-id pub-id-type="pmid">30464797</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B4-jcm-15-01829">
+        <label>4.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Cole</surname>
+              <given-names>J.B.</given-names>
+            </name>
+            <name>
+              <surname>Florez</surname>
+              <given-names>J.C.</given-names>
+            </name>
+          </person-group>
+          <article-title>Genetics of diabetes mellitus and diabetes complications</article-title>
+          <source>Nat. Rev. Nephrol.</source>
+          <year>2020</year>
+          <volume>16</volume>
+          <fpage>377</fpage>
+          <lpage>390</lpage>
+          <pub-id pub-id-type="doi">10.1038/s41581-020-0278-5</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B5-jcm-15-01829">
+        <label>5.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Mauri-Obradors</surname>
+              <given-names>E.</given-names>
+            </name>
+            <name>
+              <surname>Estrugo-Devesa</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Jane-Salas</surname>
+              <given-names>E.</given-names>
+            </name>
+            <name>
+              <surname>Vinas</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>Lopez-Lopez</surname>
+              <given-names>J.</given-names>
+            </name>
+          </person-group>
+          <article-title>Oral manifestations of Diabetes Mellitus. A systematic review</article-title>
+          <source>Med. Oral Patol. Oral Cir. Bucal</source>
+          <year>2017</year>
+          <volume>22</volume>
+          <fpage>e586</fpage>
+          <lpage>e594</lpage>
+          <pub-id pub-id-type="doi">10.4317/medoral.21655</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B6-jcm-15-01829">
+        <label>6.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Rohani</surname>
+              <given-names>B.</given-names>
+            </name>
+          </person-group>
+          <article-title>Oral manifestations in patients with diabetes mellitus</article-title>
+          <source>World J. Diabetes</source>
+          <year>2019</year>
+          <volume>10</volume>
+          <fpage>485</fpage>
+          <lpage>489</lpage>
+          <pub-id pub-id-type="doi">10.4239/wjd.v10.i9.485</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B7-jcm-15-01829">
+        <label>7.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Gupta</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Singh</surname>
+              <given-names>S.K.</given-names>
+            </name>
+            <name>
+              <surname>Padmavathi</surname>
+              <given-names>B.N.</given-names>
+            </name>
+            <name>
+              <surname>Rajan</surname>
+              <given-names>S.Y.</given-names>
+            </name>
+            <name>
+              <surname>Mamatha</surname>
+              <given-names>G.P.</given-names>
+            </name>
+            <name>
+              <surname>Kumar</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Roy</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Sareen</surname>
+              <given-names>M.</given-names>
+            </name>
+          </person-group>
+          <article-title>Evaluation of Correlation of Blood Glucose and Salivary Glucose Level in Known Diabetic Patients</article-title>
+          <source>J. Clin. Diagn. Res.</source>
+          <year>2015</year>
+          <volume>9</volume>
+          <fpage>ZC106</fpage>
+          <lpage>ZC109</lpage>
+          <pub-id pub-id-type="doi">10.7860/JCDR/2015/12398.5994</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B8-jcm-15-01829">
+        <label>8.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Hermayer</surname>
+              <given-names>K.L.</given-names>
+            </name>
+            <name>
+              <surname>Loftley</surname>
+              <given-names>A.S.</given-names>
+            </name>
+            <name>
+              <surname>Reddy</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Narla</surname>
+              <given-names>S.N.</given-names>
+            </name>
+            <name>
+              <surname>Epps</surname>
+              <given-names>N.A.</given-names>
+            </name>
+            <name>
+              <surname>Zhu</surname>
+              <given-names>Y.</given-names>
+            </name>
+          </person-group>
+          <article-title>Challenges of inpatient blood glucose monitoring: Standards, methods, and devices to measure blood glucose</article-title>
+          <source>Curr. Diabetes Rep.</source>
+          <year>2015</year>
+          <volume>15</volume>
+          <fpage>10</fpage>
+          <pub-id pub-id-type="doi">10.1007/s11892-015-0582-9</pub-id>
+          <pub-id pub-id-type="pmid">25644818</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B9-jcm-15-01829">
+        <label>9.</label>
+        <element-citation publication-type="web">
+          <person-group person-group-type="author">
+            <collab>International Diabetes Federation</collab>
+          </person-group>
+          <article-title>India Diabetes Country Report 2000&#x2013;2050</article-title>
+          <comment>Available online: <ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://diabetesatlas.org/data-by-location/country/india/" ext-link-type="uri">https://diabetesatlas.org/data-by-location/country/india/</ext-link></comment>
+          <date-in-citation content-type="access-date" iso-8601-date="2025-04-21">(accessed on 21 April 2025)</date-in-citation>
+        </element-citation>
+      </ref>
+      <ref id="B10-jcm-15-01829">
+        <label>10.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Forbat</surname>
+              <given-names>L.N.</given-names>
+            </name>
+            <name>
+              <surname>Collins</surname>
+              <given-names>R.E.</given-names>
+            </name>
+            <name>
+              <surname>Maskell</surname>
+              <given-names>G.K.</given-names>
+            </name>
+            <name>
+              <surname>Sonksen</surname>
+              <given-names>P.H.</given-names>
+            </name>
+          </person-group>
+          <article-title>Glucose concentrations in parotid fluid and venous blood of patients attending a diabetic clinic</article-title>
+          <source>J. R. Soc. Med.</source>
+          <year>1981</year>
+          <volume>74</volume>
+          <fpage>725</fpage>
+          <lpage>728</lpage>
+          <pub-id pub-id-type="doi">10.1177/014107688107401004</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B11-jcm-15-01829">
+        <label>11.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Cui</surname>
+              <given-names>Y.</given-names>
+            </name>
+            <name>
+              <surname>Zhang</surname>
+              <given-names>H.</given-names>
+            </name>
+            <name>
+              <surname>Zhu</surname>
+              <given-names>J.</given-names>
+            </name>
+            <name>
+              <surname>Liao</surname>
+              <given-names>Z.</given-names>
+            </name>
+            <name>
+              <surname>Wang</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Liu</surname>
+              <given-names>W.</given-names>
+            </name>
+          </person-group>
+          <article-title>Correlations of Salivary and Blood Glucose Levels among Six Saliva Collection Methods</article-title>
+          <source>Int. J. Environ. Res. Public Health</source>
+          <year>2022</year>
+          <volume>19</volume>
+          <elocation-id>4122</elocation-id>
+          <pub-id pub-id-type="doi">10.3390/ijerph19074122</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B12-jcm-15-01829">
+        <label>12.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Sabino-Silva</surname>
+              <given-names>R.</given-names>
+            </name>
+            <name>
+              <surname>Freitas</surname>
+              <given-names>H.S.</given-names>
+            </name>
+            <name>
+              <surname>Lamers</surname>
+              <given-names>M.L.</given-names>
+            </name>
+            <name>
+              <surname>Okamoto</surname>
+              <given-names>M.M.</given-names>
+            </name>
+            <name>
+              <surname>Santos</surname>
+              <given-names>M.F.</given-names>
+            </name>
+            <name>
+              <surname>Machado</surname>
+              <given-names>U.F.</given-names>
+            </name>
+          </person-group>
+          <article-title>Na+-glucose cotransporter SGLT1 protein in salivary glands: Potential involvement in the diabetes-induced decrease in salivary flow</article-title>
+          <source>J. Membr. Biol.</source>
+          <year>2009</year>
+          <volume>228</volume>
+          <fpage>63</fpage>
+          <lpage>69</lpage>
+          <pub-id pub-id-type="doi">10.1007/s00232-009-9159-3</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B13-jcm-15-01829">
+        <label>13.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Page</surname>
+              <given-names>M.J.</given-names>
+            </name>
+            <name>
+              <surname>McKenzie</surname>
+              <given-names>J.</given-names>
+            </name>
+            <name>
+              <surname>Bossuyt</surname>
+              <given-names>P.</given-names>
+            </name>
+            <name>
+              <surname>Boutron</surname>
+              <given-names>I.</given-names>
+            </name>
+            <name>
+              <surname>Hoffmann</surname>
+              <given-names>T.</given-names>
+            </name>
+            <name>
+              <surname>Mulrow</surname>
+              <given-names>C.</given-names>
+            </name>
+            <name>
+              <surname>Shamseer</surname>
+              <given-names>L.</given-names>
+            </name>
+            <name>
+              <surname>Tetzlaff</surname>
+              <given-names>J.</given-names>
+            </name>
+            <name>
+              <surname>Akl</surname>
+              <given-names>E.</given-names>
+            </name>
+            <name>
+              <surname>Brennan</surname>
+              <given-names>S.E.</given-names>
+            </name>
+            <etal/>
+          </person-group>
+          <article-title>The PRISMA 2020 statement: An updated guideline for reporting systematic reviews</article-title>
+          <source>BMJ</source>
+          <year>2021</year>
+          <volume>372</volume>
+          <fpage>71</fpage>
+          <pub-id pub-id-type="doi">10.1136/bmj.n71</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B14-jcm-15-01829">
+        <label>14.</label>
+        <element-citation publication-type="web">
+          <person-group person-group-type="author">
+            <collab>National Institute for Health and Care Research</collab>
+          </person-group>
+          <article-title>PROSPERO International Prospective Register of Systematic Reviews</article-title>
+          <comment>Available online: <ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://www.crd.york.ac.uk/Prospero/" ext-link-type="uri">https://www.crd.york.ac.uk/Prospero/</ext-link></comment>
+          <date-in-citation content-type="access-date" iso-8601-date="2023-12-03">(accessed on 3 December 2023)</date-in-citation>
+        </element-citation>
+      </ref>
+      <ref id="B15-jcm-15-01829">
+        <label>15.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Whiting</surname>
+              <given-names>P.F.</given-names>
+            </name>
+            <name>
+              <surname>Rutjes</surname>
+              <given-names>A.W.</given-names>
+            </name>
+            <name>
+              <surname>Westwood</surname>
+              <given-names>M.E.</given-names>
+            </name>
+            <name>
+              <surname>Mallett</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Deeks</surname>
+              <given-names>J.J.</given-names>
+            </name>
+            <name>
+              <surname>Reitsma</surname>
+              <given-names>J.B.</given-names>
+            </name>
+            <name>
+              <surname>Leeflang</surname>
+              <given-names>M.M.</given-names>
+            </name>
+            <name>
+              <surname>Sterne</surname>
+              <given-names>J.A.</given-names>
+            </name>
+            <name>
+              <surname>Bossuyt</surname>
+              <given-names>P.M.</given-names>
+            </name>
+            <name>
+              <surname>Quadas-Group</surname>
+            </name>
+          </person-group>
+          <article-title>QUADAS-2: A revised tool for the quality assessment of diagnostic accuracy studies</article-title>
+          <source>Ann. Intern. Med.</source>
+          <year>2011</year>
+          <volume>155</volume>
+          <fpage>529</fpage>
+          <lpage>536</lpage>
+          <pub-id pub-id-type="doi">10.7326/0003-4819-155-8-201110180-00009</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B16-jcm-15-01829">
+        <label>16.</label>
+        <element-citation publication-type="web">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Rohatgi</surname>
+              <given-names>A.</given-names>
+            </name>
+          </person-group>
+          <article-title><italic>WebPlotDigitizer</italic>, 4.7</article-title>
+          <year>2024</year>
+          <comment>Available online: <ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://automeris.io/" ext-link-type="uri">https://automeris.io/</ext-link></comment>
+          <date-in-citation content-type="access-date" iso-8601-date="2024-03-24">(accessed on 24 March 2024)</date-in-citation>
+        </element-citation>
+      </ref>
+      <ref id="B17-jcm-15-01829">
+        <label>17.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Bates</surname>
+              <given-names>D.</given-names>
+            </name>
+            <name>
+              <surname>M&#xE4;chler</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>Bolker</surname>
+              <given-names>B.M.</given-names>
+            </name>
+            <name>
+              <surname>Walker</surname>
+              <given-names>S.C.</given-names>
+            </name>
+          </person-group>
+          <article-title>Fitting Linear Mixed-Effects Models Using lme4</article-title>
+          <source>J. Stat. Softw.</source>
+          <year>2015</year>
+          <volume>67</volume>
+          <fpage>1</fpage>
+          <lpage>48</lpage>
+          <pub-id pub-id-type="doi">10.18637/jss.v067.i01</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B18-jcm-15-01829">
+        <label>18.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>D&#x2019;Agostino</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Tana</surname>
+              <given-names>F.</given-names>
+            </name>
+            <name>
+              <surname>Ettorre</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Pavarini</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>Serafini</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Cochis</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Scalia</surname>
+              <given-names>A.C.</given-names>
+            </name>
+            <name>
+              <surname>Rimondini</surname>
+              <given-names>L.</given-names>
+            </name>
+            <name>
+              <surname>De Giglio</surname>
+              <given-names>E.</given-names>
+            </name>
+            <name>
+              <surname>Cometa</surname>
+              <given-names>S.</given-names>
+            </name>
+            <etal/>
+          </person-group>
+          <article-title>Mesoporous zirconia surfaces with anti-biofilm properties for dental implants</article-title>
+          <source>Biomed. Mater.</source>
+          <year>2021</year>
+          <volume>16</volume>
+          <fpage>045016</fpage>
+          <pub-id pub-id-type="doi">10.1088/1748-605X/abf88d</pub-id>
+          <pub-id pub-id-type="pmid">33857927</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B19-jcm-15-01829">
+        <label>19.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Balduzzi</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>R&#xFC;cker</surname>
+              <given-names>G.</given-names>
+            </name>
+            <name>
+              <surname>Schwarzer</surname>
+              <given-names>G.</given-names>
+            </name>
+          </person-group>
+          <article-title>How to perform a meta-analysis with R: A practical tutorial</article-title>
+          <source>Evid.-Based Ment. Health</source>
+          <year>2019</year>
+          <volume>22</volume>
+          <fpage>153</fpage>
+          <lpage>160</lpage>
+          <pub-id pub-id-type="doi">10.1136/ebmental-2019-300117</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B20-jcm-15-01829">
+        <label>20.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Viechtbauer</surname>
+              <given-names>W.</given-names>
+            </name>
+          </person-group>
+          <article-title>Bias and Efficiency of Meta-Analytic Variance Estimators in the Random-Effects Model</article-title>
+          <source>J. Educ. Behav. Stat.</source>
+          <year>2005</year>
+          <volume>30</volume>
+          <fpage>261</fpage>
+          <lpage>293</lpage>
+          <pub-id pub-id-type="doi">10.3102/10769986030003261</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B21-jcm-15-01829">
+        <label>21.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Knapp</surname>
+              <given-names>G.</given-names>
+            </name>
+            <name>
+              <surname>Hartung</surname>
+              <given-names>J.</given-names>
+            </name>
+          </person-group>
+          <article-title>Improved Tests for a Random Effects Meta-Regression with a Single Covariate</article-title>
+          <source>Stat. Med.</source>
+          <year>2003</year>
+          <volume>22</volume>
+          <fpage>2693</fpage>
+          <lpage>2710</lpage>
+          <pub-id pub-id-type="doi">10.1002/sim.1482</pub-id>
+          <pub-id pub-id-type="pmid">12939780</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B22-jcm-15-01829">
+        <label>22.</label>
+        <element-citation publication-type="other">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Harrer</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>Cuijpers</surname>
+              <given-names>P.</given-names>
+            </name>
+            <name>
+              <surname>Furukawa</surname>
+              <given-names>T.</given-names>
+            </name>
+            <name>
+              <surname>Ebert</surname>
+              <given-names>D.D.</given-names>
+            </name>
+          </person-group>
+          <source>dmetar: Companion R Package for the Guide &#x2018;Doing Meta-Analysis in R</source>
+          <comment>0.0.9000</comment>
+          <publisher-name>Chapman &amp; Hall/CRC Press</publisher-name>
+          <publisher-loc>Boca Raton, FL, USA</publisher-loc>
+          <year>2019</year>
+        </element-citation>
+      </ref>
+      <ref id="B23-jcm-15-01829">
+        <label>23.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Viechtbauer</surname>
+              <given-names>W.</given-names>
+            </name>
+          </person-group>
+          <article-title>Conducting meta-analyses in R with the metafor package</article-title>
+          <source>J. Stat. Softw.</source>
+          <year>2010</year>
+          <volume>36</volume>
+          <fpage>1</fpage>
+          <lpage>48</lpage>
+          <pub-id pub-id-type="doi">10.18637/jss.v036.i03</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B24-jcm-15-01829">
+        <label>24.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Drevon</surname>
+              <given-names>D.</given-names>
+            </name>
+            <name>
+              <surname>Fursa</surname>
+              <given-names>S.R.</given-names>
+            </name>
+            <name>
+              <surname>Malcolm</surname>
+              <given-names>A.L.</given-names>
+            </name>
+          </person-group>
+          <article-title>Intercoder Reliability and Validity of WebPlotDigitizer in Extracting Graphed Data</article-title>
+          <source>Behav. Modif.</source>
+          <year>2017</year>
+          <volume>41</volume>
+          <fpage>323</fpage>
+          <lpage>339</lpage>
+          <pub-id pub-id-type="doi">10.1177/0145445516673998</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B25-jcm-15-01829">
+        <label>25.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Aydin</surname>
+              <given-names>O.</given-names>
+            </name>
+            <name>
+              <surname>Yassikaya</surname>
+              <given-names>M.Y.</given-names>
+            </name>
+          </person-group>
+          <article-title>Validity and Reliability Analysis of the PlotDigitizer Software Program for Data Extraction from Single-Case Graphs</article-title>
+          <source>Perspect. Behav. Sci.</source>
+          <year>2022</year>
+          <volume>45</volume>
+          <fpage>239</fpage>
+          <lpage>257</lpage>
+          <pub-id pub-id-type="doi">10.1007/s40614-021-00284-0</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B26-jcm-15-01829">
+        <label>26.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Wang</surname>
+              <given-names>B.</given-names>
+            </name>
+            <name>
+              <surname>Du</surname>
+              <given-names>J.</given-names>
+            </name>
+            <name>
+              <surname>Zhu</surname>
+              <given-names>Z.</given-names>
+            </name>
+            <name>
+              <surname>Ma</surname>
+              <given-names>Z.</given-names>
+            </name>
+            <name>
+              <surname>Wang</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Shan</surname>
+              <given-names>Z.</given-names>
+            </name>
+          </person-group>
+          <article-title>Evaluation of Parotid Salivary Glucose Level for Clinical Diagnosis and Monitoring Type 2 Diabetes Mellitus Patients</article-title>
+          <source>Biomed. Res. Int.</source>
+          <year>2017</year>
+          <volume>2017</volume>
+          <fpage>2569707</fpage>
+          <pub-id pub-id-type="doi">10.1155/2017/2569707</pub-id>
+          <pub-id pub-id-type="pmid">28251153</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B27-jcm-15-01829">
+        <label>27.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Sreedevi</surname>
+            </name>
+            <name>
+              <surname>Shashikanth</surname>
+              <given-names>M.C.</given-names>
+            </name>
+            <name>
+              <surname>Shambulingappa</surname>
+              <given-names>P.</given-names>
+            </name>
+          </person-group>
+          <article-title>Comparison of serum glucose and salivary glucose in diabetic patients</article-title>
+          <source>J. Indian Acad. Oral Med. Radiol.</source>
+          <year>2008</year>
+          <volume>20</volume>
+          <fpage>9</fpage>
+          <lpage>13</lpage>
+          <pub-id pub-id-type="doi">10.4103/0972-1363.44354</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B28-jcm-15-01829">
+        <label>28.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Abikshyeet</surname>
+              <given-names>P.</given-names>
+            </name>
+            <name>
+              <surname>Ramesh</surname>
+              <given-names>V.</given-names>
+            </name>
+            <name>
+              <surname>Oza</surname>
+              <given-names>N.</given-names>
+            </name>
+          </person-group>
+          <article-title>Glucose estimation in the salivary secretion of diabetes mellitus patients</article-title>
+          <source>Diabetes Metab. Syndr. Obes.</source>
+          <year>2012</year>
+          <volume>5</volume>
+          <fpage>149</fpage>
+          <lpage>154</lpage>
+          <pub-id pub-id-type="doi">10.2147/DMSO.S32112</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B29-jcm-15-01829">
+        <label>29.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Choudhry</surname>
+              <given-names>A.A.</given-names>
+            </name>
+            <name>
+              <surname>Kumar</surname>
+              <given-names>P.</given-names>
+            </name>
+            <name>
+              <surname>Prasad</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>Mohapatra</surname>
+              <given-names>T.</given-names>
+            </name>
+            <name>
+              <surname>Sharma</surname>
+              <given-names>P.</given-names>
+            </name>
+          </person-group>
+          <article-title>Validation of salivary glucose as a screening tool of diabetes mellitus</article-title>
+          <source>Rom. J. Intern. Med.</source>
+          <year>2022</year>
+          <volume>60</volume>
+          <fpage>145</fpage>
+          <lpage>152</lpage>
+          <pub-id pub-id-type="doi">10.2478/rjim-2022-0005</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B30-jcm-15-01829">
+        <label>30.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Dhanya</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>Hegde</surname>
+              <given-names>S.</given-names>
+            </name>
+          </person-group>
+          <article-title>Salivary glucose as a diagnostic tool in Type II diabetes mellitus: A case-control study</article-title>
+          <source>Niger. J. Clin. Pract.</source>
+          <year>2016</year>
+          <volume>19</volume>
+          <fpage>486</fpage>
+          <lpage>490</lpage>
+          <pub-id pub-id-type="doi">10.4103/1119-3077.183314</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B31-jcm-15-01829">
+        <label>31.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Ephraim</surname>
+              <given-names>R.K.D.</given-names>
+            </name>
+            <name>
+              <surname>Anto</surname>
+              <given-names>E.O.</given-names>
+            </name>
+            <name>
+              <surname>Acheampong</surname>
+              <given-names>E.</given-names>
+            </name>
+            <name>
+              <surname>Fondjo</surname>
+              <given-names>L.A.</given-names>
+            </name>
+            <name>
+              <surname>Barnie</surname>
+              <given-names>R.B.</given-names>
+            </name>
+            <name>
+              <surname>Sakyi</surname>
+              <given-names>S.A.</given-names>
+            </name>
+            <name>
+              <surname>Asare</surname>
+              <given-names>A.</given-names>
+            </name>
+          </person-group>
+          <article-title>Fasting salivary glucose levels is not a better measure for identifying diabetes mellitus than serum or capillary blood glucose levels: Comparison in a Ghanaian population</article-title>
+          <source>Heliyon</source>
+          <year>2019</year>
+          <volume>5</volume>
+          <fpage>e01286</fpage>
+          <pub-id pub-id-type="doi">10.1016/j.heliyon.2019.e01286</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B32-jcm-15-01829">
+        <label>32.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>AlQusayer</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>AlQusayer</surname>
+              <given-names>M.</given-names>
+            </name>
+          </person-group>
+          <article-title>Correlation of Salivary Glucose and Blood Glucose Among Diabetics Versus Non-Diabetics</article-title>
+          <source>INDO Am. J. Pharm. Sci.</source>
+          <year>2019</year>
+          <volume>6</volume>
+          <fpage>1131</fpage>
+          <lpage>1137</lpage>
+          <pub-id pub-id-type="doi">10.5281/zenodo.2542068</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B33-jcm-15-01829">
+        <label>33.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Egboh</surname>
+              <given-names>V.O.</given-names>
+            </name>
+            <name>
+              <surname>Ohwin</surname>
+              <given-names>P.E.</given-names>
+            </name>
+            <name>
+              <surname>Daubry</surname>
+              <given-names>T.M.E.</given-names>
+            </name>
+            <name>
+              <surname>Ofulue</surname>
+              <given-names>O.O.</given-names>
+            </name>
+            <name>
+              <surname>Nwogueze</surname>
+              <given-names>B.C.</given-names>
+            </name>
+            <name>
+              <surname>Ojugbeli</surname>
+              <given-names>E.T.</given-names>
+            </name>
+            <name>
+              <surname>Osuagwu</surname>
+              <given-names>U.L.</given-names>
+            </name>
+            <name>
+              <surname>Nwangwa</surname>
+              <given-names>E.K.</given-names>
+            </name>
+          </person-group>
+          <article-title>Comparative Analysis of Fasting Blood Glucose and Salivary Electrolytes Concentrations among Individuals with Type II Diabetes: A Randomized Controlled Hospital Based Study</article-title>
+          <source>Toxicol. Rep.</source>
+          <year>2022</year>
+          <volume>9</volume>
+          <fpage>1268</fpage>
+          <lpage>1272</lpage>
+          <pub-id pub-id-type="doi">10.1016/j.toxrep.2022.05.022</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B34-jcm-15-01829">
+        <label>34.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Andersson</surname>
+              <given-names>A.B.</given-names>
+            </name>
+            <name>
+              <surname>Birkhed</surname>
+              <given-names>D.</given-names>
+            </name>
+            <name>
+              <surname>Berntorp</surname>
+              <given-names>K.</given-names>
+            </name>
+            <name>
+              <surname>Lindg&#xE4;rde</surname>
+              <given-names>F.</given-names>
+            </name>
+            <name>
+              <surname>Matsson</surname>
+              <given-names>L.</given-names>
+            </name>
+          </person-group>
+          <article-title>Glucose concentration in parotid saliva after glucose/food intake in individuals with glucose intolerance and diabetes mellitus</article-title>
+          <source>Eur. J. Oral Sci.</source>
+          <year>1998</year>
+          <volume>106</volume>
+          <fpage>931</fpage>
+          <lpage>937</lpage>
+          <pub-id pub-id-type="doi">10.1046/j.0909-8836.1998.eos106505.x</pub-id>
+          <pub-id pub-id-type="pmid">9786322</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B35-jcm-15-01829">
+        <label>35.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Carramolino-Cu&#xE9;llar</surname>
+              <given-names>E.</given-names>
+            </name>
+            <name>
+              <surname>Lauritano</surname>
+              <given-names>D.</given-names>
+            </name>
+            <name>
+              <surname>Carinci</surname>
+              <given-names>F.</given-names>
+            </name>
+            <name>
+              <surname>Silvestre-Rangil</surname>
+              <given-names>J.</given-names>
+            </name>
+            <name>
+              <surname>Ba&#xF1;uls-Morant</surname>
+              <given-names>C.</given-names>
+            </name>
+            <name>
+              <surname>Silvestre</surname>
+              <given-names>F.J.</given-names>
+            </name>
+            <name>
+              <surname>Hern&#xE1;ndez-Mijares</surname>
+              <given-names>A.</given-names>
+            </name>
+          </person-group>
+          <article-title>Salivary glucose as a metabolic control marker in patients with type 2 diabetes</article-title>
+          <source>J. Biol. Regul. Homeost. Agents</source>
+          <year>2017</year>
+          <volume>31</volume>
+          <fpage>181</fpage>
+          <lpage>187</lpage>
+        </element-citation>
+      </ref>
+      <ref id="B36-jcm-15-01829">
+        <label>36.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Ganesan</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Muthukrishnan</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Veeraraghavan</surname>
+              <given-names>V.P.</given-names>
+            </name>
+            <name>
+              <surname>Kumar</surname>
+              <given-names>N.G.</given-names>
+            </name>
+          </person-group>
+          <article-title>Effectiveness of Salivary Glucose as a Reliable Alternative in Diagnosis of Type 1 Diabetes Mellitus: A Cross-Sectional Study</article-title>
+          <source>J. Pharm. Bioallied Sci.</source>
+          <year>2022</year>
+          <volume>14</volume>
+          <fpage>S557</fpage>
+          <lpage>S562</lpage>
+          <pub-id pub-id-type="doi">10.4103/jpbs.jpbs_666_21</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B37-jcm-15-01829">
+        <label>37.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Saritha Harish</surname>
+              <given-names>M.S.</given-names>
+            </name>
+          </person-group>
+          <article-title>A Correlative Study Between Serum, Salivary Lipid Profile and Glucose Level in Healthy and Type 2 Diabetic Patients</article-title>
+          <source>Res. J. Pharm. Biol. Chem. Sci.</source>
+          <year>2018</year>
+          <volume>9</volume>
+          <fpage>136</fpage>
+          <lpage>143</lpage>
+        </element-citation>
+      </ref>
+      <ref id="B38-jcm-15-01829">
+        <label>38.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Sarithe Harish</surname>
+              <given-names>M.S.</given-names>
+            </name>
+          </person-group>
+          <article-title>A Comparative and Correlative Study Between Blood and Salivary Glucose with Blood HbA1c in Type 2 Diabetes</article-title>
+          <source>Int. J. Pharm. Sci. Res.</source>
+          <year>2019</year>
+          <volume>10</volume>
+          <fpage>401</fpage>
+          <lpage>406</lpage>
+          <pub-id pub-id-type="doi">10.13040/Ijpsr.0975-8232.10(1).401-06</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B39-jcm-15-01829">
+        <label>39.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Kadashetti</surname>
+              <given-names>V.</given-names>
+            </name>
+            <name>
+              <surname>Baad</surname>
+              <given-names>R.</given-names>
+            </name>
+            <name>
+              <surname>Malik</surname>
+              <given-names>N.</given-names>
+            </name>
+            <name>
+              <surname>Shivakumar</surname>
+              <given-names>K.M.</given-names>
+            </name>
+            <name>
+              <surname>Vibhute</surname>
+              <given-names>N.</given-names>
+            </name>
+            <name>
+              <surname>Belgaumi</surname>
+              <given-names>U.</given-names>
+            </name>
+            <name>
+              <surname>Gugawad</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Pramod</surname>
+              <given-names>R.C.</given-names>
+            </name>
+          </person-group>
+          <article-title>Glucose Level Estimation in Diabetes Mellitus By Saliva: A Bloodless Revolution</article-title>
+          <source>Rom. J. Intern. Med.</source>
+          <year>2015</year>
+          <volume>53</volume>
+          <fpage>248</fpage>
+          <lpage>252</lpage>
+          <pub-id pub-id-type="doi">10.1515/rjim-2015-0032</pub-id>
+          <pub-id pub-id-type="pmid">26710500</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B40-jcm-15-01829">
+        <label>40.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Manjrekar</surname>
+              <given-names>P.</given-names>
+            </name>
+            <name>
+              <surname>Hegde</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Shrilaxmi</surname>
+            </name>
+            <name>
+              <surname>D&#x2019;souza</surname>
+              <given-names>F.</given-names>
+            </name>
+            <name>
+              <surname>Kaveeshwar</surname>
+              <given-names>V.</given-names>
+            </name>
+            <name>
+              <surname>Jose</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Tasneem</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Shenoy</surname>
+              <given-names>R.</given-names>
+            </name>
+          </person-group>
+          <article-title>Fructosamine in Non-diabetic First Degree Relatives of Type 2 Diabetes Patients: Risk Assessor</article-title>
+          <source>J. Clin. Diagn. Res.</source>
+          <year>2012</year>
+          <volume>6</volume>
+          <fpage>770</fpage>
+          <lpage>773</lpage>
+        </element-citation>
+      </ref>
+      <ref id="B41-jcm-15-01829">
+        <label>41.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Mrag</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>Kassab</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Omezzine</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Belkacem</surname>
+              <given-names>C.R.</given-names>
+            </name>
+            <name>
+              <surname>Ben</surname>
+              <given-names>F.I.F.</given-names>
+            </name>
+            <name>
+              <surname>Douki</surname>
+              <given-names>N.</given-names>
+            </name>
+            <name>
+              <surname>Laouani</surname>
+              <given-names>K.C.</given-names>
+            </name>
+            <name>
+              <surname>Bouslema</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Ben</surname>
+              <given-names>A.F.</given-names>
+            </name>
+          </person-group>
+          <article-title>Saliva diagnostic utility in patients with type 2 diabetes: Future standard method</article-title>
+          <source>J. Med. Biochem.</source>
+          <year>2020</year>
+          <volume>39</volume>
+          <fpage>140</fpage>
+          <lpage>148</lpage>
+          <pub-id pub-id-type="doi">10.2478/jomb-2019-0019</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B42-jcm-15-01829">
+        <label>42.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Mussavira</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Dharmalingam</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>Omana Sukumaran</surname>
+              <given-names>B.</given-names>
+            </name>
+          </person-group>
+          <article-title>Salivary glucose and antioxidant defense markers in type II diabetes mellitus</article-title>
+          <source>Turk. J. Med. Sci.</source>
+          <year>2015</year>
+          <volume>45</volume>
+          <fpage>141</fpage>
+          <lpage>147</lpage>
+          <pub-id pub-id-type="doi">10.3906/sag-1306-116</pub-id>
+          <pub-id pub-id-type="pmid">25790543</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B43-jcm-15-01829">
+        <label>43.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Nirmala</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Mazher</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Sharon</surname>
+              <given-names>N.S.</given-names>
+            </name>
+          </person-group>
+          <article-title>Salivary Glucose Concentration in Type-Ii Diabetic People: A Case&#x2013;Control Study</article-title>
+          <source>Asian J. Pharm. Clin. Res.</source>
+          <year>2019</year>
+          <volume>12</volume>
+          <fpage>192</fpage>
+          <lpage>194</lpage>
+          <pub-id pub-id-type="doi">10.22159/ajpcr.2019.v12i11.34739</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B44-jcm-15-01829">
+        <label>44.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Ravindran</surname>
+              <given-names>R.</given-names>
+            </name>
+            <name>
+              <surname>Gopinathan</surname>
+              <given-names>D.M.</given-names>
+            </name>
+            <name>
+              <surname>Sukumaran</surname>
+              <given-names>S.</given-names>
+            </name>
+          </person-group>
+          <article-title>Estimation of Salivary Glucose and Glycogen Content in Exfoliated Buccal Mucosal Cells of Patients with Type II Diabetes Mellitus</article-title>
+          <source>J. Clin. Diagn. Res.</source>
+          <year>2015</year>
+          <volume>9</volume>
+          <fpage>89</fpage>
+          <lpage>93</lpage>
+          <pub-id pub-id-type="doi">10.7860/JCDR/2015/11633.5971</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B45-jcm-15-01829">
+        <label>45.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Shahbaz</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Katti</surname>
+              <given-names>G.</given-names>
+            </name>
+            <name>
+              <surname>Ghali</surname>
+              <given-names>S.R.</given-names>
+            </name>
+            <name>
+              <surname>Katti</surname>
+              <given-names>C.</given-names>
+            </name>
+            <name>
+              <surname>Diwakar</surname>
+              <given-names>D.D.</given-names>
+            </name>
+            <name>
+              <surname>Guduba</surname>
+              <given-names>V.</given-names>
+            </name>
+          </person-group>
+          <article-title>Salivary alterations in type 1 diabetes mellitus patients: Salivary glucose could be noninvasive tool for monitoring diabetes mellitus</article-title>
+          <source>Indian J. Dent. Res.</source>
+          <year>2014</year>
+          <volume>25</volume>
+          <fpage>420</fpage>
+          <lpage>424</lpage>
+          <pub-id pub-id-type="doi">10.4103/0970-9290.142512</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B46-jcm-15-01829">
+        <label>46.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Sharma</surname>
+              <given-names>C.</given-names>
+            </name>
+            <name>
+              <surname>Shendye</surname>
+              <given-names>R.</given-names>
+            </name>
+            <name>
+              <surname>Sharma</surname>
+              <given-names>V.</given-names>
+            </name>
+            <name>
+              <surname>Sharma</surname>
+              <given-names>S.K.</given-names>
+            </name>
+          </person-group>
+          <article-title>Study of comparison of salivary glucose concentration, blood glucose and capillary blood glucose in diabetes mellitus cases in tertiary care hospital</article-title>
+          <source>Pravara Med. Rev.</source>
+          <year>2020</year>
+          <volume>12</volume>
+          <fpage>4</fpage>
+          <lpage>10</lpage>
+          <pub-id pub-id-type="doi">10.36848/PMR/2020/12100.51265</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B47-jcm-15-01829">
+        <label>47.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Sharon</surname>
+              <given-names>M.P.</given-names>
+            </name>
+            <name>
+              <surname>Srikanth</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Anil Kumar</surname>
+              <given-names>A.S.</given-names>
+            </name>
+          </person-group>
+          <article-title>Gender-based comparison of fasting and postprandial blood and salivary glucose in diabetics and healthy adults</article-title>
+          <source>Innov. J. Med. Health Sci.</source>
+          <year>2020</year>
+          <volume>10</volume>
+          <fpage>1014</fpage>
+          <lpage>1018</lpage>
+        </element-citation>
+      </ref>
+      <ref id="B48-jcm-15-01829">
+        <label>48.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Shettigar</surname>
+              <given-names>L.</given-names>
+            </name>
+            <name>
+              <surname>Sivaraman</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Rao</surname>
+              <given-names>R.</given-names>
+            </name>
+            <name>
+              <surname>Arun</surname>
+              <given-names>S.A.</given-names>
+            </name>
+            <name>
+              <surname>Chopra</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Kamath</surname>
+              <given-names>S.U.</given-names>
+            </name>
+            <name>
+              <surname>Rana</surname>
+              <given-names>R.</given-names>
+            </name>
+          </person-group>
+          <article-title>Correlational analysis between salivary and blood glucose levels in individuals with and without diabetes mellitus: A cross-sectional study</article-title>
+          <source>Acta Odontol. Scand.</source>
+          <year>2024</year>
+          <volume>83</volume>
+          <fpage>101</fpage>
+          <lpage>111</lpage>
+          <pub-id pub-id-type="doi">10.1080/00016357.2023.2267678</pub-id>
+          <pub-id pub-id-type="pmid">37823574</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B49-jcm-15-01829">
+        <label>49.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Hegyi</surname>
+              <given-names>P.</given-names>
+            </name>
+            <name>
+              <surname>Eross</surname>
+              <given-names>B.</given-names>
+            </name>
+            <name>
+              <surname>Izbeki</surname>
+              <given-names>F.</given-names>
+            </name>
+            <name>
+              <surname>Parniczky</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Szentesi</surname>
+              <given-names>A.</given-names>
+            </name>
+          </person-group>
+          <article-title>Accelerating the translational medicine cycle: The Academia Europaea pilot</article-title>
+          <source>Nat. Med.</source>
+          <year>2021</year>
+          <volume>27</volume>
+          <fpage>1317</fpage>
+          <lpage>1319</lpage>
+          <pub-id pub-id-type="doi">10.1038/s41591-021-01458-8</pub-id>
+        </element-citation>
+      </ref>
+      <ref id="B50-jcm-15-01829">
+        <label>50.</label>
+        <element-citation publication-type="journal">
+          <person-group person-group-type="author">
+            <name>
+              <surname>Hegyi</surname>
+              <given-names>P.</given-names>
+            </name>
+            <name>
+              <surname>Petersen</surname>
+              <given-names>O.H.</given-names>
+            </name>
+            <name>
+              <surname>Holgate</surname>
+              <given-names>S.</given-names>
+            </name>
+            <name>
+              <surname>Er&#x151;ss</surname>
+              <given-names>B.</given-names>
+            </name>
+            <name>
+              <surname>Garami</surname>
+              <given-names>A.</given-names>
+            </name>
+            <name>
+              <surname>Szak&#xE1;cs</surname>
+              <given-names>Z.</given-names>
+            </name>
+            <name>
+              <surname>Dobszai</surname>
+              <given-names>D.</given-names>
+            </name>
+            <name>
+              <surname>Balask&#xF3;</surname>
+              <given-names>M.</given-names>
+            </name>
+            <name>
+              <surname>Kem&#xE9;ny</surname>
+              <given-names>L.</given-names>
+            </name>
+            <name>
+              <surname>Peng</surname>
+              <given-names>S.</given-names>
+            </name>
+            <etal/>
+          </person-group>
+          <article-title>Academia Europaea Position Paper on Translational Medicine: The Cycle Model for Translating Scientific Results into Community Benefits</article-title>
+          <source>J. Clin. Med.</source>
+          <year>2020</year>
+          <volume>9</volume>
+          <elocation-id>1532</elocation-id>
+          <pub-id pub-id-type="doi">10.3390/jcm9051532</pub-id>
+        </element-citation>
+      </ref>
+    </ref-list>
+    <sec sec-type="display-objects">
+      <title>Figures and Tables</title>
+      <fig id="jcm-15-01829-f001" position="float">
+        <label>Figure 1</label>
+        <caption>
+          <p>PRISMA 2020 Flowchart (* See <xref ref-type="app" rid="app1-jcm-15-01829">Supplementary Material S3</xref> for further details on the database search queries used. ** See <xref ref-type="app" rid="app1-jcm-15-01829">Supplementary Material S5</xref> for further details on the exclusion criteria.).</p>
+        </caption>
+        <graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="jcm-15-01829-g001.tif"/>
+      </fig>
+      <fig id="jcm-15-01829-f002" position="float">
+        <label>Figure 2</label>
+        <caption>
+          <p>Regression models of whole-mouth salivary glucose level as a function of blood glucose level based on individual patient data. Units of measurement are both in mmol/L and mg/dL. Colored ranges (based on blood glucose levels): green: normoglycemic; yellow: impaired fasting glucose; red: DM. Each dot represents an individual patient, thin lines represent regression functions for each study, the thick black line represents the mixed-effect linear regression model fit, and the gray area represents its confidence interval band [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>,<xref ref-type="bibr" rid="B10-jcm-15-01829">10</xref>,<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>,<xref ref-type="bibr" rid="B26-jcm-15-01829">26</xref>,<xref ref-type="bibr" rid="B28-jcm-15-01829">28</xref>,<xref ref-type="bibr" rid="B29-jcm-15-01829">29</xref>,<xref ref-type="bibr" rid="B30-jcm-15-01829">30</xref>,<xref ref-type="bibr" rid="B31-jcm-15-01829">31</xref>,<xref ref-type="bibr" rid="B35-jcm-15-01829">35</xref>].</p>
+        </caption>
+        <graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="jcm-15-01829-g002.tif"/>
+      </fig>
+      <fig id="jcm-15-01829-f003" position="float">
+        <label>Figure 3</label>
+        <caption>
+          <p>Individual patient data on parotid saliva. Units of measurement: mmol/L and mg/dL both. The green range represents normoglycemic patients, the yellow range represents patients with impaired fasting glucose, and the red range represents DM for blood glucose level. Each dot represents an individual patient data point, the colored thin lines represent the correlation lines for each article, and the thick black line represents the mixed model fit [<xref ref-type="bibr" rid="B10-jcm-15-01829">10</xref>,<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>,<xref ref-type="bibr" rid="B26-jcm-15-01829">26</xref>].</p>
+        </caption>
+        <graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="jcm-15-01829-g003.tif"/>
+      </fig>
+      <fig id="jcm-15-01829-f004" position="float">
+        <label>Figure 4</label>
+        <caption>
+          <p>Forest plot showing the meta-analysis of the mean differences (mean of the DM group minus mean of non-DM group) between salivary glucose levels (<bold>a</bold>) and blood glucose levels (<bold>b</bold>) [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>,<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>,<xref ref-type="bibr" rid="B26-jcm-15-01829">26</xref>,<xref ref-type="bibr" rid="B28-jcm-15-01829">28</xref>,<xref ref-type="bibr" rid="B29-jcm-15-01829">29</xref>,<xref ref-type="bibr" rid="B30-jcm-15-01829">30</xref>,<xref ref-type="bibr" rid="B31-jcm-15-01829">31</xref>,<xref ref-type="bibr" rid="B32-jcm-15-01829">32</xref>,<xref ref-type="bibr" rid="B33-jcm-15-01829">33</xref>,<xref ref-type="bibr" rid="B34-jcm-15-01829">34</xref>,<xref ref-type="bibr" rid="B35-jcm-15-01829">35</xref>,<xref ref-type="bibr" rid="B36-jcm-15-01829">36</xref>,<xref ref-type="bibr" rid="B37-jcm-15-01829">37</xref>,<xref ref-type="bibr" rid="B38-jcm-15-01829">38</xref>,<xref ref-type="bibr" rid="B39-jcm-15-01829">39</xref>,<xref ref-type="bibr" rid="B40-jcm-15-01829">40</xref>,<xref ref-type="bibr" rid="B41-jcm-15-01829">41</xref>,<xref ref-type="bibr" rid="B42-jcm-15-01829">42</xref>,<xref ref-type="bibr" rid="B43-jcm-15-01829">43</xref>,<xref ref-type="bibr" rid="B44-jcm-15-01829">44</xref>,<xref ref-type="bibr" rid="B45-jcm-15-01829">45</xref>,<xref ref-type="bibr" rid="B46-jcm-15-01829">46</xref>,<xref ref-type="bibr" rid="B47-jcm-15-01829">47</xref>].</p>
+        </caption>
+        <graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="jcm-15-01829-g004.tif"/>
+      </fig>
+      <table-wrap id="jcm-15-01829-t001" position="float">
+        <object-id pub-id-type="pii">jcm-15-01829-t001_Table 1</object-id>
+        <label>Table 1</label>
+        <caption>
+          <p>List of the included studies (n = 25)&#x2014;Egboh, Harish, Kadashetti and Sharma studies contained two or more study groups.</p>
+        </caption>
+        <table>
+          <thead>
+            <tr>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">First Author</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Year</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Number of Participants</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Study Type</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Exposure</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Control</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Gupta [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2015</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">165</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Cui [<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2022</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">40</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Wang [<xref ref-type="bibr" rid="B26-jcm-15-01829">26</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2017</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">30</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Sreedevi [<xref ref-type="bibr" rid="B27-jcm-15-01829">27</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2008</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">60</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Panda [<xref ref-type="bibr" rid="B28-jcm-15-01829">28</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2012</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">106</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Forbat [<xref ref-type="bibr" rid="B10-jcm-15-01829">10</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">1981</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">31</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">N/A</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Choudhry [<xref ref-type="bibr" rid="B29-jcm-15-01829">29</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2022</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">100</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Dhanya [<xref ref-type="bibr" rid="B30-jcm-15-01829">30</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2016</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">100</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Ephraim [<xref ref-type="bibr" rid="B31-jcm-15-01829">31</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2019</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">79</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">case&#x2013;control</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">AlQusayer [<xref ref-type="bibr" rid="B32-jcm-15-01829">32</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2019</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">50</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">cross-sectional</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td rowspan="3" align="center" valign="middle" style="border-bottom:solid thin">Egboh [<xref ref-type="bibr" rid="B33-jcm-15-01829">33</xref>]</td>
+              <td rowspan="3" align="center" valign="middle" style="border-bottom:solid thin">2022</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">23</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">RCT</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM male</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adult males</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">22</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">RCT</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM female</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adult females</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">56</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">RCT</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td rowspan="2" align="center" valign="middle" style="border-bottom:solid thin">Borg [<xref ref-type="bibr" rid="B34-jcm-15-01829">34</xref>]</td>
+              <td rowspan="2" align="center" valign="middle" style="border-bottom:solid thin">1998</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">10</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">10</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">IGT</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Carramolino-Cu&#xE9;llar [<xref ref-type="bibr" rid="B35-jcm-15-01829">35</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2017</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">47</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Ganesan [<xref ref-type="bibr" rid="B36-jcm-15-01829">36</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2022</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">79</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">TIDM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Harish [<xref ref-type="bibr" rid="B37-jcm-15-01829">37</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2018</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">30</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td rowspan="2" align="center" valign="middle" style="border-bottom:solid thin">Harish [<xref ref-type="bibr" rid="B38-jcm-15-01829">38</xref>]</td>
+              <td rowspan="2" align="center" valign="middle" style="border-bottom:solid thin">2019</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">25</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM uncontrolled</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">25</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM controlled</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td rowspan="3" align="center" valign="middle" style="border-bottom:solid thin">Kadashetti [<xref ref-type="bibr" rid="B39-jcm-15-01829">39</xref>]</td>
+              <td rowspan="3" align="center" valign="middle" style="border-bottom:solid thin">2015</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">21</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM 0 &gt; 200 mg/dL)</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">32</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM (130&#x2013;200 mg/dL)</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">53</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Manjrekar [<xref ref-type="bibr" rid="B40-jcm-15-01829">40</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2012</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">23</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Mrag [<xref ref-type="bibr" rid="B41-jcm-15-01829">41</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2020</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">300</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Mussavira [<xref ref-type="bibr" rid="B42-jcm-15-01829">42</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2015</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">53</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Nirmala [<xref ref-type="bibr" rid="B43-jcm-15-01829">43</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2019</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">200</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Ravindran [<xref ref-type="bibr" rid="B44-jcm-15-01829">44</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2015</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">30</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Shahbaz [<xref ref-type="bibr" rid="B45-jcm-15-01829">45</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2014</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">30</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">TIDM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy children</td>
+            </tr>
+            <tr>
+              <td rowspan="2" align="center" valign="middle" style="border-bottom:solid thin">Sharma [<xref ref-type="bibr" rid="B46-jcm-15-01829">46</xref>]</td>
+              <td rowspan="2" align="center" valign="middle" style="border-bottom:solid thin">2020</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">100</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM, venal</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">100</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">DM, capillary</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+            <tr>
+              <td align="center" valign="middle" style="border-bottom:solid thin">Sharon [<xref ref-type="bibr" rid="B47-jcm-15-01829">47</xref>]</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">2020</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">40</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">observational</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">T2DM</td>
+              <td align="center" valign="middle" style="border-bottom:solid thin">healthy adults</td>
+            </tr>
+          </tbody>
+        </table>
+      </table-wrap>
+      <table-wrap id="jcm-15-01829-t002" position="float">
+        <object-id pub-id-type="pii">jcm-15-01829-t002_Table 2</object-id>
+        <label>Table 2</label>
+        <caption>
+          <p>Risk of bias analysis.</p>
+        </caption>
+        <table>
+          <thead>
+            <tr>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Study</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Patient Selection</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Indicator Measurement (Salivary)</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Reference Measurement (Blood)</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Flow and Timing</th>
+              <th align="center" valign="middle" style="border-top:solid thin;border-bottom:solid thin">Overall</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">AlQusayer (2019) [<xref ref-type="bibr" rid="B32-jcm-15-01829">32</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Borg (1998) [<xref ref-type="bibr" rid="B34-jcm-15-01829">34</xref>]&#x2014;T2DM</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Borg (1998) [<xref ref-type="bibr" rid="B34-jcm-15-01829">34</xref>]&#x2014;IGT</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Carramolino-Cullar (2017) [<xref ref-type="bibr" rid="B35-jcm-15-01829">35</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Choudhry (2022) [<xref ref-type="bibr" rid="B29-jcm-15-01829">29</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Cui (2022) [<xref ref-type="bibr" rid="B11-jcm-15-01829">11</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Dhanya (2016) [<xref ref-type="bibr" rid="B30-jcm-15-01829">30</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Egboh (2022) [<xref ref-type="bibr" rid="B33-jcm-15-01829">33</xref>]&#x2014;Combined</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Egboh (2022) [<xref ref-type="bibr" rid="B33-jcm-15-01829">33</xref>]&#x2014;Female</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Egboh (2022) [<xref ref-type="bibr" rid="B33-jcm-15-01829">33</xref>]&#x2014;Male</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Ephraim (2019) [<xref ref-type="bibr" rid="B31-jcm-15-01829">31</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Forbat (1981) [<xref ref-type="bibr" rid="B10-jcm-15-01829">10</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFC7CE">High</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFC7CE">High</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFC7CE">High</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Ganesan (2022) [<xref ref-type="bibr" rid="B36-jcm-15-01829">36</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Gupta (2015) [<xref ref-type="bibr" rid="B7-jcm-15-01829">7</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Harish (2018) [<xref ref-type="bibr" rid="B37-jcm-15-01829">37</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Harish (2019) [<xref ref-type="bibr" rid="B38-jcm-15-01829">38</xref>]&#x2014;Controlled</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Harish (2019) [<xref ref-type="bibr" rid="B38-jcm-15-01829">38</xref>]&#x2014;Uncontrolled</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Kadashetti (2015) [<xref ref-type="bibr" rid="B39-jcm-15-01829">39</xref>]&#x2014;BG &gt; 200 mg/dL</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Kadashetti (2015) [<xref ref-type="bibr" rid="B39-jcm-15-01829">39</xref>]&#x2014;BG: 130&#x2013;200 mg/dL</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Kadashetti (2015) [<xref ref-type="bibr" rid="B39-jcm-15-01829">39</xref>]&#x2014;Overall</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Manjrekar (2012) [<xref ref-type="bibr" rid="B40-jcm-15-01829">40</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Mrag (2020) [<xref ref-type="bibr" rid="B41-jcm-15-01829">41</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Mussavira (2015) [<xref ref-type="bibr" rid="B42-jcm-15-01829">42</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Nirmala (2019) [<xref ref-type="bibr" rid="B43-jcm-15-01829">43</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Panda (2012) [<xref ref-type="bibr" rid="B28-jcm-15-01829">28</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Ravindran (2015) [<xref ref-type="bibr" rid="B44-jcm-15-01829">44</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Shahbaz (2014) [<xref ref-type="bibr" rid="B45-jcm-15-01829">45</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Sharma (2020) [<xref ref-type="bibr" rid="B46-jcm-15-01829">46</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Sharon (2020) [<xref ref-type="bibr" rid="B47-jcm-15-01829">47</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Sreedevi (2008) [<xref ref-type="bibr" rid="B27-jcm-15-01829">27</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#FFEB9C">Unclear</td>
+            </tr>
+            <tr>
+              <td align="left" valign="middle" style="border-bottom:solid thin">Wang (2017) [<xref ref-type="bibr" rid="B26-jcm-15-01829">26</xref>]</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+              <td align="left" valign="middle" style="border-bottom:solid thin;background:#C6EFCE">Low</td>
+            </tr>
+          </tbody>
+        </table>
+      </table-wrap>
+    </sec>
+    <fn-group>
+      <fn>
+        <p><bold>Disclaimer/Publisher&#x2019;s Note:</bold> The statements, opinions and data contained in all publications are solely those of the individual author(s) and contributor(s) and not of MDPI and/or the editor(s). MDPI and/or the editor(s) disclaim responsibility for any injury to people or property resulting from any ideas, methods, instructions or products referred to in the content.</p>
+      </fn>
+    </fn-group>
+  </back>
+</article>

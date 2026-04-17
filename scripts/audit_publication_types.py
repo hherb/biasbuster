@@ -24,64 +24,23 @@ import csv
 import logging
 import sqlite3
 import sys
-import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 
-import httpx
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from biasbuster.utils.retry import fetch_with_retry  # noqa: E402
+from biasbuster.utils.pubtype import (  # noqa: E402
+    NON_TRIAL_TYPES,
+    TRIAL_TYPES,
+    classify,
+    fetch_publication_types,
+)
 
 logger = logging.getLogger("audit_publication_types")
 
-PUBMED_EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 DEFAULT_DB = Path("dataset/biasbuster.db")
 DEFAULT_OUTPUT = Path("dataset/cochrane_pubtype_audit.csv")
-
-BATCH_SIZE = 200  # PubMed efetch accepts up to 200 IDs per request
-HTTP_TIMEOUT_SECONDS = 60.0
 USER_AGENT = "biasbuster/pubtype-audit"
-
-# PubMed PublicationType strings that indicate a real randomised/controlled trial.
-TRIAL_TYPES = frozenset({
-    "Randomized Controlled Trial",
-    "Controlled Clinical Trial",
-    "Clinical Trial",
-    "Clinical Trial, Phase I",
-    "Clinical Trial, Phase II",
-    "Clinical Trial, Phase III",
-    "Clinical Trial, Phase IV",
-    "Pragmatic Clinical Trial",
-    "Equivalence Trial",
-    "Adaptive Clinical Trial",
-})
-
-# PublicationTypes that imply the paper is NOT a research trial.
-# Presence of any of these (and absence of any trial type) → non_trial.
-NON_TRIAL_TYPES = frozenset({
-    "Letter",
-    "Editorial",
-    "Comment",
-    "News",
-    "Congresses",
-    "Meeting Abstracts",
-    "Personal Narratives",
-    "Biography",
-    "Autobiography",
-    "Book",
-    "Published Erratum",
-    "Retracted Publication",
-    "Retraction of Publication",
-    "Address",
-    "Lectures",
-    "Portrait",
-    "Case Reports",  # not RCTs; may still be assessable but not by Cochrane RoB 2
-    "Systematic Review",
-    "Meta-Analysis",
-    "Review",
-})
 
 CSV_FIELDS = [
     "pmid",
@@ -106,95 +65,9 @@ def cochrane_pmids(db_path: Path, include_excluded: bool) -> list[tuple[str, str
     return rows
 
 
-async def fetch_pubmed_batch(
-    client: httpx.AsyncClient, pmids: list[str]
-) -> dict[str, list[str]]:
-    """Fetch a batch of PubMed records and return {pmid: [publication_types]}.
-
-    Papers that PubMed doesn't return will be absent from the result dict;
-    callers should treat them as 'unknown'.
-    """
-    params = {
-        "db": "pubmed",
-        "id": ",".join(pmids),
-        "rettype": "abstract",
-        "retmode": "xml",
-    }
-    resp = await fetch_with_retry(
-        client, "GET", PUBMED_EFETCH,
-        params=params, max_retries=3, base_delay=2.0,
-    )
-    resp.raise_for_status()
-    return parse_pubtypes(resp.text)
-
-
-def parse_pubtypes(xml_text: str) -> dict[str, list[str]]:
-    """Extract {pmid: [publication_types]} from a PubMed efetch XML response."""
-    out: dict[str, list[str]] = {}
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as exc:
-        logger.warning("XML parse error: %s", exc)
-        return out
-    for article in root.findall(".//PubmedArticle"):
-        pmid_el = article.find(".//MedlineCitation/PMID")
-        if pmid_el is None or pmid_el.text is None:
-            continue
-        pmid = pmid_el.text.strip()
-        types = [
-            (t.text or "").strip()
-            for t in article.findall(".//PublicationTypeList/PublicationType")
-            if t.text
-        ]
-        out[pmid] = types
-    return out
-
-
-def classify(types: list[str]) -> str:
-    """Classify a paper by its PublicationType list."""
-    if not types:
-        return "unknown"
-    tset = set(types)
-    has_trial = bool(tset & TRIAL_TYPES)
-    has_nontrial = bool(tset & NON_TRIAL_TYPES)
-    if has_trial and not has_nontrial:
-        return "trial"
-    if has_trial and has_nontrial:
-        # e.g. "Randomized Controlled Trial" + "Review" — keep as ambiguous
-        return "ambiguous"
-    if has_nontrial:
-        return "non_trial"
-    # Only "Journal Article" or funding-type tags — ambiguous
-    return "ambiguous"
-
-
-async def run_audit(
-    pmids: list[str], batch_size: int = BATCH_SIZE
-) -> dict[str, list[str]]:
-    """Fetch PublicationType metadata for every PMID. Returns {pmid: types}."""
-    types_by_pmid: dict[str, list[str]] = {}
-    async with httpx.AsyncClient(
-        timeout=HTTP_TIMEOUT_SECONDS,
-        headers={"User-Agent": USER_AGENT},
-    ) as client:
-        for i in range(0, len(pmids), batch_size):
-            batch = pmids[i : i + batch_size]
-            logger.info("Fetching PubMed batch %d–%d of %d", i + 1, i + len(batch), len(pmids))
-            try:
-                got = await fetch_pubmed_batch(client, batch)
-                types_by_pmid.update(got)
-                if len(got) < len(batch):
-                    missing = set(batch) - set(got)
-                    logger.warning(
-                        "PubMed returned %d/%d records (missing: %s)",
-                        len(got), len(batch),
-                        ", ".join(sorted(missing)[:5]) + ("..." if len(missing) > 5 else ""),
-                    )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Batch fetch failed: %s", exc)
-            if i + batch_size < len(pmids):
-                await asyncio.sleep(0.5)
-    return types_by_pmid
+# classify(), parse_publication_types(), and the batch fetcher have moved
+# to biasbuster.utils.pubtype. This script is now a thin wrapper that
+# builds a CSV/summary report from those primitives.
 
 
 def write_csv(
@@ -278,7 +151,9 @@ def main() -> int:
     logger.info("Cochrane papers to audit: %d (include_excluded=%s)",
                 len(pmids), args.include_excluded)
 
-    types_by_pmid = asyncio.run(run_audit(pmids))
+    types_by_pmid = asyncio.run(
+        fetch_publication_types(pmids, user_agent=USER_AGENT)
+    )
     write_csv(rows, types_by_pmid, args.output)
 
     report = summarize(rows, types_by_pmid)

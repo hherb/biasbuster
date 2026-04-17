@@ -159,6 +159,33 @@ def json_load(value) -> Optional[list | dict]:
 # Keep backward-compatible alias for internal uses
 _json_load = json_load
 
+# -- Cochrane rebuild (REBUILD_DESIGN.md §7) invariant constants ----------
+
+ROB_REQUIRED_FIELDS: tuple[str, ...] = (
+    "overall_rob",
+    "randomization_bias",
+    "deviation_bias",
+    "missing_outcome_bias",
+    "measurement_bias",
+    "reporting_bias",
+)
+
+VALID_ROB_LEVELS: frozenset[str] = frozenset({"low", "some_concerns", "high"})
+
+CURRENT_ROB_SOURCE_VERSION: str = "rebuild-2026-04"
+
+
+class RoBInvariantError(ValueError):
+    """Raised when a paper fails the RoB provenance invariant (§7.2)."""
+
+    def __init__(self, pmid: str, violations: list[str]) -> None:
+        self.pmid = pmid
+        self.violations = violations
+        super().__init__(
+            f"Paper {pmid} violates RoB provenance invariant: "
+            + "; ".join(violations)
+        )
+
 
 class Database:
     """SQLite database backend for the bias detection pipeline."""
@@ -232,6 +259,19 @@ class Database:
         if "rob_source_version" not in cols:
             self.conn.execute(
                 "ALTER TABLE papers ADD COLUMN rob_source_version TEXT"
+            )
+        # Multi-methodology support: which bias assessment tool was used
+        # (rob2, quadas2, robins_i, etc.) and a generic JSON column for
+        # tool-specific per-domain ratings that don't fit the hardcoded
+        # RoB 2 columns. The hardcoded columns stay for RoB 2 backward
+        # compat; new tools use bias_domain_ratings exclusively.
+        if "methodology" not in cols:
+            self.conn.execute(
+                "ALTER TABLE papers ADD COLUMN methodology TEXT"
+            )
+        if "bias_domain_ratings" not in cols:
+            self.conn.execute(
+                "ALTER TABLE papers ADD COLUMN bias_domain_ratings JSON"
             )
         # Migrate human_reviews: add annotation JSON, flagged columns if missing
         hr_cols = {
@@ -457,6 +497,127 @@ class Database:
             return cursor.rowcount > 0
         except sqlite3.Error as e:
             logger.warning(f"Failed to upsert Cochrane paper {pmid}: {e}")
+            return False
+
+    def upsert_cochrane_paper_v2(
+        self, paper: dict, *, commit: bool = True
+    ) -> bool:
+        """Insert or update a Cochrane paper with the v2 provenance invariant.
+
+        Enforces REBUILD_DESIGN.md §7.2: every row must carry all five
+        domain ratings + overall, a valid cochrane_review_pmid, a non-null
+        rob_provenance JSON blob, and ``rob_source_version`` matching the
+        current rebuild version.
+
+        Raises:
+            RoBInvariantError: If any invariant field is missing, empty,
+                or has an unexpected value. The caller should catch this,
+                log the rejection, and move on.
+
+        Returns:
+            True if a row was inserted or updated.
+        """
+        pmid = str(paper.get("pmid", "")).strip()
+        violations: list[str] = []
+
+        if not pmid:
+            violations.append("pmid is empty")
+
+        for field in ROB_REQUIRED_FIELDS:
+            val = paper.get(field)
+            if val is None or (isinstance(val, str) and not val.strip()):
+                violations.append(f"{field} is empty")
+            elif val not in VALID_ROB_LEVELS:
+                violations.append(
+                    f"{field}={val!r} not in {sorted(VALID_ROB_LEVELS)}"
+                )
+
+        if not paper.get("cochrane_review_pmid"):
+            violations.append("cochrane_review_pmid is empty")
+
+        provenance = paper.get("rob_provenance")
+        if not provenance:
+            violations.append("rob_provenance is empty")
+
+        src_ver = paper.get("rob_source_version")
+        if src_ver != CURRENT_ROB_SOURCE_VERSION:
+            violations.append(
+                f"rob_source_version={src_ver!r} "
+                f"(expected {CURRENT_ROB_SOURCE_VERSION!r})"
+            )
+
+        if violations:
+            raise RoBInvariantError(pmid, violations)
+
+        try:
+            cursor = self.conn.execute(
+                """INSERT INTO papers
+                   (pmid, doi, title, abstract, journal, year,
+                    authors, grants, mesh_terms, subjects, source,
+                    cochrane_review_pmid, cochrane_review_doi,
+                    cochrane_review_title, overall_rob,
+                    randomization_bias, deviation_bias,
+                    missing_outcome_bias, measurement_bias,
+                    reporting_bias, domain,
+                    rob_provenance, rob_source_version)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(pmid) DO UPDATE SET
+                       overall_rob = excluded.overall_rob,
+                       randomization_bias = excluded.randomization_bias,
+                       deviation_bias = excluded.deviation_bias,
+                       missing_outcome_bias = excluded.missing_outcome_bias,
+                       measurement_bias = excluded.measurement_bias,
+                       reporting_bias = excluded.reporting_bias,
+                       cochrane_review_pmid = excluded.cochrane_review_pmid,
+                       cochrane_review_doi = excluded.cochrane_review_doi,
+                       cochrane_review_title = excluded.cochrane_review_title,
+                       domain = excluded.domain,
+                       rob_provenance = excluded.rob_provenance,
+                       rob_source_version = excluded.rob_source_version,
+                       excluded = 0,
+                       excluded_reason = NULL,
+                       -- Preserve PubMed-fetched data if already present
+                       title = CASE WHEN papers.title IS NULL
+                                        OR papers.title = ''
+                                    THEN excluded.title
+                                    ELSE papers.title END,
+                       abstract = CASE WHEN papers.abstract IS NULL
+                                           OR papers.abstract = ''
+                                       THEN excluded.abstract
+                                       ELSE papers.abstract END,
+                       doi = COALESCE(NULLIF(excluded.doi, ''), papers.doi)
+                """,
+                (
+                    pmid,
+                    paper.get("doi", ""),
+                    paper.get("title", ""),
+                    paper.get("abstract", ""),
+                    paper.get("journal"),
+                    paper.get("year"),
+                    _json_col(paper.get("authors")),
+                    _json_col(paper.get("grants")),
+                    _json_col(paper.get("mesh_terms")),
+                    _json_col(paper.get("subjects")),
+                    paper.get("source", "cochrane_rob"),
+                    paper.get("cochrane_review_pmid"),
+                    paper.get("cochrane_review_doi"),
+                    paper.get("cochrane_review_title"),
+                    paper.get("overall_rob"),
+                    paper.get("randomization_bias"),
+                    paper.get("deviation_bias"),
+                    paper.get("missing_outcome_bias"),
+                    paper.get("measurement_bias"),
+                    paper.get("reporting_bias"),
+                    paper.get("domain"),
+                    _json_col(provenance),
+                    src_ver,
+                ),
+            )
+            if commit:
+                self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.warning(f"Failed to upsert v2 Cochrane paper {pmid}: {e}")
             return False
 
     def _row_to_paper(self, row: sqlite3.Row) -> dict:
