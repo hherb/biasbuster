@@ -43,6 +43,7 @@ from . import study_design
 # methodologies (cochrane_rob2, quadas_2, stubs) will be added to this
 # block in later build steps — each new submodule registers once on import.
 from . import biasbuster as _biasbuster  # noqa: F401  (registration side effect)
+from . import cochrane_rob2 as _cochrane_rob2  # noqa: F401
 
 
 def _register_builtin_methodologies() -> None:
@@ -58,9 +59,10 @@ def _register_builtin_methodologies() -> None:
     fail based purely on alphabetical test-file ordering).
 
     Add new built-in methodologies to the body of this function as they
-    are introduced (cochrane_rob2, quadas_2, ...).
+    are introduced.
     """
     _biasbuster._register_once()
+    _cochrane_rob2._register_once()
 
 
 __all__ = [
