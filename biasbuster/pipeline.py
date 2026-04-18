@@ -392,11 +392,12 @@ async def stage_enrich(config: Config, db: Database) -> None:
 async def stage_annotate(
     config: Config, db: Database, models: Optional[list[str]] = None,
     two_call: bool = True,
+    methodology: str = "biasbuster",
 ) -> None:
     """Pre-label abstracts with one or more LLMs for structured bias assessment.
 
-    Each model's annotations are stored in the annotations table with
-    the model_name as part of the composite primary key.
+    Each model's annotations are stored in the annotations table keyed by
+    ``(pmid, model_name, methodology)``.
 
     Args:
         config: Application configuration.
@@ -405,7 +406,39 @@ async def stage_annotate(
                 Supported: "anthropic", "deepseek".
         two_call: If True (default), use v3 two-call pipeline
                   (extraction → assessment). If False, use single-call v1.
+                  Only honoured when ``methodology="biasbuster"``; other
+                  methodologies follow their declared orchestration.
+        methodology: Which risk-of-bias methodology to apply. Defaults to
+                     "biasbuster". Must be a registered active methodology.
     """
+    from biasbuster.methodologies import (
+        ApplicabilityError,
+        FullTextRequiredError,
+        check_or_raise,
+        get_methodology,
+        study_design,
+    )
+    _methodology = get_methodology(methodology)
+    if _methodology.status != "active":
+        raise ValueError(
+            f"methodology {methodology!r} is registered but not active "
+            f"(status={_methodology.status!r}). Pick another."
+        )
+    # The batch pipeline is abstract-only: the annotator is fed
+    # (title, abstract, metadata) triplets with no section texts. A
+    # full-text-only methodology (cochrane_rob2, quadas_2) cannot run
+    # here — direct the user at annotate_single_paper --full-text which
+    # fetches JATS per paper.
+    if _methodology.requires_full_text:
+        logger.error(
+            "methodology %r requires full text, but --stage annotate is "
+            "abstract-only. Use `annotate_single_paper.py --methodology=%s "
+            "--full-text --pmid <PMID>` for full-text annotations, or pick "
+            "an abstract-capable methodology (biasbuster).",
+            methodology, methodology,
+        )
+        return
+
     if models is None:
         models = ["anthropic"]
 
@@ -436,6 +469,23 @@ async def stage_annotate(
                 if is_retraction_notice(title, abstract, p):
                     total_filtered += 1
                     continue
+                # Applicability guard. For biasbuster (which declares
+                # applicable_study_designs={"*"} and requires_full_text=False)
+                # this is a no-op pass-through; for formal methodologies
+                # it will refuse papers whose detected design doesn't match.
+                detected = study_design.detect(p)
+                try:
+                    check_or_raise(
+                        _methodology, p, {},
+                        full_text_available=False,
+                        detected_design=detected,
+                    )
+                except (ApplicabilityError, FullTextRequiredError) as exc:
+                    logger.info(
+                        "Skipping PMID %s (%s): %s",
+                        p.get("pmid", "?"), source_key, exc,
+                    )
+                    continue
                 items.append({
                     "pmid": p.get("pmid", ""),
                     "title": title,
@@ -460,12 +510,17 @@ async def stage_annotate(
         logger.info(f"ANNOTATING WITH: {model_name}")
         logger.info(f"{'='*60}")
 
-        # Get already-annotated PMIDs for resume
-        already_done = db.get_annotated_pmids(model_name)
+        # Get already-annotated PMIDs for resume — scoped to the current
+        # methodology so running biasbuster then cochrane_rob2 over the
+        # same corpus doesn't skip papers based on the other methodology's
+        # results.
+        already_done = db.get_annotated_pmids(
+            model_name, methodology=_methodology.name,
+        )
         if already_done:
             logger.info(
                 f"Resuming: {len(already_done)} already annotated "
-                f"by {model_name}"
+                f"by {model_name}/{_methodology.name}"
             )
 
         async with annotator:
@@ -487,7 +542,11 @@ async def stage_annotate(
                         return
                     ann["abstract_text"] = abstract_map.get(pmid, "")
                     ann["source"] = _source
-                    if db.insert_annotation(pmid, model_name, ann):
+                    if db.insert_annotation(
+                        pmid, model_name, ann,
+                        methodology=_methodology.name,
+                        methodology_version=_methodology.version,
+                    ):
                         new_count += 1
                         already_done.add(pmid)
 
@@ -498,6 +557,7 @@ async def stage_annotate(
                     already_done=already_done,
                     on_result=save_annotation,
                     two_call=two_call,
+                    methodology=_methodology,
                 )
 
                 logger.info(
@@ -602,14 +662,21 @@ async def stage_compare(
     config: Config,
     db: Database,
     models: list[str] | None = None,
+    methodology: str = "biasbuster",
 ) -> None:
     """Compare annotations from multiple models against human-validated labels.
+
+    Comparisons are scoped to a single methodology — comparing a biasbuster
+    annotation against a cochrane_rob2 annotation is meaningless since the
+    rollup vocabularies differ. Defaults to biasbuster.
 
     Args:
         config: Pipeline config.
         db: Database handle.
         models: If provided, only compare these model names. Otherwise
-            compare every model with annotations in the DB.
+            compare every model with annotations in the DB (under the
+            chosen methodology).
+        methodology: Methodology slug to filter annotations by.
     """
     from biasbuster.evaluation.scorer import parse_model_output, attach_ground_truth
     from biasbuster.evaluation.metrics import evaluate_model
@@ -618,8 +685,11 @@ async def stage_compare(
     output_dir = Path(config.output_dir) / "annotation_comparison"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Discover models
-    all_model_names = [m for m in db.get_model_names() if m != "human"]
+    # Discover models — scoped to the requested methodology so we don't
+    # accidentally surface models that only annotated a different methodology.
+    all_model_names = [
+        m for m in db.get_model_names(methodology=methodology) if m != "human"
+    ]
     if models:
         # Filter to requested models; warn about any that don't exist
         missing = [m for m in models if m not in all_model_names]
@@ -636,8 +706,11 @@ async def stage_compare(
         )
         return
 
-    # Load human ground truth (if available)
-    human_annotations = db.get_annotations(model_name="human")
+    # Load human ground truth (if available) — scoped to the same methodology
+    # so we compare like-for-like severity vocabularies.
+    human_annotations = db.get_annotations(
+        model_name="human", methodology=methodology,
+    )
     gt_by_pmid: dict[str, dict] = {}
     has_human_gt = False
     if human_annotations:
@@ -665,7 +738,9 @@ async def stage_compare(
         logger.info(f"Scoring annotations: {model_name}")
         logger.info(f"{'='*40}")
 
-        annotations = db.get_annotations(model_name=model_name)
+        annotations = db.get_annotations(
+            model_name=model_name, methodology=methodology,
+        )
 
         if not annotations:
             logger.warning(f"No annotations found for {model_name}")
@@ -864,9 +939,32 @@ def main() -> None:
     parser.add_argument(
         "--single-call", action="store_true",
         help="Use single-call annotation (v1) instead of two-call (v3). "
-             "Default is two-call: Stage 1 extracts facts, Stage 2 assesses bias.",
+             "Default is two-call: Stage 1 extracts facts, Stage 2 assesses bias. "
+             "Only valid with --methodology=biasbuster; other methodologies "
+             "follow their declared orchestration.",
+    )
+    parser.add_argument(
+        "--methodology",
+        type=str,
+        default="biasbuster",
+        help="Risk-of-bias methodology to apply. Default: biasbuster. "
+             "Other registered methodologies (e.g. cochrane_rob2, quadas_2) "
+             "follow their own orchestration and refuse papers whose study "
+             "design or available text doesn't match.",
     )
     args = parser.parse_args()
+
+    # Validate methodology + orchestration flag compatibility. Biasbuster
+    # accepts --single-call freely (it can run v1 or v3 per the flag).
+    # Other methodologies have a declared ``orchestration`` attribute
+    # that's authoritative; passing --single-call alongside them is a
+    # user error that would silently get the wrong prompts.
+    if args.methodology != "biasbuster" and args.single_call:
+        parser.error(
+            f"--single-call is only valid with --methodology=biasbuster. "
+            f"Methodology {args.methodology!r} follows its declared "
+            "orchestration and cannot be overridden from the CLI."
+        )
 
     config = Config()
 
@@ -897,9 +995,13 @@ def main() -> None:
         "annotate": lambda cfg: stage_annotate(
             cfg, db, models=annotation_models,
             two_call=not args.single_call,
+            methodology=args.methodology,
         ),
         "export": lambda cfg: stage_export(cfg, db, export_dir=args.export_dir, export_model=export_model),
-        "compare": lambda cfg: stage_compare(cfg, db, models=annotation_models),
+        "compare": lambda cfg: stage_compare(
+            cfg, db, models=annotation_models,
+            methodology=args.methodology,
+        ),
     }
 
     # Handle --reset-undetectable-annotations before running stages

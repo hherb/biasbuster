@@ -191,6 +191,7 @@ async def annotate_paper(
     agentic: bool = False,
     decomposed: bool = False,
     identifier: Optional[str] = None,
+    methodology: str = "biasbuster",
 ) -> Optional[dict]:
     """Annotate a single paper and store the result.
 
@@ -236,6 +237,42 @@ async def annotate_paper(
         )
         return None
 
+    from biasbuster.methodologies import (
+        ApplicabilityError,
+        FullTextRequiredError,
+        check_or_raise,
+        get_methodology,
+        study_design,
+    )
+    _methodology = get_methodology(methodology)
+    if _methodology.status != "active":
+        logger.error(
+            f"methodology {methodology!r} is registered but not active "
+            f"(status={_methodology.status!r})"
+        )
+        return None
+
+    # Applicability guard — refuse early if the paper's detected study
+    # design doesn't match the chosen methodology, or if the methodology
+    # requires full text and the caller picked an abstract-only mode.
+    # Full-text availability is a function of the CLI flag set, not of
+    # the paper — the fetch happens later only if full_text/agentic/
+    # decomposed was requested.
+    full_text_planned = full_text or agentic or decomposed
+    detected_design = study_design.detect(paper)
+    try:
+        check_or_raise(
+            _methodology, paper, {},
+            full_text_available=full_text_planned,
+            detected_design=detected_design,
+        )
+    except (ApplicabilityError, FullTextRequiredError) as exc:
+        logger.error(
+            "Refusing to annotate PMID %s: %s (detected design: %s)",
+            pmid, exc, detected_design,
+        )
+        return None
+
     annotator = create_annotator(config, model_name)
     if annotator is None:
         return None
@@ -254,18 +291,25 @@ async def annotate_paper(
     else:
         db_model_name = model_name
 
-    if db.has_annotation(pmid, db_model_name):
+    if db.has_annotation(pmid, db_model_name, methodology=_methodology.name):
         if force:
-            db.delete_annotation(pmid, db_model_name)
+            db.delete_annotation(
+                pmid, db_model_name, methodology=_methodology.name,
+            )
             logger.info(
-                f"Deleted existing annotation for PMID {pmid}/{db_model_name}"
+                f"Deleted existing annotation for PMID {pmid}/"
+                f"{db_model_name}/{_methodology.name}"
             )
         else:
             logger.info(
-                f"PMID {pmid} already annotated by {db_model_name}, skipping. "
+                f"PMID {pmid} already annotated by "
+                f"{db_model_name}/{_methodology.name}, skipping. "
                 f"Use --force to re-annotate."
             )
-            existing = db.get_annotations(model_name=db_model_name, pmid=pmid)
+            existing = db.get_annotations(
+                model_name=db_model_name, pmid=pmid,
+                methodology=_methodology.name,
+            )
             if existing:
                 return existing[0]
             return None
@@ -302,6 +346,7 @@ async def annotate_paper(
                     metadata=paper,
                     agent_provider=agent_provider,
                     agent_model=agent_model,
+                    methodology=_methodology,
                 )
         elif decomposed:
             logger.info(
@@ -317,6 +362,7 @@ async def annotate_paper(
                     metadata=paper,
                     agent_provider=agent_provider,
                     agent_model=agent_model,
+                    methodology=_methodology,
                 )
         else:
             logger.info(
@@ -329,6 +375,7 @@ async def annotate_paper(
                     title=paper.get("title", ""),
                     sections=sections,
                     metadata=paper,
+                    methodology=_methodology,
                 )
     else:
         annotate_fn = (
@@ -343,6 +390,7 @@ async def annotate_paper(
                 title=paper.get("title", ""),
                 abstract=paper.get("abstract", ""),
                 metadata=paper,
+                methodology=_methodology,
             )
 
     if result is None:
@@ -352,7 +400,11 @@ async def annotate_paper(
     # Store — mirror the pipeline's save_annotation logic
     result["abstract_text"] = paper.get("abstract", "")
     result["source"] = paper.get("source", "manual_import")
-    db.insert_annotation(pmid, db_model_name, result)
+    db.insert_annotation(
+        pmid, db_model_name, result,
+        methodology=_methodology.name,
+        methodology_version=_methodology.version,
+    )
     logger.info(
         f"Annotation saved as {db_model_name}: "
         f"severity={result.get('overall_severity')}, "
@@ -439,7 +491,36 @@ async def main() -> int:
         help="Write full annotation JSON to this file. "
              "Prints to stdout if set to '-'. Default: no file output.",
     )
+    parser.add_argument(
+        "--methodology",
+        type=str,
+        default="biasbuster",
+        help="Risk-of-bias methodology to apply. Default: biasbuster. "
+             "Non-biasbuster methodologies (e.g. cochrane_rob2, quadas_2) "
+             "require full text and are incompatible with --single-call / "
+             "abstract-only annotation modes.",
+    )
     args = parser.parse_args()
+
+    # Methodology + orchestration-flag compatibility. Biasbuster accepts
+    # any of the existing flags; other methodologies have a declared
+    # orchestration and passing a conflicting flag would silently use
+    # the wrong prompts.
+    if args.methodology != "biasbuster":
+        forbidden = [
+            name for name, flag in (
+                ("--single-call", args.single_call),
+                ("--full-text", args.full_text),
+                ("--agentic", args.agentic),
+                ("--decomposed", args.decomposed),
+            ) if flag
+        ]
+        if forbidden:
+            parser.error(
+                f"{', '.join(forbidden)} is only valid with "
+                "--methodology=biasbuster. Other methodologies follow "
+                "their declared orchestration."
+            )
 
     logging.basicConfig(
         level=logging.INFO,
@@ -527,6 +608,7 @@ async def main() -> int:
             agentic=args.agentic,
             decomposed=args.decomposed,
             identifier=original_identifier,
+            methodology=args.methodology,
         )
         if result is None:
             return 1
