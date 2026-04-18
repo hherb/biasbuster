@@ -291,3 +291,179 @@ class TestBatchThreading:
         )
         assert len(results) == 1
         assert results[0]["_methodology"] == "biasbuster"
+
+
+def _valid_extraction_json() -> str:
+    """A minimally-valid v3 extraction response covering every required field."""
+    fields = {
+        "paper_metadata": {},
+        "sample": {},
+        "analysis": {},
+        "outcomes": {},
+        "subgroups": {},
+        "conflicts": {},
+        "methodology_details": {},
+        "conclusions": {},
+    }
+    import json as _json
+    return _json.dumps(fields)
+
+
+@dataclass
+class QueueingFakeAnnotator(BaseAnnotator):
+    """FakeAnnotator that returns a different canned response per ``_call_llm``.
+
+    Needed for multi-call annotator methods (two-call, full-text) where a
+    single fixed response is parsed successfully only at the first stage.
+    """
+
+    model: str = "fake-model"
+    max_retries: int = 1
+    responses: list[str] = field(default_factory=list)
+    calls: list[tuple[str, str, str]] = field(default_factory=list)
+
+    async def _call_llm(
+        self, system_prompt: str, user_message: str, pmid: str = "",
+    ) -> Optional[str]:
+        self.calls.append((system_prompt, user_message, pmid))
+        if not self.responses:
+            return None
+        return self.responses.pop(0)
+
+    async def __aenter__(self) -> "QueueingFakeAnnotator":
+        return self
+
+    async def __aexit__(self, *args) -> None:
+        return None
+
+
+class TestMethodologyStampOnNonSingleCallPaths:
+    """Every successful annotator return must carry methodology metadata.
+
+    `annotate_abstract` already stamps ``_methodology`` / ``_methodology_version``
+    via the methodology-dispatch refactor. The four older methods below
+    still use inline v3/v4/v5a prompts (Step 7 will swap them) but must
+    still stamp the result dict so downstream consumers can identify
+    which methodology produced a row without reading the DB column.
+    """
+
+    @pytest.mark.asyncio
+    async def test_annotate_abstract_two_call_stamps_methodology(self) -> None:
+        fa = QueueingFakeAnnotator(
+            responses=[
+                _valid_extraction_json(),
+                _valid_biasbuster_json(),
+            ],
+        )
+        result = await fa.annotate_abstract_two_call(
+            pmid="T1", title="T", abstract="A", metadata=None,
+        )
+        assert result is not None
+        assert result["_methodology"] == "biasbuster"
+        assert result["_methodology_version"] == "v5a"
+
+    @pytest.mark.asyncio
+    async def test_annotate_full_text_two_call_stamps_methodology(
+        self, monkeypatch,
+    ) -> None:
+        fa = QueueingFakeAnnotator(responses=[_valid_biasbuster_json()])
+
+        async def _fake_extract(self, pmid, title, sections):
+            return ({"k": "v"}, [], [], 0)
+
+        monkeypatch.setattr(
+            BaseAnnotator, "_extract_full_text_sections", _fake_extract,
+        )
+        result = await fa.annotate_full_text_two_call(
+            pmid="T1", title="T",
+            sections=[("Methods", "Randomized.")],
+            metadata=None,
+        )
+        assert result is not None
+        assert result["_methodology"] == "biasbuster"
+        assert result["_methodology_version"] == "v5a"
+
+    @pytest.mark.asyncio
+    async def test_annotate_full_text_agentic_stamps_methodology(
+        self, monkeypatch,
+    ) -> None:
+        fa = QueueingFakeAnnotator(responses=[])
+        fa.api_key = "test-key"
+
+        async def _fake_extract(self, pmid, title, sections):
+            return ({"k": "v"}, [], [], 0)
+
+        class _FakeAgentResult:
+            assessment = {"overall_severity": "low"}
+            iterations = 1
+            tool_calls_made: list = []
+            hit_iteration_cap = False
+            enforcement_notes: list = []
+
+        class _FakeAgent:
+            def __init__(self, *a, **kw) -> None:
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *a):
+                return None
+            async def assess(self, **kw):
+                return _FakeAgentResult()
+
+        monkeypatch.setattr(
+            BaseAnnotator, "_extract_full_text_sections", _fake_extract,
+        )
+        import biasbuster.assessment_agent as _aa
+        monkeypatch.setattr(_aa, "AssessmentAgent", _FakeAgent)
+
+        result = await fa.annotate_full_text_agentic(
+            pmid="T1", title="T",
+            sections=[("Methods", "Randomized.")],
+            metadata=None,
+            agent_provider="anthropic",
+        )
+        assert result is not None
+        assert result["_methodology"] == "biasbuster"
+        assert result["_methodology_version"] == "v5a"
+
+    @pytest.mark.asyncio
+    async def test_annotate_full_text_decomposed_stamps_methodology(
+        self, monkeypatch,
+    ) -> None:
+        fa = QueueingFakeAnnotator(responses=[])
+        fa.api_key = "test-key"
+
+        async def _fake_extract(self, pmid, title, sections):
+            return ({"k": "v"}, [], [], 0)
+
+        class _FakeDecomposedResult:
+            assessment = {"overall_severity": "low"}
+            n_llm_calls = 0
+            domain_decisions: list = []
+            enforcement_notes: list = []
+
+        class _FakeAssessor:
+            def __init__(self, *a, **kw) -> None:
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *a):
+                return None
+            async def assess(self, **kw):
+                return _FakeDecomposedResult()
+
+        monkeypatch.setattr(
+            BaseAnnotator, "_extract_full_text_sections", _fake_extract,
+        )
+        import biasbuster.assessment_decomposed as _ad
+        monkeypatch.setattr(_ad, "DecomposedAssessor", _FakeAssessor)
+
+        result = await fa.annotate_full_text_decomposed(
+            pmid="T1", title="T",
+            sections=[("Methods", "Randomized.")],
+            metadata=None,
+            agent_provider="anthropic",
+        )
+        assert result is not None
+        assert result["_methodology"] == "biasbuster"
+        assert result["_methodology_version"] == "v5a"

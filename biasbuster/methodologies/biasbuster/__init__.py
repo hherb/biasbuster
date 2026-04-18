@@ -121,16 +121,18 @@ def build_user_message(
     )
 
 
-def parse_output(raw: str, stage: str) -> Optional[dict]:
+def parse_output(raw: str, stage: str, pmid: str = "") -> Optional[dict]:
     """Parse LLM JSON output for a biasbuster stage.
 
     All biasbuster stages emit the same JSON shape (a biasbuster 5-domain
     annotation), so the ``stage`` argument is accepted for protocol
-    symmetry but ignored here. Delegates to the shared repair+validate
-    helper so behaviour is identical to the pre-methodology path.
+    symmetry but ignored here. ``pmid`` is forwarded to the shared
+    ``parse_llm_json`` helper so parse-failure log lines carry the paper
+    identifier for debuggability — dropping it would regress log context
+    relative to the pre-methodology direct-call path.
     """
     del stage  # unused for biasbuster; kept for protocol symmetry
-    return _legacy_parse_llm_json(raw)
+    return _legacy_parse_llm_json(raw, pmid=pmid)
 
 
 def aggregate(domain_judgements: dict) -> dict:

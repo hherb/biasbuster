@@ -76,10 +76,19 @@ def _make_methodology(
 
 @pytest.fixture(autouse=True)
 def _isolate_registry():
-    """Each test runs against an empty registry."""
+    """Each test runs against an empty registry; restore built-ins on teardown.
+
+    Clearing on entry keeps these tests independent of whichever built-ins
+    got registered at import time. Restoring on exit ensures subsequent
+    test files that rely on ``get_methodology(\"biasbuster\")`` still work
+    regardless of alphabetical file ordering.
+    """
+    from biasbuster.methodologies import _register_builtin_methodologies
+
     clear_registry_for_testing()
     yield
     clear_registry_for_testing()
+    _register_builtin_methodologies()
 
 
 class TestMethodologyDataclass:
@@ -144,6 +153,26 @@ class TestRegistry:
         register(_make_methodology(name="gamma", status="active"))
         assert list_methodologies() == ["alpha", "beta", "gamma"]
         assert list_active_methodologies() == ["alpha", "gamma"]
+
+    def test_register_builtin_methodologies_restores_biasbuster(self) -> None:
+        """Built-in methodologies must be re-installable after a clear.
+
+        Without this hook, any teardown that runs
+        ``clear_registry_for_testing()`` permanently orphans the biasbuster
+        methodology (its module is cached in ``sys.modules`` so the
+        module-body registration side-effect does not fire again). That
+        would make subsequent test files depending on the default
+        registry start failing in proportion to alphabetical ordering.
+        """
+        from biasbuster.methodologies import _register_builtin_methodologies
+
+        clear_registry_for_testing()
+        with pytest.raises(UnknownMethodologyError):
+            get_methodology("biasbuster")
+        _register_builtin_methodologies()
+        restored = get_methodology("biasbuster")
+        assert restored.name == "biasbuster"
+        assert restored.status == "active"
 
 
 class TestCheckOrRaise:

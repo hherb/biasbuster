@@ -148,6 +148,26 @@ class TestOutputParsing:
             "this is not JSON", stage="assess"
         ) is None
 
+    def test_parse_failure_log_includes_pmid(
+        self, biasbuster_methodology: Methodology, caplog
+    ) -> None:
+        """Parse-failure logs must carry the PMID for debuggability.
+
+        Regression guard: early methodology scaffolding dropped the pmid
+        kwarg when delegating to ``parse_llm_json``, leaving debug logs
+        without context. Every parse-failure path in ``parse_llm_json``
+        interpolates ``PMID {pmid}`` into the message, so asserting the
+        PMID appears in any warning proves the kwarg threaded through.
+        """
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="biasbuster.annotators"):
+            result = biasbuster_methodology.parse_output(
+                "not JSON at all", stage="assess", pmid="PMID12345",
+            )
+        assert result is None
+        assert any("PMID12345" in r.getMessage() for r in caplog.records)
+
 
 class TestApplicabilityAlwaysTrue:
     def test_check_applicability_is_unconditionally_true(

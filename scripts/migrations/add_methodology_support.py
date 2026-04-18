@@ -182,16 +182,6 @@ def migrate(
 
     _assert_legacy_schema(legacy_db)
 
-    # Optionally drop a timestamped snapshot copy alongside the legacy DB
-    # so the user has a dated backup independent of whatever workflow
-    # they run next. We never rename or remove the legacy file itself.
-    if archive_legacy:
-        archived = legacy_db.with_name(
-            f"{legacy_db.stem}.legacy_{_timestamp_suffix()}{legacy_db.suffix}"
-        )
-        shutil.copy2(legacy_db, archived)
-        logger.info("Archived legacy DB snapshot to %s", archived)
-
     if new_db.exists():
         new_db.unlink()
 
@@ -222,15 +212,27 @@ def migrate(
         src.close()
         dst.close()
 
+    # Archive last — only drop a timestamped snapshot copy if the
+    # migration itself succeeded. Doing the archive earlier would leave
+    # a stale dated backup next to the legacy DB whenever the main work
+    # raises (disk full, fresh-DB init error, partial copy), confusing
+    # future recovery attempts.
+    if archive_legacy:
+        archived = legacy_db.with_name(
+            f"{legacy_db.stem}.legacy_{_timestamp_suffix()}{legacy_db.suffix}"
+        )
+        shutil.copy2(legacy_db, archived)
+        logger.info("Archived legacy DB snapshot to %s", archived)
+
     return summary
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--from", dest="legacy", type=Path, required=True,
-                   help="Path to the legacy biasbuster.db (will NOT be modified "
-                        "unless --rename-old is set, in which case a copy is "
-                        "archived with a timestamp suffix).")
+                   help="Path to the legacy biasbuster.db. The file is never "
+                        "modified; pass --archive-legacy to drop a "
+                        "timestamped copy alongside it for disaster recovery.")
     p.add_argument("--to", dest="new", type=Path, required=True,
                    help="Path for the fresh methodology-aware DB.")
     p.add_argument("--archive-legacy", action="store_true",

@@ -180,7 +180,10 @@ class Methodology:
 
     build_system_prompt: Callable[[str], str]
     build_user_message: Callable[..., str]
-    parse_output: Callable[[str, str], Optional[dict]]
+    # Signature: (raw_text, stage, *, pmid="") -> dict | None.
+    # ``pmid`` is optional so methodologies that don't need log context
+    # can omit it, but the orchestration layer always passes it through.
+    parse_output: Callable[..., Optional[dict]]
     aggregate: Callable[[dict], dict]
     check_applicability: Callable[[dict, dict, bool], tuple[bool, str]]
     evaluation_mapping_to_ground_truth: Callable[[dict], Optional[dict]]

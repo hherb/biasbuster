@@ -924,7 +924,7 @@ class BaseAnnotator(abc.ABC):
             if text is None:
                 return None
 
-            assessment = methodology.parse_output(text, "single_call")
+            assessment = methodology.parse_output(text, "single_call", pmid=pmid)
             if assessment is not None:
                 assessment["pmid"] = pmid
                 assessment["title"] = title
@@ -1143,6 +1143,8 @@ class BaseAnnotator(abc.ABC):
                 assessment["title"] = title
                 assessment["_annotation_model"] = self.model
                 assessment["_annotation_mode"] = "two_call_full_text_v3"
+                assessment["_methodology"] = methodology.name
+                assessment["_methodology_version"] = methodology.version
                 assessment["extraction"] = extraction
                 assessment["_section_extractions"] = section_extractions
                 if merge_conflicts:
@@ -1287,6 +1289,8 @@ class BaseAnnotator(abc.ABC):
         assessment["title"] = title
         assessment["_annotation_model"] = self.model
         assessment["_annotation_mode"] = "agentic_v4"
+        assessment["_methodology"] = methodology.name
+        assessment["_methodology_version"] = methodology.version
         assessment["extraction"] = extraction
         assessment["_section_extractions"] = section_extractions
         if merge_conflicts:
@@ -1413,6 +1417,8 @@ class BaseAnnotator(abc.ABC):
         assessment["title"] = title
         assessment["_annotation_model"] = self.model
         assessment["_annotation_mode"] = "decomposed_v5a"
+        assessment["_methodology"] = methodology.name
+        assessment["_methodology_version"] = methodology.version
         assessment["extraction"] = extraction
         assessment["_section_extractions"] = section_extractions
         if merge_conflicts:
@@ -1511,6 +1517,8 @@ class BaseAnnotator(abc.ABC):
                 assessment["title"] = title
                 assessment["_annotation_model"] = self.model
                 assessment["_annotation_mode"] = "two_call_v3"
+                assessment["_methodology"] = methodology.name
+                assessment["_methodology_version"] = methodology.version
                 assessment["extraction"] = extraction
                 return assessment
 

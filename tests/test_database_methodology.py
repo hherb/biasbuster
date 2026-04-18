@@ -433,3 +433,34 @@ class TestMigrationScript:
         assert legacy_db_path.stat().st_size == legacy_before_size
         siblings = list(legacy_db_path.parent.glob("legacy.legacy_*.db"))
         assert len(siblings) == 1
+
+    def test_archive_not_created_when_fresh_db_creation_fails(
+        self, legacy_db_path: Path, tmp_path: Path, monkeypatch,
+    ) -> None:
+        """If fresh-DB creation fails, no archive is left behind.
+
+        The archive is a side effect that only makes sense for a successful
+        migration. Creating it before the main work means a later failure
+        would leave a stale timestamped copy next to the legacy DB with
+        nothing pointing at it.
+        """
+        from scripts.migrations import add_methodology_support as mig
+
+        def _boom(_path: Path) -> None:
+            raise RuntimeError("simulated fresh DB failure")
+
+        monkeypatch.setattr(mig, "_create_fresh_db", _boom)
+
+        new_db = tmp_path / "fresh.db"
+        with pytest.raises(RuntimeError, match="simulated"):
+            mig.migrate(
+                legacy_db_path, new_db,
+                archive_legacy=True,
+                copy_papers=True, copy_enrichments=False,
+                copy_annotations=False, copy_reviews=False, force=False,
+            )
+        siblings = list(legacy_db_path.parent.glob("legacy.legacy_*.db"))
+        assert siblings == [], (
+            f"Archive left behind despite migration failure: {siblings}"
+        )
+        assert not new_db.exists()
