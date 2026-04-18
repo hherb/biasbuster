@@ -966,6 +966,25 @@ def main() -> None:
             "orchestration and cannot be overridden from the CLI."
         )
 
+    # Resolve the methodology slug BEFORE opening the database. An unknown
+    # or stub methodology is a CLI input error, and failing here means the
+    # user sees the real problem (bad --methodology) instead of a
+    # misleading DB/schema error triggered by Database.initialize() on a
+    # legacy DB.
+    from biasbuster.methodologies import (
+        UnknownMethodologyError,
+        get_methodology,
+    )
+    try:
+        _methodology_obj = get_methodology(args.methodology)
+    except UnknownMethodologyError as exc:
+        parser.error(str(exc))
+    if _methodology_obj.status != "active":
+        parser.error(
+            f"methodology {args.methodology!r} is registered but its status "
+            f"is {_methodology_obj.status!r}; pick an active methodology."
+        )
+
     config = Config()
 
     # Parse model list for annotation/export stages
