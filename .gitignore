@@ -38,3 +38,6 @@ dataset_*/
 # Scratch / logs
 log.txt
 annotation_evaluation.md
+
+# Git worktrees
+worktrees/
