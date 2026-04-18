@@ -10,9 +10,16 @@ import abc
 import asyncio
 import json
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    # Import-only-for-typing: the runtime import would create a cycle
+    # (methodologies.biasbuster imports build_user_message / parse_llm_json
+    # from this module). The forward-string annotation below defers
+    # resolution until after both modules are fully loaded.
+    from biasbuster.methodologies import Methodology
 
 logger = logging.getLogger(__name__)
 
@@ -792,6 +799,51 @@ def merge_section_extractions(
 
 
 # ============================================================================
+# Methodology plumbing
+# ============================================================================
+
+def _resolve_methodology(
+    methodology: Optional["Methodology"],
+) -> "Methodology":
+    """Return the chosen methodology, defaulting to the biasbuster pathway.
+
+    The ``None`` sentinel default on caller kwargs (not a string slug) is
+    deliberate: resolving to a :class:`Methodology` object requires a
+    registry lookup, and doing that lookup at *call* time — not at
+    *module load* time — avoids the load-time import cycle between
+    :mod:`biasbuster.annotators` and :mod:`biasbuster.methodologies.biasbuster`
+    (the latter imports :func:`build_user_message` and :func:`parse_llm_json`
+    from this module). The lazy ``from … import get_methodology`` inside
+    this function is the other half of that same cycle-break.
+    """
+    if methodology is not None:
+        return methodology
+    from biasbuster.methodologies import get_methodology
+    return get_methodology("biasbuster")
+
+
+def _assert_full_text(
+    methodology: "Methodology",
+    sections: Optional[list],
+    pmid: str = "",
+) -> None:
+    """Raise FullTextRequiredError if a full-text-only methodology lacks sections.
+
+    ``sections`` is the per-section list used by full-text annotators
+    (``list[tuple[str, str]]``). An empty list or ``None`` means no
+    full text is in hand. Biasbuster's methodology has
+    ``requires_full_text=False`` so it never triggers this guard, which
+    is why the abstract-only annotator methods can call it safely with
+    ``sections=None``.
+    """
+    if not methodology.requires_full_text:
+        return
+    if not sections:
+        from biasbuster.methodologies import FullTextRequiredError
+        raise FullTextRequiredError(methodology.name, pmid)
+
+
+# ============================================================================
 # Base annotator — shared annotation logic for all LLM backends
 # ============================================================================
 
@@ -838,28 +890,47 @@ class BaseAnnotator(abc.ABC):
         title: str,
         abstract: str,
         metadata: Optional[dict] = None,
+        methodology: Optional["Methodology"] = None,
     ) -> Optional[dict]:
         """Single-call annotation (v1): extraction + assessment in one LLM call.
 
-        Returns parsed JSON assessment or None on failure.
-        """
-        # Deferred import avoids circular dependency at module load time
-        from biasbuster.prompts import ANNOTATION_SYSTEM_PROMPT
+        Args:
+            pmid, title, abstract: Paper text.
+            metadata: Paper enrichment (authors, funding, MeSH, retraction
+                context, Cochrane RoB fields, effect-size audit).
+            methodology: Which risk-of-bias tool to apply. When ``None``
+                (default) the biasbuster methodology is used, producing
+                byte-identical output to the pre-methodology code path
+                (the biasbuster adapter's ``build_system_prompt("single_call")``
+                returns the same ``ANNOTATION_SYSTEM_PROMPT`` constant).
 
-        user_message = build_user_message(pmid, title, abstract, metadata)
+        Returns:
+            Parsed JSON assessment or ``None`` on failure.
+        """
+        methodology = _resolve_methodology(methodology)
+        # v1 single-call operates on abstract text; no sections available.
+        _assert_full_text(methodology, sections=None, pmid=pmid)
+
+        system_prompt = methodology.build_system_prompt("single_call")
+        paper = {"pmid": pmid, "title": title, "abstract": abstract}
+        user_message = methodology.build_user_message(
+            paper=paper, enrichment=metadata,
+        )
 
         for attempt in range(self.max_retries):
             text = await self._call_llm(
-                ANNOTATION_SYSTEM_PROMPT, user_message, pmid=pmid,
+                system_prompt, user_message, pmid=pmid,
             )
             if text is None:
                 return None
 
-            assessment = parse_llm_json(text, pmid=pmid)
+            assessment = methodology.parse_output(text, "single_call")
             if assessment is not None:
                 assessment["pmid"] = pmid
                 assessment["title"] = title
                 assessment["_annotation_model"] = self.model
+                assessment["_methodology"] = methodology.name
+                assessment["_methodology_version"] = methodology.version
                 return assessment
 
             logger.warning(
@@ -996,6 +1067,7 @@ class BaseAnnotator(abc.ABC):
         title: str,
         sections: list[tuple[str, str]],
         metadata: Optional[dict] = None,
+        methodology: Optional["Methodology"] = None,
     ) -> Optional[dict]:
         """Map-reduce two-call annotation for full-text papers.
 
@@ -1028,7 +1100,15 @@ class BaseAnnotator(abc.ABC):
             ``_section_extractions`` for retrospective debugging without
             having to re-run the model. None if any stage fails after
             retries.
+
+        The ``methodology`` kwarg is accepted for multi-methodology
+        plumbing symmetry; the inline prompt imports in this method
+        are the biasbuster v3 prompts. Step 7 will swap them to
+        ``methodology.build_system_prompt(...)`` dispatch so
+        cochrane_rob2 / quadas_2 can reuse this flow.
         """
+        methodology = _resolve_methodology(methodology)
+        _assert_full_text(methodology, sections=sections, pmid=pmid)
         from biasbuster.prompts_v3 import ASSESSMENT_SYSTEM_PROMPT
 
         extraction_result = await self._extract_full_text_sections(
@@ -1086,12 +1166,18 @@ class BaseAnnotator(abc.ABC):
     # v4 Agentic annotation (tool-calling assessment agent)
     # ------------------------------------------------------------------
 
+    # TODO(Step 7): swap inline prompts_v3/v4/v5a imports in the four
+    # full-text / two-call annotator methods below for
+    # ``methodology.build_system_prompt(...)`` dispatch so non-biasbuster
+    # methodologies (cochrane_rob2, quadas_2) can reuse these flows.
+
     async def annotate_full_text_agentic(
         self,
         pmid: str,
         title: str,
         sections: list[tuple[str, str]],
         metadata: Optional[dict] = None,
+        methodology: Optional["Methodology"] = None,
         api_key: Optional[str] = None,
         agent_provider: Optional[str] = None,
         agent_model: Optional[str] = None,
@@ -1133,6 +1219,13 @@ class BaseAnnotator(abc.ABC):
             Assessment dict with ``_annotation_mode: "agentic_v4"``
             and ``_overrides: [...]``. None on failure.
         """
+        # Defence-in-depth: the CLI layer (argparse + annotate_paper
+        # pre-flight) already rejects --agentic/--decomposed alongside
+        # non-biasbuster methodologies. The guard here catches future
+        # direct callers that bypass the CLI.
+        methodology = _resolve_methodology(methodology)
+        _assert_full_text(methodology, sections=sections, pmid=pmid)
+
         from biasbuster.assessment_agent import AssessmentAgent
 
         # Resolve provider — default to anthropic for LLMAnnotator,
@@ -1218,6 +1311,7 @@ class BaseAnnotator(abc.ABC):
         title: str,
         sections: list[tuple[str, str]],
         metadata: Optional[dict] = None,
+        methodology: Optional["Methodology"] = None,
         api_key: Optional[str] = None,
         agent_provider: Optional[str] = None,
         agent_model: Optional[str] = None,
@@ -1261,6 +1355,10 @@ class BaseAnnotator(abc.ABC):
             Assessment dict with ``_annotation_mode="decomposed_v5a"``
             and ``_overrides=[...]``. None on failure.
         """
+        # Defence-in-depth guard (see annotate_full_text_agentic for rationale).
+        methodology = _resolve_methodology(methodology)
+        _assert_full_text(methodology, sections=sections, pmid=pmid)
+
         from biasbuster.assessment_decomposed import DecomposedAssessor
 
         # Resolve provider — same pattern as annotate_full_text_agentic
@@ -1349,6 +1447,7 @@ class BaseAnnotator(abc.ABC):
         title: str,
         abstract: str,
         metadata: Optional[dict] = None,
+        methodology: Optional["Methodology"] = None,
     ) -> Optional[dict]:
         """Two-call annotation (v3): Stage 1 extraction, then Stage 2 assessment.
 
@@ -1357,7 +1456,15 @@ class BaseAnnotator(abc.ABC):
         The extraction is nested inside the final annotation for traceability.
 
         Returns parsed JSON assessment (with nested extraction) or None.
+
+        The ``methodology`` kwarg is accepted for symmetry and full-text
+        enforcement; biasbuster's v3 prompt constants are still used
+        inline here. Step 7 wires up methodology-dispatched prompts.
         """
+        methodology = _resolve_methodology(methodology)
+        # v3 abstract path: no sections. Full-text-only methodologies
+        # (cochrane_rob2, quadas_2) refuse here with a helpful error.
+        _assert_full_text(methodology, sections=None, pmid=pmid)
         from biasbuster.prompts_v3 import (
             EXTRACTION_SYSTEM_PROMPT,
             ASSESSMENT_SYSTEM_PROMPT,
@@ -1430,6 +1537,7 @@ class BaseAnnotator(abc.ABC):
         already_done: Optional[set[str]] = None,
         on_result: Optional[callable] = None,
         two_call: bool = True,
+        methodology: Optional["Methodology"] = None,
     ) -> list[dict]:
         """Annotate a batch of abstracts with rate limiting.
 
@@ -1446,10 +1554,13 @@ class BaseAnnotator(abc.ABC):
                        on each successful annotation for incremental save.
             two_call: If True (default), use v3 two-call pipeline
                       (extraction -> assessment). If False, use single-call v1.
+            methodology: Threaded to the per-item annotate_fn. ``None``
+                defaults to the biasbuster methodology.
 
         Returns:
             List of successful annotations.
         """
+        methodology = _resolve_methodology(methodology)
         if already_done is None:
             already_done = set()
 
@@ -1491,6 +1602,7 @@ class BaseAnnotator(abc.ABC):
                     title=item["title"],
                     abstract=item["abstract"],
                     metadata=item.get("metadata"),
+                    methodology=methodology,
                 )
                 # Save incrementally as each result arrives
                 if result is not None:
