@@ -73,30 +73,41 @@ CREATE TABLE IF NOT EXISTS enrichments (
     enriched_at TEXT DEFAULT (datetime('now'))
 );
 
--- LLM annotations (one row per paper per model)
+-- LLM annotations (one row per paper per model per methodology).
+-- `methodology` identifies which risk-of-bias tool was applied
+-- (biasbuster, cochrane_rob2, quadas_2, ...). The PK lets the same
+-- model annotate the same paper under different methodologies.
+-- `overall_severity` holds the methodology-agnostic overall rating
+-- in the methodology's rollup vocabulary (e.g. "high" for biasbuster,
+-- "some_concerns" for cochrane_rob2). Column name kept for
+-- back-compat; treat it as "overall rating" for non-biasbuster rows.
 CREATE TABLE IF NOT EXISTS annotations (
     pmid TEXT NOT NULL REFERENCES papers(pmid),
     model_name TEXT NOT NULL,
+    methodology TEXT NOT NULL DEFAULT 'biasbuster',
+    methodology_version TEXT,
     annotation JSON NOT NULL,
     overall_severity TEXT,
     overall_bias_probability REAL,
     confidence TEXT,
     annotated_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (pmid, model_name)
+    PRIMARY KEY (pmid, model_name, methodology)
 );
 
--- Human review (one row per paper per model's annotation)
+-- Human review (one row per paper per model per methodology).
 CREATE TABLE IF NOT EXISTS human_reviews (
     pmid TEXT NOT NULL,
     model_name TEXT NOT NULL,
+    methodology TEXT NOT NULL DEFAULT 'biasbuster',
     validated INTEGER DEFAULT 0,
     override_severity TEXT,
     annotation JSON,
     flagged INTEGER DEFAULT 0,
     notes TEXT,
     reviewed_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (pmid, model_name),
-    FOREIGN KEY (pmid, model_name) REFERENCES annotations(pmid, model_name)
+    PRIMARY KEY (pmid, model_name, methodology),
+    FOREIGN KEY (pmid, model_name, methodology)
+        REFERENCES annotations(pmid, model_name, methodology)
 );
 
 -- Evaluation outputs (separate from annotation pipeline)
@@ -120,6 +131,8 @@ CREATE TABLE IF NOT EXISTS eval_outputs (
 CREATE INDEX IF NOT EXISTS idx_papers_source ON papers(source);
 CREATE INDEX IF NOT EXISTS idx_enrichments_suspicion ON enrichments(suspicion_level);
 CREATE INDEX IF NOT EXISTS idx_annotations_model ON annotations(model_name);
+CREATE INDEX IF NOT EXISTS idx_annotations_methodology ON annotations(methodology);
+CREATE INDEX IF NOT EXISTS idx_annotations_meth_model ON annotations(methodology, model_name);
 CREATE INDEX IF NOT EXISTS idx_annotations_severity ON annotations(overall_severity);
 CREATE INDEX IF NOT EXISTS idx_human_reviews_validated ON human_reviews(validated);
 CREATE INDEX IF NOT EXISTS idx_eval_outputs_model ON eval_outputs(model_id);
@@ -187,6 +200,14 @@ class RoBInvariantError(ValueError):
         )
 
 
+class LegacySchemaError(RuntimeError):
+    """Raised when opening a database with the pre-methodology schema.
+
+    The caller must run the migration script to quarantine the legacy
+    data and create a fresh methodology-aware database.
+    """
+
+
 class Database:
     """SQLite database backend for the bias detection pipeline."""
 
@@ -222,8 +243,49 @@ class Database:
 
     # ---- Schema management ----
 
+    def _check_legacy_annotations_schema(self) -> None:
+        """Refuse to initialize on top of a pre-methodology annotations table.
+
+        The pre-methodology schema had PK (pmid, model_name) and no
+        `methodology` column. If we detect that shape, raise rather than
+        auto-migrate — the user must explicitly run the migration script
+        so legacy (potentially incorrect) annotations don't silently
+        carry over into the new DB.
+        """
+        row = self.conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='annotations'"
+        ).fetchone()
+        if row is None:
+            return  # fresh DB; SCHEMA_SQL will create the new shape
+        cols = {
+            c[1]
+            for c in self.conn.execute("PRAGMA table_info(annotations)").fetchall()
+        }
+        if "methodology" not in cols:
+            raise LegacySchemaError(
+                f"Database at {self.db_path} has the pre-methodology "
+                "annotations schema. Run "
+                "`uv run python scripts/migrations/add_methodology_support.py "
+                f"--from {self.db_path} --to <new_db_path>` "
+                "to preserve the legacy DB and start fresh, or point this "
+                "Database at a new path."
+            )
+
     def initialize(self) -> None:
-        """Create tables and indexes if they don't exist."""
+        """Create tables and indexes if they don't exist.
+
+        Raises:
+            LegacySchemaError: If the database exists but has the pre-methodology
+                annotations schema (PK was (pmid, model_name)). The caller must
+                run the migration script
+                ``scripts/migrations/add_methodology_support.py`` or point at a
+                fresh DB path. We refuse to silently auto-migrate because the
+                legacy database may contain incorrect annotations that should be
+                quarantined before fresh runs, per the multi-methodology rebuild
+                plan.
+        """
+        self._check_legacy_annotations_schema()
         self.conn.executescript(SCHEMA_SQL)
         # Migrate: add columns if missing (non-destructive for existing databases)
         cols = {
@@ -771,18 +833,36 @@ class Database:
     # ---- Annotations ----
 
     def insert_annotation(
-        self, pmid: str, model_name: str, annotation: dict
+        self,
+        pmid: str,
+        model_name: str,
+        annotation: dict,
+        methodology: str = "biasbuster",
+        methodology_version: Optional[str] = None,
     ) -> bool:
-        """Insert an annotation. Returns True if newly inserted."""
+        """Insert an annotation. Returns True if newly inserted.
+
+        Args:
+            pmid: Paper PMID.
+            model_name: LLM backend identifier.
+            annotation: Structured annotation dict (methodology-specific shape).
+            methodology: Which risk-of-bias tool was applied. Defaults to
+                "biasbuster" for back-compat with pre-methodology callers.
+            methodology_version: Optional prompt/schema version tag
+                (e.g. "v5a" for biasbuster, "rob2-2019" for Cochrane RoB 2).
+        """
         try:
             cursor = self.conn.execute(
                 """INSERT OR IGNORE INTO annotations
-                   (pmid, model_name, annotation,
-                    overall_severity, overall_bias_probability, confidence)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (pmid, model_name, methodology, methodology_version,
+                    annotation, overall_severity,
+                    overall_bias_probability, confidence)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     pmid,
                     model_name,
+                    methodology,
+                    methodology_version,
                     json.dumps(annotation),
                     annotation.get("overall_severity"),
                     annotation.get("overall_bias_probability"),
@@ -793,21 +873,34 @@ class Database:
             return cursor.rowcount > 0
         except sqlite3.Error as e:
             logger.warning(
-                f"Failed to insert annotation {pmid}/{model_name}: {e}"
+                f"Failed to insert annotation {pmid}/{model_name}"
+                f"/{methodology}: {e}"
             )
             return False
 
     def upsert_annotation(
-        self, pmid: str, model_name: str, annotation: dict
+        self,
+        pmid: str,
+        model_name: str,
+        annotation: dict,
+        methodology: str = "biasbuster",
+        methodology_version: Optional[str] = None,
     ) -> bool:
-        """Insert or update an annotation. Returns True if row was written."""
+        """Insert or update an annotation. Returns True if row was written.
+
+        See :meth:`insert_annotation` for argument semantics. On conflict
+        the annotation JSON and summary fields are replaced, but the
+        (pmid, model_name, methodology) identity is preserved.
+        """
         try:
             cursor = self.conn.execute(
                 """INSERT INTO annotations
-                   (pmid, model_name, annotation,
-                    overall_severity, overall_bias_probability, confidence)
-                   VALUES (?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(pmid, model_name) DO UPDATE SET
+                   (pmid, model_name, methodology, methodology_version,
+                    annotation, overall_severity,
+                    overall_bias_probability, confidence)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(pmid, model_name, methodology) DO UPDATE SET
+                       methodology_version = excluded.methodology_version,
                        annotation = excluded.annotation,
                        overall_severity = excluded.overall_severity,
                        overall_bias_probability = excluded.overall_bias_probability,
@@ -816,6 +909,8 @@ class Database:
                 (
                     pmid,
                     model_name,
+                    methodology,
+                    methodology_version,
                     json.dumps(annotation),
                     annotation.get("overall_severity"),
                     annotation.get("overall_bias_probability"),
@@ -826,28 +921,42 @@ class Database:
             return cursor.rowcount > 0
         except sqlite3.Error as e:
             logger.warning(
-                f"Failed to upsert annotation {pmid}/{model_name}: {e}"
+                f"Failed to upsert annotation {pmid}/{model_name}"
+                f"/{methodology}: {e}"
             )
             return False
 
-    def has_annotation(self, pmid: str, model_name: str) -> bool:
-        """Check whether an annotation exists for a given PMID and model."""
+    def has_annotation(
+        self,
+        pmid: str,
+        model_name: str,
+        methodology: str = "biasbuster",
+    ) -> bool:
+        """Check whether an annotation exists for (PMID, model, methodology)."""
         row = self.conn.execute(
-            "SELECT 1 FROM annotations WHERE pmid = ? AND model_name = ?",
-            (pmid, model_name),
+            "SELECT 1 FROM annotations "
+            "WHERE pmid = ? AND model_name = ? AND methodology = ?",
+            (pmid, model_name, methodology),
         ).fetchone()
         return row is not None
 
-    def delete_annotation(self, pmid: str, model_name: str) -> bool:
-        """Delete an annotation. Returns True if a row was deleted."""
+    def delete_annotation(
+        self,
+        pmid: str,
+        model_name: str,
+        methodology: str = "biasbuster",
+    ) -> bool:
+        """Delete a single annotation. Returns True if a row was deleted."""
         # Delete dependent human_reviews first (FK constraint)
         self.conn.execute(
-            "DELETE FROM human_reviews WHERE pmid = ? AND model_name = ?",
-            (pmid, model_name),
+            "DELETE FROM human_reviews "
+            "WHERE pmid = ? AND model_name = ? AND methodology = ?",
+            (pmid, model_name, methodology),
         )
         cursor = self.conn.execute(
-            "DELETE FROM annotations WHERE pmid = ? AND model_name = ?",
-            (pmid, model_name),
+            "DELETE FROM annotations "
+            "WHERE pmid = ? AND model_name = ? AND methodology = ?",
+            (pmid, model_name, methodology),
         )
         self.conn.commit()
         return cursor.rowcount > 0
@@ -867,7 +976,10 @@ class Database:
         return [dict(r) for r in rows]
 
     def delete_annotations_for_pmids(
-        self, pmids: list[str], model_name: str | None = None,
+        self,
+        pmids: list[str],
+        model_name: str | None = None,
+        methodology: str | None = None,
     ) -> int:
         """Delete annotations for a list of PMIDs.
 
@@ -875,6 +987,8 @@ class Database:
             pmids: List of PMIDs to delete annotations for.
             model_name: If provided, only delete for this model.
                 If None, delete all models' annotations.
+            methodology: If provided, only delete annotations for this
+                methodology. If None, delete rows for every methodology.
 
         Returns:
             Number of annotations deleted.
@@ -882,28 +996,22 @@ class Database:
         if not pmids:
             return 0
         placeholders = ",".join("?" * len(pmids))
-        if model_name:
-            # Delete dependent human_reviews first (FK constraint)
-            self.conn.execute(
-                f"DELETE FROM human_reviews WHERE pmid IN ({placeholders}) "
-                f"AND model_name = ?",
-                (*pmids, model_name),
-            )
-            cursor = self.conn.execute(
-                f"DELETE FROM annotations WHERE pmid IN ({placeholders}) "
-                f"AND model_name = ?",
-                (*pmids, model_name),
-            )
-        else:
-            # Delete dependent human_reviews first (FK constraint)
-            self.conn.execute(
-                f"DELETE FROM human_reviews WHERE pmid IN ({placeholders})",
-                pmids,
-            )
-            cursor = self.conn.execute(
-                f"DELETE FROM annotations WHERE pmid IN ({placeholders})",
-                pmids,
-            )
+        where_parts = [f"pmid IN ({placeholders})"]
+        params: list = list(pmids)
+        if model_name is not None:
+            where_parts.append("model_name = ?")
+            params.append(model_name)
+        if methodology is not None:
+            where_parts.append("methodology = ?")
+            params.append(methodology)
+        where_sql = " AND ".join(where_parts)
+        # Delete dependent human_reviews first (FK constraint)
+        self.conn.execute(
+            f"DELETE FROM human_reviews WHERE {where_sql}", params
+        )
+        cursor = self.conn.execute(
+            f"DELETE FROM annotations WHERE {where_sql}", params
+        )
         self.conn.commit()
         return cursor.rowcount
 
@@ -911,17 +1019,28 @@ class Database:
         self,
         model_name: Optional[str] = None,
         pmid: Optional[str] = None,
+        methodology: Optional[str] = None,
     ) -> list[dict]:
-        """Get annotations, optionally filtered by model and/or PMID."""
+        """Get annotations, optionally filtered by model, PMID, and methodology.
+
+        Args:
+            model_name: Filter to a specific LLM backend if given.
+            pmid: Filter to a single paper if given.
+            methodology: Filter to a specific methodology (e.g. "biasbuster",
+                "cochrane_rob2"). If None, returns rows for every methodology.
+        """
         query = "SELECT * FROM annotations"
         conditions = []
         params: list = []
-        if model_name:
+        if model_name is not None:
             conditions.append("model_name = ?")
             params.append(model_name)
-        if pmid:
+        if pmid is not None:
             conditions.append("pmid = ?")
             params.append(pmid)
+        if methodology is not None:
+            conditions.append("methodology = ?")
+            params.append(methodology)
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY pmid"
@@ -931,6 +1050,8 @@ class Database:
             ann = _json_load(r["annotation"]) or {}
             ann["pmid"] = r["pmid"]
             ann["model_name"] = r["model_name"]
+            ann["methodology"] = r["methodology"]
+            ann["methodology_version"] = r["methodology_version"]
             ann["overall_severity"] = r["overall_severity"]
             ann["overall_bias_probability"] = r["overall_bias_probability"]
             ann["confidence"] = r["confidence"]
@@ -938,20 +1059,61 @@ class Database:
             results.append(ann)
         return results
 
-    def get_annotated_pmids(self, model_name: str) -> set[str]:
-        """Get all PMIDs that have been annotated by a specific model."""
-        rows = self.conn.execute(
-            "SELECT pmid FROM annotations WHERE model_name = ?",
-            (model_name,),
-        ).fetchall()
+    def get_annotated_pmids(
+        self,
+        model_name: str,
+        methodology: Optional[str] = None,
+    ) -> set[str]:
+        """Get all PMIDs annotated by a specific model.
+
+        Args:
+            model_name: LLM backend identifier.
+            methodology: If provided, restrict to papers annotated under
+                this methodology. If None, returns PMIDs annotated by this
+                model under any methodology.
+        """
+        if methodology is not None:
+            rows = self.conn.execute(
+                "SELECT pmid FROM annotations "
+                "WHERE model_name = ? AND methodology = ?",
+                (model_name, methodology),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT pmid FROM annotations WHERE model_name = ?",
+                (model_name,),
+            ).fetchall()
         return {r["pmid"] for r in rows}
 
-    def get_model_names(self) -> list[str]:
-        """Get all distinct model names that have annotations."""
-        rows = self.conn.execute(
-            "SELECT DISTINCT model_name FROM annotations ORDER BY model_name"
-        ).fetchall()
+    def get_model_names(
+        self, methodology: Optional[str] = None,
+    ) -> list[str]:
+        """Get all distinct model names that have annotations.
+
+        Args:
+            methodology: If provided, only models with annotations produced
+                under this methodology. If None, all models across any
+                methodology.
+        """
+        if methodology is not None:
+            rows = self.conn.execute(
+                "SELECT DISTINCT model_name FROM annotations "
+                "WHERE methodology = ? ORDER BY model_name",
+                (methodology,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT DISTINCT model_name FROM annotations "
+                "ORDER BY model_name"
+            ).fetchall()
         return [r["model_name"] for r in rows]
+
+    def get_methodology_names(self) -> list[str]:
+        """Get all distinct methodology slugs that have annotations."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT methodology FROM annotations ORDER BY methodology"
+        ).fetchall()
+        return [r["methodology"] for r in rows]
 
     # ---- Evaluation outputs ----
 
@@ -1015,6 +1177,7 @@ class Database:
         notes: Optional[str] = None,
         annotation: Optional[dict] = None,
         flagged: Optional[bool] = None,
+        methodology: str = "biasbuster",
     ) -> None:
         """Insert or update a human review.
 
@@ -1022,55 +1185,72 @@ class Database:
             annotation: Full structured annotation JSON (same schema as LLM output).
             flagged: If True, mark this paper as flagged for review.
                      If None, preserve existing flagged state on update.
+            methodology: Which methodology's annotation this review refers to.
+                Defaults to "biasbuster" for back-compat.
         """
         self._ensure_connected()
         annotation_json = _json_col(annotation) if annotation else None
         flagged_int = int(flagged) if flagged is not None else None
         self.conn.execute(
             """INSERT INTO human_reviews
-               (pmid, model_name, validated, override_severity, notes,
-                annotation, flagged)
-               VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, 0))
-               ON CONFLICT(pmid, model_name) DO UPDATE SET
+               (pmid, model_name, methodology, validated, override_severity,
+                notes, annotation, flagged)
+               VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))
+               ON CONFLICT(pmid, model_name, methodology) DO UPDATE SET
                    validated = excluded.validated,
                    override_severity = excluded.override_severity,
                    notes = excluded.notes,
                    annotation = excluded.annotation,
                    flagged = COALESCE(excluded.flagged, human_reviews.flagged),
                    reviewed_at = datetime('now')""",
-            (pmid, model_name, int(validated), override_severity, notes,
-             annotation_json, flagged_int),
+            (pmid, model_name, methodology, int(validated), override_severity,
+             notes, annotation_json, flagged_int),
         )
         self.conn.commit()
 
     def get_reviews(
-        self, model_name: Optional[str] = None
+        self,
+        model_name: Optional[str] = None,
+        methodology: Optional[str] = None,
     ) -> list[dict]:
-        """Get human reviews, optionally filtered by model."""
+        """Get human reviews, optionally filtered by model and/or methodology."""
         self._ensure_connected()
-        if model_name:
-            rows = self.conn.execute(
-                "SELECT * FROM human_reviews WHERE model_name = ? ORDER BY pmid",
-                (model_name,),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT * FROM human_reviews ORDER BY pmid"
-            ).fetchall()
+        query = "SELECT * FROM human_reviews"
+        conditions: list[str] = []
+        params: list = []
+        if model_name is not None:
+            conditions.append("model_name = ?")
+            params.append(model_name)
+        if methodology is not None:
+            conditions.append("methodology = ?")
+            params.append(methodology)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY pmid"
+        rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
     def get_annotations_with_paper_data(
-        self, model_name: str
+        self,
+        model_name: str,
+        methodology: Optional[str] = None,
     ) -> list[dict]:
         """Get annotations joined with paper metadata for the review UI.
 
         Returns dicts with the full annotation JSON plus paper fields
         (title, abstract, authors, grants, mesh_terms, journal,
         retraction_reasons, Cochrane RoB fields, enrichment data).
+
+        Args:
+            model_name: LLM backend identifier.
+            methodology: If given, restrict to annotations produced under
+                this methodology. If None, returns rows for every methodology
+                (callers relying on a single per-paper row should pass this).
         """
         self._ensure_connected()
-        rows = self.conn.execute("""
-            SELECT a.pmid, a.model_name, a.annotation,
+        query = """
+            SELECT a.pmid, a.model_name, a.methodology, a.methodology_version,
+                   a.annotation,
                    a.overall_severity, a.overall_bias_probability, a.confidence,
                    p.title, p.abstract, p.authors, p.grants, p.mesh_terms,
                    p.journal, p.retraction_reasons, p.source,
@@ -1081,13 +1261,20 @@ class Database:
             JOIN papers p ON a.pmid = p.pmid
             LEFT JOIN enrichments e ON a.pmid = e.pmid
             WHERE a.model_name = ? AND p.excluded = 0
-            ORDER BY a.pmid
-        """, (model_name,)).fetchall()
+        """
+        params: list = [model_name]
+        if methodology is not None:
+            query += " AND a.methodology = ?"
+            params.append(methodology)
+        query += " ORDER BY a.pmid"
+        rows = self.conn.execute(query, params).fetchall()
         results = []
         for r in rows:
             ann = _json_load(r["annotation"]) or {}
             ann["pmid"] = r["pmid"]
             ann["model_name"] = r["model_name"]
+            ann["methodology"] = r["methodology"]
+            ann["methodology_version"] = r["methodology_version"]
             ann["overall_severity"] = r["overall_severity"]
             ann["overall_bias_probability"] = r["overall_bias_probability"]
             ann["confidence"] = r["confidence"]
@@ -1118,8 +1305,14 @@ class Database:
         model_a: str,
         model_b: str,
         field: str = "overall_severity",
+        methodology: str = "biasbuster",
     ) -> list[dict]:
-        """Find papers where two models disagree on a field."""
+        """Find papers where two models disagree on a field.
+
+        The comparison is scoped to a single methodology — disagreement
+        between a biasbuster annotation and a cochrane_rob2 annotation is
+        not meaningful (the rollup vocabularies differ).
+        """
         if field == "overall_severity":
             query = """
                 SELECT a.pmid, a.overall_severity AS severity_a,
@@ -1127,8 +1320,10 @@ class Database:
                        p.title
                 FROM annotations a
                 JOIN annotations b ON a.pmid = b.pmid
+                    AND a.methodology = b.methodology
                 JOIN papers p ON a.pmid = p.pmid
                 WHERE a.model_name = ? AND b.model_name = ?
+                  AND a.methodology = ?
                   AND a.overall_severity != b.overall_severity
                 ORDER BY a.pmid
             """
@@ -1141,40 +1336,55 @@ class Database:
                        p.title
                 FROM annotations a
                 JOIN annotations b ON a.pmid = b.pmid
+                    AND a.methodology = b.methodology
                 JOIN papers p ON a.pmid = p.pmid
                 WHERE a.model_name = ? AND b.model_name = ?
+                  AND a.methodology = ?
                 ORDER BY diff DESC
             """
         else:
             return []
-        rows = self.conn.execute(query, (model_a, model_b)).fetchall()
+        rows = self.conn.execute(
+            query, (model_a, model_b, methodology)
+        ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_annotation_comparison(self, models: list[str]) -> list[dict]:
-        """Get all annotations for papers annotated by all specified models."""
+    def get_annotation_comparison(
+        self,
+        models: list[str],
+        methodology: str = "biasbuster",
+    ) -> list[dict]:
+        """Get annotations for papers annotated by all specified models.
+
+        Scoped to a single methodology so the compared rows share a
+        rollup vocabulary.
+        """
         if not models:
             return []
         placeholders = ",".join("?" * len(models))
         query = f"""
-            SELECT a.pmid, a.model_name, a.annotation,
+            SELECT a.pmid, a.model_name, a.methodology, a.annotation,
                    a.overall_severity, a.overall_bias_probability
             FROM annotations a
-            WHERE a.pmid IN (
+            WHERE a.methodology = ?
+              AND a.pmid IN (
                 SELECT pmid FROM annotations
                 WHERE model_name IN ({placeholders})
+                  AND methodology = ?
                 GROUP BY pmid
                 HAVING COUNT(DISTINCT model_name) = ?
             )
             ORDER BY a.pmid, a.model_name
         """
         rows = self.conn.execute(
-            query, (*models, len(models))
+            query, (methodology, *models, methodology, len(models))
         ).fetchall()
         results = []
         for r in rows:
             ann = _json_load(r["annotation"]) or {}
             ann["pmid"] = r["pmid"]
             ann["model_name"] = r["model_name"]
+            ann["methodology"] = r["methodology"]
             ann["overall_severity"] = r["overall_severity"]
             ann["overall_bias_probability"] = r["overall_bias_probability"]
             results.append(ann)
@@ -1183,34 +1393,36 @@ class Database:
     # ---- Export helpers ----
 
     def get_all_annotations_for_export(
-        self, model_name: str | None = None,
+        self,
+        model_name: str | None = None,
+        methodology: str = "biasbuster",
     ) -> list[dict]:
         """Get all annotations with paper data merged in, for export.
 
         Args:
             model_name: If provided, only export annotations from this model.
                 If None, exports all models' annotations.
+            methodology: Export only annotations produced under this
+                methodology. Defaults to "biasbuster" because the training
+                export pipeline currently only knows how to render
+                biasbuster-shaped annotations; other methodologies are
+                evaluation-only in v1.
 
         Excludes soft-deleted papers (excluded=1).
         """
+        query = """
+            SELECT a.pmid, a.model_name, a.methodology, a.annotation,
+                   p.title, p.abstract, p.retraction_reasons
+            FROM annotations a
+            JOIN papers p ON a.pmid = p.pmid
+            WHERE p.excluded = 0 AND a.methodology = ?
+        """
+        params: list = [methodology]
         if model_name:
-            rows = self.conn.execute("""
-                SELECT a.pmid, a.model_name, a.annotation,
-                       p.title, p.abstract, p.retraction_reasons
-                FROM annotations a
-                JOIN papers p ON a.pmid = p.pmid
-                WHERE p.excluded = 0 AND a.model_name = ?
-                ORDER BY a.pmid
-            """, (model_name,)).fetchall()
-        else:
-            rows = self.conn.execute("""
-                SELECT a.pmid, a.model_name, a.annotation,
-                       p.title, p.abstract, p.retraction_reasons
-                FROM annotations a
-                JOIN papers p ON a.pmid = p.pmid
-                WHERE p.excluded = 0
-                ORDER BY a.pmid
-            """).fetchall()
+            query += " AND a.model_name = ?"
+            params.append(model_name)
+        query += " ORDER BY a.pmid"
+        rows = self.conn.execute(query, params).fetchall()
         results = []
         for r in rows:
             ann = _json_load(r["annotation"]) or {}
@@ -1218,12 +1430,23 @@ class Database:
             ann["title"] = r["title"]
             ann["abstract_text"] = r["abstract"]
             ann["_annotation_model"] = r["model_name"]
+            ann["methodology"] = r["methodology"]
             ann["retraction_reasons"] = r["retraction_reasons"]
             results.append(ann)
         return results
 
-    def export_review_csv(self, model_name: str, output_path: Path) -> None:
-        """Export annotations + human reviews as a CSV for human review."""
+    def export_review_csv(
+        self,
+        model_name: str,
+        output_path: Path,
+        methodology: str = "biasbuster",
+    ) -> None:
+        """Export annotations + human reviews as a CSV for human review.
+
+        The CSV layout is biasbuster-specific (it surfaces the 5 biasbuster
+        domains). Scope to a single methodology so the columns match; this
+        defaults to biasbuster.
+        """
         from biasbuster.annotators import REVIEW_CSV_COLUMNS
 
         rows = self.conn.execute("""
@@ -1236,10 +1459,12 @@ class Database:
             FROM annotations a
             JOIN papers p ON a.pmid = p.pmid
             LEFT JOIN human_reviews h
-                ON a.pmid = h.pmid AND a.model_name = h.model_name
-            WHERE a.model_name = ?
+                ON a.pmid = h.pmid
+                AND a.model_name = h.model_name
+                AND a.methodology = h.methodology
+            WHERE a.model_name = ? AND a.methodology = ?
             ORDER BY a.pmid
-        """, (model_name,)).fetchall()
+        """, (model_name, methodology)).fetchall()
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", newline="") as f:
@@ -1305,6 +1530,15 @@ class Database:
         stats["total_annotations"] = sum(
             stats["annotations_by_model"].values()
         )
+
+        # Annotation counts by methodology
+        rows = self.conn.execute(
+            "SELECT methodology, COUNT(*) as cnt "
+            "FROM annotations GROUP BY methodology"
+        ).fetchall()
+        stats["annotations_by_methodology"] = {
+            r["methodology"]: r["cnt"] for r in rows
+        }
 
         # Review counts
         row = self.conn.execute(
