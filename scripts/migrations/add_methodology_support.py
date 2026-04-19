@@ -81,10 +81,43 @@ def _create_fresh_db(new_db: Path) -> None:
         db.close()
 
 
+def load_pmid_filter(path: Path) -> set[str]:
+    """Load a newline-delimited list of PMIDs from *path*.
+
+    Blank lines and ``#`` comments are ignored so users can annotate their
+    PMID lists (e.g. "# 15 papers with kappa=1 in the v1 comparison").
+    PMIDs are returned as strings because that's how they're stored in
+    the ``papers`` table — stripping whitespace but preserving any
+    leading zeros or non-numeric prefixes the user's workflow uses.
+    """
+    if not path.exists():
+        raise SystemExit(f"--only-pmids file not found: {path}")
+    pmids: set[str] = set()
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line:
+            pmids.add(line)
+    if not pmids:
+        raise SystemExit(
+            f"--only-pmids file {path} contained no PMIDs (only blank "
+            "lines or comments)"
+        )
+    return pmids
+
+
 def _copy_table(
-    src: sqlite3.Connection, dst: sqlite3.Connection, table: str
+    src: sqlite3.Connection,
+    dst: sqlite3.Connection,
+    table: str,
+    pmid_filter: set[str] | None = None,
 ) -> int:
-    """Copy every row of ``table`` from src to dst. Returns rowcount."""
+    """Copy rows of ``table`` from src to dst, optionally filtered by PMID.
+
+    ``pmid_filter``, if provided, restricts the copy to rows whose ``pmid``
+    column is in the set. Both the ``papers`` and ``enrichments`` tables
+    have a ``pmid`` column, so the same helper handles either. When
+    ``pmid_filter`` is ``None`` the full table is copied.
+    """
     src_cols = [c[1] for c in src.execute(f"PRAGMA table_info({table})").fetchall()]
     dst_cols = [c[1] for c in dst.execute(f"PRAGMA table_info({table})").fetchall()]
     shared = [c for c in src_cols if c in dst_cols]
@@ -93,7 +126,24 @@ def _copy_table(
         return 0
     col_list = ",".join(shared)
     placeholders = ",".join("?" * len(shared))
-    rows = src.execute(f"SELECT {col_list} FROM {table}").fetchall()
+    if pmid_filter is None:
+        rows = src.execute(f"SELECT {col_list} FROM {table}").fetchall()
+    else:
+        # Use an IN-clause over the filter set. The filter is expected to
+        # be small (tens to low hundreds of PMIDs) so a literal IN works;
+        # no temp-table plumbing needed.
+        if "pmid" not in shared:
+            logger.warning(
+                "Table %s has no pmid column; --only-pmids filter does "
+                "not apply. Skipping.", table,
+            )
+            return 0
+        filter_list = list(pmid_filter)
+        qmarks = ",".join("?" * len(filter_list))
+        rows = src.execute(
+            f"SELECT {col_list} FROM {table} WHERE pmid IN ({qmarks})",
+            filter_list,
+        ).fetchall()
     dst.executemany(
         f"INSERT OR IGNORE INTO {table} ({col_list}) VALUES ({placeholders})",
         rows,
@@ -103,13 +153,30 @@ def _copy_table(
 
 
 def _copy_legacy_annotations(
-    src: sqlite3.Connection, dst: sqlite3.Connection
+    src: sqlite3.Connection,
+    dst: sqlite3.Connection,
+    pmid_filter: set[str] | None = None,
 ) -> int:
-    """Copy legacy annotations tagged as 'biasbuster'/'legacy' methodology."""
-    rows = src.execute(
-        "SELECT pmid, model_name, annotation, overall_severity, "
-        "overall_bias_probability, confidence, annotated_at FROM annotations"
-    ).fetchall()
+    """Copy legacy annotations tagged as 'biasbuster'/'legacy' methodology.
+
+    When ``pmid_filter`` is provided, only annotations for papers in the
+    filter set are copied — consistent with the papers table copy so the
+    FK from annotations to papers stays satisfied.
+    """
+    if pmid_filter is None:
+        rows = src.execute(
+            "SELECT pmid, model_name, annotation, overall_severity, "
+            "overall_bias_probability, confidence, annotated_at FROM annotations"
+        ).fetchall()
+    else:
+        filter_list = list(pmid_filter)
+        qmarks = ",".join("?" * len(filter_list))
+        rows = src.execute(
+            "SELECT pmid, model_name, annotation, overall_severity, "
+            "overall_bias_probability, confidence, annotated_at "
+            f"FROM annotations WHERE pmid IN ({qmarks})",
+            filter_list,
+        ).fetchall()
     dst.executemany(
         """INSERT OR IGNORE INTO annotations
            (pmid, model_name, methodology, methodology_version,
@@ -123,13 +190,25 @@ def _copy_legacy_annotations(
 
 
 def _copy_legacy_reviews(
-    src: sqlite3.Connection, dst: sqlite3.Connection
+    src: sqlite3.Connection,
+    dst: sqlite3.Connection,
+    pmid_filter: set[str] | None = None,
 ) -> int:
     """Copy legacy human_reviews tagged as 'biasbuster' methodology."""
-    rows = src.execute(
-        "SELECT pmid, model_name, validated, override_severity, "
-        "annotation, flagged, notes, reviewed_at FROM human_reviews"
-    ).fetchall()
+    if pmid_filter is None:
+        rows = src.execute(
+            "SELECT pmid, model_name, validated, override_severity, "
+            "annotation, flagged, notes, reviewed_at FROM human_reviews"
+        ).fetchall()
+    else:
+        filter_list = list(pmid_filter)
+        qmarks = ",".join("?" * len(filter_list))
+        rows = src.execute(
+            "SELECT pmid, model_name, validated, override_severity, "
+            "annotation, flagged, notes, reviewed_at "
+            f"FROM human_reviews WHERE pmid IN ({qmarks})",
+            filter_list,
+        ).fetchall()
     dst.executemany(
         """INSERT OR IGNORE INTO human_reviews
            (pmid, model_name, methodology, validated, override_severity,
@@ -151,11 +230,18 @@ def migrate(
     copy_annotations: bool,
     copy_reviews: bool,
     force: bool,
+    only_pmids: set[str] | None = None,
 ) -> dict[str, int]:
     """Run the migration. Returns per-table rowcount summary.
 
     The legacy DB file is never modified; if ``archive_legacy`` is True a
     timestamped snapshot copy is placed alongside it for disaster recovery.
+
+    ``only_pmids``, if given, restricts every copy step to papers in the
+    set. Useful for seed-corpus migration: copy a hand-picked list of
+    known-good PMIDs (e.g. "the 15 papers that scored kappa=1 in the
+    previous comparison run") without dragging the full corrupt dataset
+    into the new DB.
     """
     if legacy_db == new_db:
         raise SystemExit("--from and --to must differ.")
@@ -194,13 +280,21 @@ def migrate(
     dst.execute("PRAGMA foreign_keys=ON")
     try:
         if copy_papers:
-            summary["papers"] = _copy_table(src, dst, "papers")
+            summary["papers"] = _copy_table(
+                src, dst, "papers", pmid_filter=only_pmids,
+            )
         if copy_enrichments:
-            summary["enrichments"] = _copy_table(src, dst, "enrichments")
+            summary["enrichments"] = _copy_table(
+                src, dst, "enrichments", pmid_filter=only_pmids,
+            )
         if copy_annotations:
-            summary["annotations"] = _copy_legacy_annotations(src, dst)
+            summary["annotations"] = _copy_legacy_annotations(
+                src, dst, pmid_filter=only_pmids,
+            )
         if copy_reviews:
-            summary["human_reviews"] = _copy_legacy_reviews(src, dst)
+            summary["human_reviews"] = _copy_legacy_reviews(
+                src, dst, pmid_filter=only_pmids,
+            )
     except Exception:
         # Roll back: remove the partially populated new DB so the legacy
         # DB remains the single source of truth on failure.
@@ -254,6 +348,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         "--copy-annotations).")
     p.add_argument("--force", action="store_true",
                    help="Overwrite --to if it already exists.")
+    p.add_argument("--only-pmids", type=Path, default=None,
+                   help="Restrict every copy step to papers whose PMID is "
+                        "listed in this file (one PMID per line; # comments "
+                        "ignored). Useful for seeding the new DB with a "
+                        "hand-picked known-good subset rather than the full "
+                        "legacy corpus. Applies to papers, enrichments, "
+                        "annotations, and reviews.")
     return p.parse_args(argv)
 
 
@@ -262,6 +363,9 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
     args = _parse_args(argv)
+    only_pmids = (
+        load_pmid_filter(args.only_pmids) if args.only_pmids else None
+    )
     summary = migrate(
         args.legacy,
         args.new,
@@ -271,7 +375,10 @@ def main(argv: list[str] | None = None) -> int:
         copy_annotations=args.copy_annotations,
         copy_reviews=args.copy_reviews,
         force=args.force,
+        only_pmids=only_pmids,
     )
+    if only_pmids is not None:
+        print(f"Filtered to {len(only_pmids)} PMID(s) from {args.only_pmids}")
     print(f"Migration complete. Rows copied: {summary}")
     return 0
 
