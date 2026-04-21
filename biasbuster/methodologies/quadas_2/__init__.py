@@ -190,6 +190,11 @@ def _build_faithfulness_spec() -> Any:
 
 
 def __getattr__(name: str) -> Any:
+    """Lazy ``FAITHFULNESS_SPEC`` resolver — see
+    :mod:`biasbuster.methodologies.cochrane_rob2` for the detailed
+    rationale on why the spec is built on first access rather than
+    eagerly at module load time.
+    """
     if name == "FAITHFULNESS_SPEC":
         spec = _build_faithfulness_spec()
         globals()["FAITHFULNESS_SPEC"] = spec

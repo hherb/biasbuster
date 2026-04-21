@@ -19,6 +19,7 @@ What the tests pin:
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -317,3 +318,206 @@ class TestEndToEndQuadas2:
         assert "unclear" in md
         # No RoB 2 vocabulary should appear in a QUADAS-2 report.
         assert "some_concerns" not in md
+
+
+# ---- End-to-end RoB 2 via the generic harness --------------------------
+
+class TestEndToEndRob2:
+    """Symmetric coverage to ``TestEndToEndQuadas2`` — RoB 2's stored
+    prediction shape (per-outcome, worst-wins) is different enough that
+    the QUADAS-2 test can't prove RoB 2's path also works.
+    """
+
+    @pytest.fixture
+    def db(self, tmp_path: Path) -> Database:
+        d = Database(tmp_path / "e2e_rob2.db")
+        d.initialize()
+        yield d
+        d.close()
+
+    def _insert_rob2_prediction(
+        self, db: Database, pmid: str, *, overall: str,
+    ) -> None:
+        """Match the shape ``RoB2Assessment.to_dict()`` writes."""
+        from biasbuster.methodologies.cochrane_rob2.schema import (
+            ROB2_DOMAIN_SLUGS,
+        )
+
+        domains_blob = {
+            slug: {
+                "domain": slug,
+                "signalling_answers": {"1.1": "Y"},
+                "judgement": "low",
+                "justification": "",
+                "evidence_quotes": [],
+            }
+            for slug in ROB2_DOMAIN_SLUGS
+        }
+        db.insert_annotation(
+            pmid, "anthropic",
+            {
+                "pmid": pmid,
+                "outcomes": [{
+                    "outcome_label": "primary outcome",
+                    "result_label": "as reported",
+                    "domains": domains_blob,
+                    "overall_judgement": overall,
+                    "overall_rationale": "",
+                }],
+                "methodology_version": "rob2-2019",
+                "worst_across_outcomes": overall,
+                "notes": "",
+            },
+            methodology="cochrane_rob2",
+            methodology_version="rob2-2019",
+        )
+
+    def _seed_rob2_expert(
+        self, db: Database, pmid: str, overall: str,
+    ) -> None:
+        db.upsert_expert_rating(
+            methodology="cochrane_rob2",
+            rating_source="cochrane_review_pmid:99999",
+            study_label=pmid,
+            domain_ratings={
+                "randomization": {"bias": "low"},
+                "deviations_from_interventions": {"bias": "low"},
+                "missing_outcome_data": {"bias": "low"},
+                "outcome_measurement": {"bias": "low"},
+                "selection_of_reported_result": {"bias": "low"},
+            },
+            overall_rating=overall, pmid=pmid,
+            methodology_version="rob2-2019",
+        )
+
+    def test_run_faithfulness_for_cochrane_rob2(
+        self, db: Database, tmp_path: Path,
+    ) -> None:
+        """One matching + one disagreeing → overall exact_match = 0.5."""
+        db.insert_paper({
+            "pmid": "P1", "title": "RCT A", "abstract": "parallel RCT",
+            "source": "cochrane_rob",
+        })
+        db.insert_paper({
+            "pmid": "P2", "title": "RCT B", "abstract": "parallel RCT",
+            "source": "cochrane_rob",
+        })
+        self._seed_rob2_expert(db, "P1", "low")
+        self._seed_rob2_expert(db, "P2", "high")
+        self._insert_rob2_prediction(db, "P1", overall="low")
+        self._insert_rob2_prediction(db, "P2", overall="some_concerns")
+
+        report, md_path, json_path = run_faithfulness(
+            tmp_path / "e2e_rob2.db", "cochrane_rob2", "anthropic",
+            output_dir=tmp_path / "out",
+        )
+        assert report.methodology == "cochrane_rob2"
+        assert report.n_paired == 2
+        assert report.overall.exact_match() == 0.5
+        assert report.overall.within_one() == 1.0
+        assert md_path is not None and md_path.exists()
+        md = md_path.read_text()
+        assert "Cochrane RoB 2 faithfulness" in md
+        # Sanity: QUADAS-2 vocabulary never leaks into RoB 2 report.
+        assert "unclear" not in md
+        assert "some_concerns" in md
+
+
+# ---- Backfill-missing warning -----------------------------------------
+
+class TestBackfillMissingWarning:
+    """The harness must tell the user why ``n_paired=0`` when
+    predictions exist but no expert rows do. Silent zero was the trap
+    the reviewer flagged; this test pins the remediation.
+    """
+
+    @pytest.fixture
+    def db(self, tmp_path: Path) -> Database:
+        d = Database(tmp_path / "warn.db")
+        d.initialize()
+        yield d
+        d.close()
+
+    def test_warns_when_predictions_exist_but_no_expert_rows(
+        self, db: Database, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        db.insert_paper({
+            "pmid": "P1", "title": "T", "abstract": "A",
+            "source": "cochrane_rob",
+        })
+        db.insert_annotation(
+            "P1", "anthropic",
+            {
+                "outcomes": [], "worst_across_outcomes": "low",
+                "methodology_version": "rob2-2019",
+            },
+            methodology="cochrane_rob2",
+        )
+        spec = get_spec("cochrane_rob2")
+        with caplog.at_level(
+            logging.WARNING,
+            logger="biasbuster.evaluation.methodology_faithfulness",
+        ):
+            paired = collect_paired_papers(db, spec, "anthropic")
+        assert paired == []
+        # The message must name the backfill script the user should run.
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert warnings, "expected a backfill-missing warning"
+        joined = " ".join(r.getMessage() for r in warnings)
+        assert "backfill_rob2_expert_ratings" in joined
+
+    def test_no_warning_when_some_expert_rows_exist(
+        self, db: Database, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Expert rows for a *different* PMID still count — we want to
+        flag empty-table, not per-paper missing (which is a legitimate
+        narrow-filter case)."""
+        db.insert_paper({
+            "pmid": "P1", "title": "T", "abstract": "A",
+            "source": "cochrane_rob",
+        })
+        db.insert_annotation(
+            "P1", "anthropic",
+            {
+                "outcomes": [], "worst_across_outcomes": "low",
+                "methodology_version": "rob2-2019",
+            },
+            methodology="cochrane_rob2",
+        )
+        # Expert row for a different paper, same methodology.
+        db.upsert_expert_rating(
+            methodology="cochrane_rob2",
+            rating_source="cochrane_review_pmid:99999",
+            study_label="P_OTHER",
+            domain_ratings={
+                "randomization": {"bias": "low"},
+                "deviations_from_interventions": {"bias": "low"},
+                "missing_outcome_data": {"bias": "low"},
+                "outcome_measurement": {"bias": "low"},
+                "selection_of_reported_result": {"bias": "low"},
+            },
+            overall_rating="low", pmid="P_OTHER",
+        )
+        spec = get_spec("cochrane_rob2")
+        with caplog.at_level(
+            logging.WARNING,
+            logger="biasbuster.evaluation.methodology_faithfulness",
+        ):
+            collect_paired_papers(db, spec, "anthropic")
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert not warnings, (
+            f"unexpected warnings: {[r.getMessage() for r in warnings]}"
+        )
+
+    def test_no_warning_when_no_annotations(
+        self, db: Database, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A harness run against a DB with zero predictions is a
+        legitimate exploratory state, not a setup bug."""
+        spec = get_spec("cochrane_rob2")
+        with caplog.at_level(
+            logging.WARNING,
+            logger="biasbuster.evaluation.methodology_faithfulness",
+        ):
+            collect_paired_papers(db, spec, "anthropic")
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]

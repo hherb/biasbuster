@@ -33,6 +33,38 @@ Run as a module::
     uv run python -m biasbuster.evaluation.methodology_faithfulness \\
         --methodology quadas_2 --model anthropic \\
         --db dataset/biasbuster_recovered.db
+
+
+Registering a new methodology
+-----------------------------
+
+Three steps — no harness changes needed.
+
+1. **Decide the ordinal scale and domain set.** A methodology is valid
+   input if (a) it has a single-dimensional ordinal rating (or a
+   primary dimension the harness should score — see the QUADAS-2
+   bias-only note above), and (b) the scale has at least two levels
+   and is strictly ordered from best to worst.
+
+2. **Store expert ground truth in
+   :data:`biasbuster.database.expert_methodology_ratings`.** Either
+   ingest a published source (see
+   :mod:`scripts.ingest_expert_quadas2_ratings`) or backfill from
+   existing columns (see :mod:`scripts.backfill_rob2_expert_ratings`).
+   ``domain_ratings`` must use the ``{slug: {"bias": rating}}`` shape
+   this harness expects.
+
+3. **Export ``FAITHFULNESS_SPEC`` from the methodology's package.**
+   Add a module-level ``__getattr__`` that lazily builds the spec on
+   first attribute access — this keeps the methodology package from
+   importing ``biasbuster.evaluation`` at module-load time (avoids a
+   circular import; lets the methodology be used without the
+   evaluation harness being installed). See
+   ``biasbuster.methodologies.cochrane_rob2`` or
+   ``biasbuster.methodologies.quadas_2`` for the canonical pattern.
+
+After that, ``python -m biasbuster.evaluation.methodology_faithfulness
+--methodology <slug>`` works.
 """
 
 from __future__ import annotations
@@ -45,7 +77,7 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from biasbuster.database import Database
 
@@ -78,7 +110,10 @@ class FaithfulnessSpec:
     display_name: str
     judgement_order: tuple[str, ...]
     domain_slugs: tuple[str, ...]
-    domain_display: dict[str, str]
+    #: ``Mapping`` (not ``dict``) to signal read-only intent — the harness
+    #: only indexes into this; mutating it would silently affect every
+    #: subsequent harness call on the cached spec.
+    domain_display: Mapping[str, str]
     #: Collapse a stored annotation JSON into the shared prediction
     #: shape. Returns None for un-parseable or incomplete annotations
     #: — those papers drop from the report's denominator.
@@ -132,7 +167,10 @@ def load_expert_view(
     verified = [r for r in rows if r.get("verified") == 1]
     chosen = verified[0] if verified else rows[0]
     if len(rows) > 1:
-        logger.info(
+        # DEBUG rather than INFO: a paper rated by 3 reviews shouldn't
+        # emit 3 lines every harness run. Callers who need the audit
+        # can bump the log level.
+        logger.debug(
             "PMID %s has %d expert ratings for %s; picked rating_source=%s "
             "(verified=%s)",
             pmid, len(rows), spec.methodology,
@@ -175,18 +213,45 @@ class PairedPaper:
     raw_annotation: dict = field(default_factory=dict)
 
 
+#: Backfill scripts keyed by methodology, surfaced in the "zero expert
+#: rows" warning so the user is pointed at the right fix instead of
+#: having to read harness source. Extend this when new methodologies
+#: join; unknown methodologies fall back to a generic hint.
+_BACKFILL_HINTS: dict[str, str] = {
+    "cochrane_rob2": "uv run python scripts/backfill_rob2_expert_ratings.py "
+                     "--db <db_path>",
+    "quadas_2":      "uv run python scripts/ingest_expert_quadas2_ratings.py "
+                     "--jats <jats_xml> --legacy-db <legacy> "
+                     "--target-db <db_path> --rating-source <slug>",
+}
+
+
 def collect_paired_papers(
     db: Database, spec: FaithfulnessSpec, model_name: str,
 ) -> list[PairedPaper]:
     """Join annotations × expert ratings for a single methodology + model.
 
     Papers missing either side are silently excluded; coverage stats in
-    the report quantify the drop. Warnings are logged only for truly
-    suspicious states (annotation references a PMID not in ``papers``).
+    the report quantify the drop. One explicit warning is emitted: when
+    predictions exist but ``expert_methodology_ratings`` is empty for
+    this methodology, the report would otherwise read ``n_paired=0``
+    with no hint as to why. The message points at the relevant
+    backfill/ingest script.
     """
     annotations = db.get_annotations(
         model_name=model_name, methodology=spec.methodology,
     )
+    if annotations and not db.get_expert_ratings(methodology=spec.methodology):
+        hint = _BACKFILL_HINTS.get(
+            spec.methodology,
+            "see biasbuster/evaluation/methodology_faithfulness.py for "
+            "the expected expert_methodology_ratings shape",
+        )
+        logger.warning(
+            "%d %r annotations found but expert_methodology_ratings has no "
+            "rows for this methodology; n_paired will be 0. Run: %s",
+            len(annotations), spec.methodology, hint,
+        )
     paired: list[PairedPaper] = []
     for ann in annotations:
         pmid = ann.get("pmid", "")

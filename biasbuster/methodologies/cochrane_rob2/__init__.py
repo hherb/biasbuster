@@ -238,9 +238,33 @@ def _build_faithfulness_spec() -> Any:
 
 
 def __getattr__(name: str) -> Any:
-    # Module-level ``__getattr__`` lets ``FAITHFULNESS_SPEC`` be built on
-    # first access; get_spec() in the harness reads it via getattr so
-    # this lazy path is transparent.
+    """Lazy module-level attribute resolver (PEP 562).
+
+    Why lazy: building :data:`FAITHFULNESS_SPEC` requires importing
+    :mod:`biasbuster.evaluation.methodology_faithfulness`, which in
+    turn imports ``biasbuster.database``. Doing that at methodology
+    module-load time would:
+
+    1. Force the evaluation stack to be importable before any
+       methodology is even usable for annotation — unrelated
+       subsystems would fail to load on minimal installs.
+    2. Risk circular import with the evaluation harness, which uses
+       :func:`get_spec` to load methodology specs back by slug
+       (``importlib.import_module("biasbuster.methodologies.X")``).
+
+    Python's import machinery calls module-level ``__getattr__`` for
+    any name not already in the module namespace (PEP 562), including
+    ``from biasbuster.methodologies.cochrane_rob2 import
+    FAITHFULNESS_SPEC``. First access builds and caches the spec in
+    ``globals()`` so subsequent lookups are plain attribute reads.
+
+    Per-methodology pattern (see also :mod:`quadas_2`): declare the
+    lazy builder ``_build_faithfulness_spec()`` that imports
+    :class:`FaithfulnessSpec` inside the function body, then return
+    the spec from this ``__getattr__``. ``FAITHFULNESS_SPEC`` belongs
+    in ``__all__`` so tooling (IDE completion, Sphinx) can still see
+    the name.
+    """
     if name == "FAITHFULNESS_SPEC":
         spec = _build_faithfulness_spec()
         globals()["FAITHFULNESS_SPEC"] = spec
