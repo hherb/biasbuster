@@ -167,8 +167,90 @@ def _register_once() -> Methodology:
 _register_once()
 
 
+# ---- Faithfulness harness integration ----------------------------------
+#
+# Declared here rather than as a sibling module because it's purely a
+# pointer-to-functions binding — no behaviour. Kept alongside
+# ``evaluation_mapping_to_ground_truth`` so future changes to slugs or
+# rating vocab stay colocated with the mapping that feeds them.
+
+_JUDGEMENT_ORDER: tuple[str, ...] = ("low", "some_concerns", "high")
+
+
+def _load_prediction_view(ann: dict) -> Optional[dict]:
+    """Collapse a stored RoB 2 annotation into the shared prediction shape.
+
+    The stored JSON blob carries a per-outcome list (one judgement tree
+    per outcome); the harness compares against a single per-paper
+    verdict so we reduce to worst-wins across outcomes, matching
+    :func:`algorithm.worst_case_across_outcomes`.
+    """
+    from .schema import ROB2_DOMAIN_SLUGS
+
+    overall = ann.get("worst_across_outcomes") or ann.get("overall_severity")
+    if not isinstance(overall, str) or overall not in _JUDGEMENT_ORDER:
+        return None
+    outcomes = ann.get("outcomes")
+    if not isinstance(outcomes, list) or not outcomes:
+        return None
+    rank = {j: i for i, j in enumerate(_JUDGEMENT_ORDER)}
+    by_domain: dict[str, str] = {}
+    for outcome in outcomes:
+        domains = outcome.get("domains") or {}
+        for slug in ROB2_DOMAIN_SLUGS:
+            dj = domains.get(slug)
+            if not isinstance(dj, dict):
+                continue
+            current = dj.get("judgement")
+            if current not in rank:
+                continue
+            prior = by_domain.get(slug)
+            if prior is None or rank[current] > rank[prior]:
+                by_domain[slug] = current
+    if set(by_domain) != set(ROB2_DOMAIN_SLUGS):
+        return None
+    return {"overall": overall, "domains": by_domain}
+
+
+def _build_faithfulness_spec() -> Any:
+    """Construct the :class:`FaithfulnessSpec` on demand.
+
+    Done lazily (inside a function rather than at module top-level) so
+    importing ``biasbuster.methodologies.cochrane_rob2`` doesn't force
+    a load of ``biasbuster.evaluation.methodology_faithfulness`` — that
+    avoids a circular import and keeps the faithfulness tooling
+    optional from the methodology's perspective.
+    """
+    from biasbuster.evaluation.methodology_faithfulness import (
+        FaithfulnessSpec,
+    )
+    from .schema import ROB2_DOMAIN_DISPLAY, ROB2_DOMAIN_SLUGS
+
+    return FaithfulnessSpec(
+        methodology="cochrane_rob2",
+        methodology_version=METHODOLOGY_VERSION,
+        display_name="Cochrane RoB 2",
+        judgement_order=_JUDGEMENT_ORDER,
+        domain_slugs=ROB2_DOMAIN_SLUGS,
+        domain_display=dict(ROB2_DOMAIN_DISPLAY),
+        load_prediction_view=_load_prediction_view,
+    )
+
+
+def __getattr__(name: str) -> Any:
+    # Module-level ``__getattr__`` lets ``FAITHFULNESS_SPEC`` be built on
+    # first access; get_spec() in the harness reads it via getattr so
+    # this lazy path is transparent.
+    if name == "FAITHFULNESS_SPEC":
+        spec = _build_faithfulness_spec()
+        globals()["FAITHFULNESS_SPEC"] = spec
+        return spec
+    raise AttributeError(name)
+
+
 __all__ = [
     "Assessment",
+    "FAITHFULNESS_SPEC",
     "METHODOLOGY",
     "METHODOLOGY_VERSION",
     "RoB2Assessment",

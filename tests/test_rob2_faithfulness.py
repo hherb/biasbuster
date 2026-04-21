@@ -58,6 +58,52 @@ def _make_expert_paper(
     }
 
 
+def _insert_expert_row(
+    db: Database,
+    pmid: str,
+    *,
+    overall: str,
+    randomization: str = "low",
+    deviation: str = "low",
+    missing_outcome: str = "low",
+    measurement: str = "low",
+    reporting: str = "low",
+) -> None:
+    """Seed ``expert_methodology_ratings`` in the ``{slug: {"bias": r}}`` shape.
+
+    Post-refactor the harness reads expert ratings from this table, not
+    from ``papers.*_bias`` columns. Tests previously needed only
+    ``insert_paper``; now they need both this and the paper row.
+    """
+    db.upsert_expert_rating(
+        methodology="cochrane_rob2",
+        rating_source=f"test:{pmid}",
+        study_label=pmid,
+        domain_ratings={
+            "randomization": {"bias": randomization},
+            "deviations_from_interventions": {"bias": deviation},
+            "missing_outcome_data": {"bias": missing_outcome},
+            "outcome_measurement": {"bias": measurement},
+            "selection_of_reported_result": {"bias": reporting},
+        },
+        overall_rating=overall,
+        pmid=pmid,
+        methodology_version=METHODOLOGY_VERSION,
+    )
+
+
+def _insert_paper_with_expert(
+    db: Database, pmid: str, *, overall: str, **kwargs: str,
+) -> None:
+    """Insert paper + matching expert row in one call.
+
+    Test call sites that just want "paper P1 has expert overall=X" don't
+    need to remember to update two tables separately.
+    """
+    db.insert_paper(_make_expert_paper(pmid, overall=overall, **kwargs))
+    _insert_expert_row(db, pmid, overall=overall, **kwargs)
+
+
 def _make_prediction_annotation(
     pmid: str,
     *,
@@ -187,7 +233,7 @@ class TestCollectPairedPapers:
     def test_returns_paper_with_both_expert_and_prediction(
         self, db: Database,
     ) -> None:
-        db.insert_paper(_make_expert_paper("P1", overall="low"))
+        _insert_paper_with_expert(db, "P1", overall="low")
         db.insert_annotation(
             "P1", "anthropic",
             _make_prediction_annotation("P1", overall="low"),
@@ -216,7 +262,7 @@ class TestCollectPairedPapers:
         assert collect_paired_papers(db, "anthropic") == []
 
     def test_excludes_papers_without_prediction(self, db: Database) -> None:
-        db.insert_paper(_make_expert_paper("P3", overall="some_concerns"))
+        _insert_paper_with_expert(db, "P3", overall="some_concerns")
         # No annotation inserted.
         assert collect_paired_papers(db, "anthropic") == []
 
@@ -224,7 +270,7 @@ class TestCollectPairedPapers:
         self, db: Database,
     ) -> None:
         """A paper annotated under biasbuster must not leak into the RoB 2 report."""
-        db.insert_paper(_make_expert_paper("P4", overall="low"))
+        _insert_paper_with_expert(db, "P4", overall="low")
         db.insert_annotation(
             "P4", "anthropic",
             {"overall_severity": "low"},  # biasbuster-shaped, not RoB 2
@@ -235,8 +281,8 @@ class TestCollectPairedPapers:
 
 class TestBuildReport:
     def test_report_counts_and_overall_metrics(self, db: Database) -> None:
-        db.insert_paper(_make_expert_paper("P1", overall="low"))
-        db.insert_paper(_make_expert_paper("P2", overall="high"))
+        _insert_paper_with_expert(db, "P1", overall="low")
+        _insert_paper_with_expert(db, "P2", overall="high")
         db.insert_annotation(
             "P1", "anthropic",
             _make_prediction_annotation("P1", overall="low"),
@@ -260,21 +306,21 @@ class TestBuildReport:
 
     def test_discrepancies_sorted_worst_first(self, db: Database) -> None:
         # P_LOW_HIGH: expert=low, predicted=high → distance 2 (extreme)
-        db.insert_paper(_make_expert_paper("P_LOW_HIGH", overall="low"))
+        _insert_paper_with_expert(db, "P_LOW_HIGH", overall="low")
         db.insert_annotation(
             "P_LOW_HIGH", "anthropic",
             _make_prediction_annotation("P_LOW_HIGH", overall="high"),
             methodology="cochrane_rob2",
         )
         # P_LOW_SOMECONCERNS: expert=low, predicted=some_concerns → distance 1
-        db.insert_paper(_make_expert_paper("P_ADJ", overall="low"))
+        _insert_paper_with_expert(db, "P_ADJ", overall="low")
         db.insert_annotation(
             "P_ADJ", "anthropic",
             _make_prediction_annotation("P_ADJ", overall="some_concerns"),
             methodology="cochrane_rob2",
         )
         # Matching row — should not appear in discrepancies
-        db.insert_paper(_make_expert_paper("P_MATCH", overall="low"))
+        _insert_paper_with_expert(db, "P_MATCH", overall="low")
         db.insert_annotation(
             "P_MATCH", "anthropic",
             _make_prediction_annotation("P_MATCH", overall="low"),
@@ -291,11 +337,11 @@ class TestBuildReport:
         assert report.discrepancies[1]["distance"] == 1
 
     def test_per_domain_series_populated(self, db: Database) -> None:
-        db.insert_paper(_make_expert_paper(
-            "P1", overall="some_concerns",
+        _insert_paper_with_expert(
+            db, "P1", overall="some_concerns",
             randomization="low", deviation="some_concerns",
             missing_outcome="low", measurement="low", reporting="low",
-        ))
+        )
         db.insert_annotation(
             "P1", "anthropic",
             _make_prediction_annotation(
@@ -322,8 +368,10 @@ class TestBuildReport:
 class TestRenderMarkdown:
     def test_empty_report_renders_no_paired_note(self) -> None:
         report = FaithfulnessReport(
-            model_name="anthropic",
+            methodology="cochrane_rob2",
             methodology_version=METHODOLOGY_VERSION,
+            display_name="Cochrane RoB 2",
+            model_name="anthropic",
             n_paired=0, n_model_annotations=0,
             overall=JudgementSeries(),
             per_domain={slug: JudgementSeries() for slug in ROB2_DOMAIN_SLUGS},
@@ -336,7 +384,7 @@ class TestRenderMarkdown:
     def test_non_empty_report_includes_metrics_and_confusion(
         self, db: Database,
     ) -> None:
-        db.insert_paper(_make_expert_paper("P1", overall="low"))
+        _insert_paper_with_expert(db, "P1", overall="low")
         db.insert_annotation(
             "P1", "anthropic",
             _make_prediction_annotation("P1", overall="low"),
@@ -354,7 +402,7 @@ class TestRenderMarkdown:
         assert md.count("###") == 5
 
     def test_report_json_roundtrips(self, db: Database) -> None:
-        db.insert_paper(_make_expert_paper("P1", overall="high"))
+        _insert_paper_with_expert(db, "P1", overall="high")
         db.insert_annotation(
             "P1", "anthropic",
             _make_prediction_annotation("P1", overall="some_concerns"),

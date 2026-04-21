@@ -11,7 +11,7 @@ rollup (bias + applicability) in :mod:`algorithm`. Full text is required.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from biasbuster.methodologies.base import Methodology
 from biasbuster.methodologies.registry import register
@@ -132,8 +132,74 @@ def _register_once() -> Methodology:
 _register_once()
 
 
+# ---- Faithfulness harness integration ----------------------------------
+#
+# v1 scores the bias dimension only. The applicability dimension on
+# domains 1-3 is stored in the annotation JSON but the currently
+# ingested expert ratings (from JATS Table-2 parsing) don't carry
+# applicability. When that changes the harness gets a parallel set of
+# :class:`JudgementSeries`; for now ``load_prediction_view`` simply
+# drops applicability.
+
+_JUDGEMENT_ORDER: tuple[str, ...] = ("low", "unclear", "high")
+
+
+def _load_prediction_view(ann: dict) -> Optional[dict]:
+    """Collapse a stored QUADAS-2 annotation into the shared prediction shape.
+
+    Unlike RoB 2, QUADAS-2 assessments are per-paper (no per-outcome
+    split), so reduction is a flat read of ``worst_bias`` and each
+    domain's ``bias_rating``.
+    """
+    from .schema import QUADAS2_DOMAIN_SLUGS
+
+    overall = ann.get("worst_bias") or ann.get("overall_severity")
+    if not isinstance(overall, str) or overall not in _JUDGEMENT_ORDER:
+        return None
+    domains_blob = ann.get("domains")
+    if not isinstance(domains_blob, dict):
+        return None
+    by_domain: dict[str, str] = {}
+    for slug in QUADAS2_DOMAIN_SLUGS:
+        dj = domains_blob.get(slug)
+        if not isinstance(dj, dict):
+            return None
+        bias = dj.get("bias_rating")
+        if bias not in _JUDGEMENT_ORDER:
+            return None
+        by_domain[slug] = bias
+    return {"overall": overall, "domains": by_domain}
+
+
+def _build_faithfulness_spec() -> Any:
+    """Lazy construction — see cochrane_rob2.__init__ for the rationale."""
+    from biasbuster.evaluation.methodology_faithfulness import (
+        FaithfulnessSpec,
+    )
+    from .schema import QUADAS2_DOMAIN_DISPLAY, QUADAS2_DOMAIN_SLUGS
+
+    return FaithfulnessSpec(
+        methodology="quadas_2",
+        methodology_version=METHODOLOGY_VERSION,
+        display_name="QUADAS-2",
+        judgement_order=_JUDGEMENT_ORDER,
+        domain_slugs=QUADAS2_DOMAIN_SLUGS,
+        domain_display=dict(QUADAS2_DOMAIN_DISPLAY),
+        load_prediction_view=_load_prediction_view,
+    )
+
+
+def __getattr__(name: str) -> Any:
+    if name == "FAITHFULNESS_SPEC":
+        spec = _build_faithfulness_spec()
+        globals()["FAITHFULNESS_SPEC"] = spec
+        return spec
+    raise AttributeError(name)
+
+
 __all__ = [
     "Assessment",
+    "FAITHFULNESS_SPEC",
     "METHODOLOGY",
     "METHODOLOGY_VERSION",
     "QUADAS2Assessment",
