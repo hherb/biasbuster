@@ -24,8 +24,23 @@ full-text fetch and store a local cache alongside the DB row.
 
 ## Input data
 
-Ten rows, embedded as a Python constant in the import script (the set is
-frozen at this pilot — not a CSV we re-read). Columns:
+Ten rows, committed to git as a plaintext CSV at
+`dataset/manual_verification_sets/rob2_manual_verify_20260421.csv`. The
+import script reads this file directly — it is **not** embedded in Python
+code.
+
+Rationale: we previously lost a curated dataset because the source-of-truth
+lived only in the (later corrupted) SQLite DB with no git-tracked seed.
+Committing the CSV in plaintext means the whole verification set can be
+rebuilt into a fresh database by re-running the import script. Any future
+manually-curated sets should follow the same pattern: one CSV per set,
+committed under `dataset/manual_verification_sets/`.
+
+The file is small (~1 KB) and contains only the human-authored curation
+(PMIDs, trial names, source review, ratings); the full-text XML blobs and
+PubMed-fetched metadata are reproducible from it and stay out of git.
+
+Columns:
 
 | CSV column | Meaning |
 |---|---|
@@ -104,6 +119,10 @@ edit, not something the import script does at runtime.
 ### 4. Import script: `scripts/import_rob2_verification_set.py`
 
 Single-purpose, idempotent, async. Runs outside the main pipeline.
+
+Takes `--csv PATH` (default: `dataset/manual_verification_sets/rob2_manual_verify_20260421.csv`)
+and `--verification-set TAG` (default: `rob2_manual_verify_20260421`), so
+the same script can import future curated sets without edits.
 
 **Flow per row:**
 
