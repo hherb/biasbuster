@@ -59,3 +59,53 @@ def test_manually_verified_insert_valid_row(db_with_paper: Database) -> None:
     assert row is not None
     assert row["fulltext_ok"] == 0
     assert row["added_at"] is not None
+
+
+class TestUpsertManuallyVerified:
+    def test_insert_then_update(self, db_with_paper: Database) -> None:
+        db_with_paper.upsert_manually_verified(
+            pmid="P1",
+            verification_set="rob2_manual_verify_20260421",
+            trial_name="Test trial",
+            source_review="Test review",
+            fulltext_path="dataset/rob2_verification_fulltexts/P1.xml",
+            fulltext_ok=True,
+        )
+        row = db_with_paper.conn.execute(
+            "SELECT pmid, verification_set, trial_name, source_review, "
+            "fulltext_path, fulltext_ok FROM manually_verified"
+        ).fetchone()
+        assert row["trial_name"] == "Test trial"
+        assert row["fulltext_ok"] == 1
+
+        # Re-run updates, does not duplicate.
+        db_with_paper.upsert_manually_verified(
+            pmid="P1",
+            verification_set="rob2_manual_verify_20260421",
+            trial_name="Updated trial name",
+            source_review="Test review",
+            fulltext_path="dataset/rob2_verification_fulltexts/P1.xml",
+            fulltext_ok=False,
+            notes="fulltext went away",
+        )
+        rows = db_with_paper.conn.execute(
+            "SELECT trial_name, fulltext_ok, notes FROM manually_verified"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["trial_name"] == "Updated trial name"
+        assert rows[0]["fulltext_ok"] == 0
+        assert rows[0]["notes"] == "fulltext went away"
+
+    def test_distinct_verification_sets_coexist(
+        self, db_with_paper: Database
+    ) -> None:
+        db_with_paper.upsert_manually_verified(
+            pmid="P1", verification_set="set_a"
+        )
+        db_with_paper.upsert_manually_verified(
+            pmid="P1", verification_set="set_b"
+        )
+        count = db_with_paper.conn.execute(
+            "SELECT COUNT(*) AS n FROM manually_verified WHERE pmid='P1'"
+        ).fetchone()["n"]
+        assert count == 2

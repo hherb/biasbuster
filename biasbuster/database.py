@@ -823,6 +823,61 @@ class Database:
             logger.warning(f"Failed to upsert v2 Cochrane paper {pmid}: {e}")
             return False
 
+    def upsert_manually_verified(
+        self,
+        pmid: str,
+        verification_set: str,
+        *,
+        trial_name: Optional[str] = None,
+        source_review: Optional[str] = None,
+        fulltext_path: Optional[str] = None,
+        fulltext_ok: bool = False,
+        notes: Optional[str] = None,
+    ) -> bool:
+        """Insert or update a manually_verified tag row.
+
+        Tags a paper as a member of a human-curated verification set.
+        On conflict on (pmid, verification_set), every optional field is
+        overwritten by the new values. Returns True if the row was
+        inserted or updated.
+
+        Args:
+            pmid: PMID of the paper. Must already exist in ``papers``.
+            verification_set: Tag identifying the curated set (e.g.
+                ``'rob2_manual_verify_20260421'``).
+            trial_name: Human-readable trial name from the source CSV.
+            source_review: Name of the review that produced the ratings.
+            fulltext_path: Repo-root-relative path to the cached JATS XML,
+                or ``None`` if no full text was fetched.
+            fulltext_ok: ``True`` iff the full text was fetched and is
+                at least ``MIN_JATS_BYTES`` bytes on disk.
+            notes: Free-form notes (e.g. error messages from the fetch).
+        """
+        self._ensure_connected()
+        cursor = self.conn.execute(
+            """INSERT INTO manually_verified
+                   (pmid, verification_set, trial_name, source_review,
+                    fulltext_path, fulltext_ok, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(pmid, verification_set) DO UPDATE SET
+                   trial_name = excluded.trial_name,
+                   source_review = excluded.source_review,
+                   fulltext_path = excluded.fulltext_path,
+                   fulltext_ok = excluded.fulltext_ok,
+                   notes = excluded.notes""",
+            (
+                pmid,
+                verification_set,
+                trial_name,
+                source_review,
+                fulltext_path,
+                1 if fulltext_ok else 0,
+                notes,
+            ),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
     def _row_to_paper(self, row: sqlite3.Row) -> dict:
         """Convert a papers table row to a dict with deserialized JSON columns."""
         d = dict(row)
