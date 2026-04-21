@@ -147,6 +147,33 @@ def _parse_study_label(label: str) -> tuple[str, Optional[int], Optional[str]]:
     return author, year, None
 
 
+def parse_review_metadata(jats_path: Path) -> dict[str, Optional[str]]:
+    """Extract the review's own PMID, DOI, and title from JATS article-meta.
+
+    Returns a dict with keys ``pmid``, ``doi``, ``title``. Any value may
+    be ``None`` if the corresponding element is missing. Used by the
+    ingest script to provenance-tag expert ratings back to the review
+    they came from.
+    """
+    tree = ET.parse(jats_path)
+    root = tree.getroot()
+    meta: dict[str, Optional[str]] = {"pmid": None, "doi": None, "title": None}
+    article_meta = root.find(".//article-meta")
+    if article_meta is None:
+        return meta
+    for pub_id in article_meta.findall(".//article-id"):
+        t = (pub_id.get("pub-id-type") or "").lower()
+        val = (pub_id.text or "").strip() or None
+        if t == "pmid" and meta["pmid"] is None:
+            meta["pmid"] = val
+        elif t == "doi" and meta["doi"] is None:
+            meta["doi"] = val
+    title_el = article_meta.find(".//title-group/article-title")
+    if title_el is not None:
+        meta["title"] = "".join(title_el.itertext()).strip() or None
+    return meta
+
+
 def parse_quadas2_table(
     jats_path: Path, table_label: str = "Table 2",
 ) -> tuple[list[StudyRow], dict[str, dict[str, Any]]]:

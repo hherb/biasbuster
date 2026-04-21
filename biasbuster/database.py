@@ -110,6 +110,43 @@ CREATE TABLE IF NOT EXISTS human_reviews (
         REFERENCES annotations(pmid, model_name, methodology)
 );
 
+-- Expert ground-truth ratings from published systematic reviews,
+-- Cochrane RoB assessments, or other authoritative sources. Serves as
+-- the evaluation target for the methodology-faithfulness harness.
+--
+-- Identity is (methodology, rating_source, study_label): the same study
+-- can carry multiple rating rows (under different methodologies, or from
+-- different reviews), and a single review can assess multiple strata of
+-- the same study (e.g. "Egboh (2022)-Male" vs "-Female"). No FK on
+-- ``pmid`` because a rating may be recorded before its paper has been
+-- ingested into ``papers``.
+--
+-- ``domain_ratings`` is a methodology-specific JSON blob. For QUADAS-2:
+--     {"patient_selection": {"bias": "low"}, ...}
+-- For RoB 2:
+--     {"randomization": "low", "deviations": "some_concerns", ...}
+-- ``verified=1`` marks rows a human has inspected and trusts for use as
+-- ground truth (vs. machine-extracted with a plausibility heuristic).
+CREATE TABLE IF NOT EXISTS expert_methodology_ratings (
+    methodology TEXT NOT NULL,
+    rating_source TEXT NOT NULL,
+    study_label TEXT NOT NULL,
+    pmid TEXT,
+    doi TEXT,
+    methodology_version TEXT,
+    source_review_pmid TEXT,
+    source_review_doi TEXT,
+    source_reference TEXT,
+    domain_ratings JSON NOT NULL,
+    overall_rating TEXT,
+    verified INTEGER NOT NULL DEFAULT 0,
+    added_by TEXT,
+    notes TEXT,
+    added_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (methodology, rating_source, study_label)
+);
+
 -- Evaluation outputs (separate from annotation pipeline)
 CREATE TABLE IF NOT EXISTS eval_outputs (
     pmid TEXT NOT NULL,
@@ -136,6 +173,17 @@ CREATE INDEX IF NOT EXISTS idx_annotations_meth_model ON annotations(methodology
 CREATE INDEX IF NOT EXISTS idx_annotations_severity ON annotations(overall_severity);
 CREATE INDEX IF NOT EXISTS idx_human_reviews_validated ON human_reviews(validated);
 CREATE INDEX IF NOT EXISTS idx_eval_outputs_model ON eval_outputs(model_id);
+CREATE INDEX IF NOT EXISTS idx_expert_ratings_pmid
+    ON expert_methodology_ratings(pmid);
+CREATE INDEX IF NOT EXISTS idx_expert_ratings_methodology
+    ON expert_methodology_ratings(methodology);
+CREATE INDEX IF NOT EXISTS idx_expert_ratings_source
+    ON expert_methodology_ratings(rating_source);
+-- The faithfulness harness joins (methodology, pmid) onto annotations,
+-- so this composite index is the hot path. Single-column indexes above
+-- still help ad-hoc queries filtered on only one dimension.
+CREATE INDEX IF NOT EXISTS idx_expert_ratings_meth_pmid
+    ON expert_methodology_ratings(methodology, pmid);
 """
 
 
@@ -206,6 +254,68 @@ class LegacySchemaError(RuntimeError):
     The caller must run the migration script to quarantine the legacy
     data and create a fresh methodology-aware database.
     """
+
+
+# -- expert_methodology_ratings upsert SQL --------------------------------
+#
+# Two upsert paths sharing the same INSERT column list. The ON CONFLICT
+# clauses are split into named constants so the SQL is readable at a
+# glance and unit tests can pin the preservation behaviour.
+
+_EXPERT_RATING_INSERT_SQL: str = """
+    INSERT INTO expert_methodology_ratings
+        (methodology, rating_source, study_label,
+         pmid, doi, methodology_version,
+         source_review_pmid, source_review_doi, source_reference,
+         domain_ratings, overall_rating,
+         verified, added_by, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+#: On conflict, refresh the machine-produced fields and bump ``updated_at``
+#: but keep every curator-managed field (``verified``, ``added_by``,
+#: ``notes``) intact. ``pmid`` / ``doi`` / provenance fields are
+#: COALESCE-guarded so a re-ingest with ``None`` cannot blank out a
+#: previously-resolved value.
+_EXPERT_RATING_CONFLICT_PRESERVE_CURATION: str = """
+    ON CONFLICT(methodology, rating_source, study_label) DO UPDATE SET
+        domain_ratings = excluded.domain_ratings,
+        overall_rating = excluded.overall_rating,
+        pmid = COALESCE(excluded.pmid, expert_methodology_ratings.pmid),
+        doi = COALESCE(excluded.doi, expert_methodology_ratings.doi),
+        methodology_version = COALESCE(
+            excluded.methodology_version,
+            expert_methodology_ratings.methodology_version),
+        source_review_pmid = COALESCE(
+            excluded.source_review_pmid,
+            expert_methodology_ratings.source_review_pmid),
+        source_review_doi = COALESCE(
+            excluded.source_review_doi,
+            expert_methodology_ratings.source_review_doi),
+        source_reference = COALESCE(
+            excluded.source_reference,
+            expert_methodology_ratings.source_reference),
+        updated_at = datetime('now')
+"""
+
+#: Force-overwrite path: every field (including curator-managed ones) is
+#: replaced with the incoming values. ``added_at`` is preserved because
+#: it's the provenance timestamp of the original insertion.
+_EXPERT_RATING_CONFLICT_FORCE_OVERWRITE: str = """
+    ON CONFLICT(methodology, rating_source, study_label) DO UPDATE SET
+        domain_ratings = excluded.domain_ratings,
+        overall_rating = excluded.overall_rating,
+        pmid = excluded.pmid,
+        doi = excluded.doi,
+        methodology_version = excluded.methodology_version,
+        source_review_pmid = excluded.source_review_pmid,
+        source_review_doi = excluded.source_review_doi,
+        source_reference = excluded.source_reference,
+        verified = excluded.verified,
+        added_by = excluded.added_by,
+        notes = excluded.notes,
+        updated_at = datetime('now')
+"""
 
 
 class Database:
@@ -361,6 +471,23 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_human_reviews_flagged "
             "ON human_reviews(flagged)"
         )
+        # expert_methodology_ratings: backfill updated_at for DBs that
+        # had the table without the column.
+        expert_cols = {
+            row[1]
+            for row in self.conn.execute(
+                "PRAGMA table_info(expert_methodology_ratings)"
+            ).fetchall()
+        }
+        if expert_cols and "updated_at" not in expert_cols:
+            self.conn.execute(
+                "ALTER TABLE expert_methodology_ratings "
+                "ADD COLUMN updated_at TEXT"
+            )
+            self.conn.execute(
+                "UPDATE expert_methodology_ratings "
+                "SET updated_at = added_at WHERE updated_at IS NULL"
+            )
         self.conn.commit()
 
     # ---- Papers ----
@@ -1493,6 +1620,126 @@ class Database:
                     r["HUMAN_NOTES"] or "",
                 ])
         logger.info(f"Exported review CSV to {output_path}")
+
+    # ---- Expert methodology ratings ----
+
+    def upsert_expert_rating(
+        self,
+        *,
+        methodology: str,
+        rating_source: str,
+        study_label: str,
+        domain_ratings: dict,
+        overall_rating: Optional[str] = None,
+        pmid: Optional[str] = None,
+        doi: Optional[str] = None,
+        methodology_version: Optional[str] = None,
+        source_review_pmid: Optional[str] = None,
+        source_review_doi: Optional[str] = None,
+        source_reference: Optional[str] = None,
+        added_by: Optional[str] = None,
+        verified: bool = False,
+        notes: Optional[str] = None,
+        commit: bool = True,
+        preserve_curation: bool = True,
+    ) -> str:
+        """Insert or update an expert ground-truth rating.
+
+        Identity is ``(methodology, rating_source, study_label)``.
+
+        Returns ``"inserted"`` when the row did not previously exist and
+        ``"updated"`` when it did. Callers (e.g. the ingest summary) use
+        this to distinguish the two cases — SQLite's ``rowcount`` is 1
+        for both on ``INSERT ... ON CONFLICT DO UPDATE``.
+
+        When ``preserve_curation=True`` (default), re-ingesting from a
+        machine source does not clobber the curator-managed fields
+        (``verified``, ``added_by``, ``notes``) once they have been set.
+        ``pmid`` / ``doi`` / provenance fields are COALESCE-guarded so a
+        ``None`` in the new row cannot blank out a previously resolved
+        value.
+
+        Note: ``verified`` is **not** auto-cleared when ``domain_ratings``
+        or ``overall_rating`` change on re-ingest. A curator who wants
+        re-verification after a parser fix should pass
+        ``preserve_curation=False`` (or reset ``verified`` manually).
+        The default assumes machine re-runs over the same source should
+        be idempotent — divergent results indicate a parser bug, not a
+        reason to invalidate prior human sign-off on the mapping.
+
+        Pass ``preserve_curation=False`` for an explicit full overwrite.
+        """
+        # SQLite's cursor.rowcount is 1 for both INSERT and UPDATE under
+        # ON CONFLICT DO UPDATE, so probe up-front to distinguish the two.
+        exists = self.conn.execute(
+            "SELECT 1 FROM expert_methodology_ratings "
+            "WHERE methodology = ? AND rating_source = ? AND study_label = ?",
+            (methodology, rating_source, study_label),
+        ).fetchone() is not None
+        conflict_clause = (
+            _EXPERT_RATING_CONFLICT_PRESERVE_CURATION
+            if preserve_curation
+            else _EXPERT_RATING_CONFLICT_FORCE_OVERWRITE
+        )
+        self.conn.execute(
+            _EXPERT_RATING_INSERT_SQL + conflict_clause,
+            (
+                methodology,
+                rating_source,
+                study_label,
+                pmid,
+                doi,
+                methodology_version,
+                source_review_pmid,
+                source_review_doi,
+                source_reference,
+                _json_col(domain_ratings),
+                overall_rating,
+                int(bool(verified)),
+                added_by,
+                notes,
+            ),
+        )
+        if commit:
+            self.conn.commit()
+        return "updated" if exists else "inserted"
+
+    def get_expert_ratings(
+        self,
+        methodology: Optional[str] = None,
+        rating_source: Optional[str] = None,
+        pmid: Optional[str] = None,
+        verified_only: bool = False,
+    ) -> list[dict]:
+        """Return expert ratings, optionally filtered.
+
+        ``domain_ratings`` is returned deserialised. Pass
+        ``verified_only=True`` to restrict to human-curated rows.
+        """
+        query = "SELECT * FROM expert_methodology_ratings"
+        conditions: list[str] = []
+        params: list = []
+        if methodology is not None:
+            conditions.append("methodology = ?")
+            params.append(methodology)
+        if rating_source is not None:
+            conditions.append("rating_source = ?")
+            params.append(rating_source)
+        if pmid is not None:
+            conditions.append("pmid = ?")
+            params.append(pmid)
+        if verified_only:
+            conditions.append("verified = 1")
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY methodology, rating_source, study_label"
+        rows = self.conn.execute(query, params).fetchall()
+        results: list[dict] = []
+        for r in rows:
+            d = dict(r)
+            d["domain_ratings"] = _json_load(d.get("domain_ratings")) or {}
+            results.append(d)
+        return results
 
     # ---- Stats ----
 

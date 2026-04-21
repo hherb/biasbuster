@@ -28,6 +28,10 @@ llama.cpp/*
 dataset/biasbuster.db
 dataset/biasbuster.db-shm
 dataset/biasbuster.db-wal
+# SQLite data files for experimental / recovery runs — never commit data
+dataset/*.db
+dataset/*.db-shm
+dataset/*.db-wal
 dataset/*.bak
 dataset/llm_rob_cache*.json
 dataset/llm_rob_cache*.bak
