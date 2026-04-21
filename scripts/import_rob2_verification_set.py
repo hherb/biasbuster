@@ -119,6 +119,8 @@ def row_to_paper_dict(row: dict) -> dict:
         reporting_bias=row["reporting"],
         overall_rob=row["overall"],
         cochrane_review_title=row["source_review"],
+        cochrane_review_pmid=(row.get("cochrane_review_pmid") or "").strip(),
+        cochrane_review_doi=(row.get("cochrane_review_doi") or "").strip(),
     )
     return rob_assessment_to_paper_dict(a)
 
