@@ -273,6 +273,15 @@ async def run(csv_path: Path, verification_set: str, config: Config) -> int:
     for pmid, data in pubmed_results.items():
         update_paper_from_pubmed(db, pmid, data)
 
+    missing_from_pubmed = sorted(set(pmids) - set(pubmed_results))
+    if missing_from_pubmed:
+        logger.warning(
+            "PubMed returned no data for %d PMID(s) — these rows "
+            "may appear as 'no_abstract' in the summary even though "
+            "the root cause is a PubMed batch failure: %s",
+            len(missing_from_pubmed), missing_from_pubmed,
+        )
+
     # Stage 3: fetch Europe PMC JATS full text per row, with polite spacing.
     results: list[RowResult] = []
     async with httpx.AsyncClient(
