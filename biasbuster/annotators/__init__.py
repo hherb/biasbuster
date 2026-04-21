@@ -1364,9 +1364,10 @@ class BaseAnnotator(abc.ABC):
         _assert_full_text(methodology, sections=sections, pmid=pmid)
 
         # Methodology dispatch. For non-biasbuster methodologies
-        # (cochrane_rob2, ...) the decomposed flow is methodology-specific
-        # — the 5-domain shape, per-domain prompts, and aggregation rules
-        # all differ. Each methodology owns its own assessor class.
+        # (cochrane_rob2, quadas_2, ...) the decomposed flow is
+        # methodology-specific — the domain shape, per-domain prompts,
+        # and aggregation rules all differ. Each methodology owns its
+        # own assessor class.
         if methodology.name == "cochrane_rob2":
             from biasbuster.methodologies.cochrane_rob2.assessor import (
                 CochraneRoB2Assessor,
@@ -1387,6 +1388,30 @@ class BaseAnnotator(abc.ABC):
             # Surface the overall rollup into the columns the DB layer
             # reads for the annotations.overall_severity aggregate.
             payload["overall_severity"] = result.worst_across_outcomes
+            return payload
+
+        if methodology.name == "quadas_2":
+            from biasbuster.methodologies.quadas_2.assessor import (
+                QUADAS2Assessor,
+            )
+            assessor = QUADAS2Assessor(self)
+            result = await assessor.assess(
+                pmid=pmid, title=title, sections=sections, metadata=metadata,
+            )
+            if result is None:
+                return None
+            payload = result.to_dict()
+            payload["pmid"] = pmid
+            payload["title"] = title
+            payload["_annotation_model"] = self.model
+            payload["_annotation_mode"] = "decomposed_quadas2"
+            payload["_methodology"] = methodology.name
+            payload["_methodology_version"] = methodology.version
+            # QUADAS-2 rollup is 2-D; the DB's overall_severity column
+            # holds the worst bias rating (the primary axis), with the
+            # applicability rollup available in the JSON blob.
+            payload["overall_severity"] = result.worst_bias
+            payload["overall_applicability"] = result.worst_applicability
             return payload
 
         from biasbuster.assessment_decomposed import DecomposedAssessor

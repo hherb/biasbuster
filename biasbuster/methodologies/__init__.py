@@ -44,6 +44,7 @@ from . import study_design
 # block in later build steps — each new submodule registers once on import.
 from . import biasbuster as _biasbuster  # noqa: F401  (registration side effect)
 from . import cochrane_rob2 as _cochrane_rob2  # noqa: F401
+from . import quadas_2 as _quadas_2  # noqa: F401
 
 
 def _register_builtin_methodologies() -> None:
@@ -63,6 +64,7 @@ def _register_builtin_methodologies() -> None:
     """
     _biasbuster._register_once()
     _cochrane_rob2._register_once()
+    _quadas_2._register_once()
 
 
 __all__ = [
