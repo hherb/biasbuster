@@ -1,0 +1,13 @@
+study_id,trial_name,pmid,pmc_url,source_review,randomization,deviations,missing_data,measurement,reporting,overall
+1,Ingle et al. 2006,16882633,,Deng 2024 plyometric meta-analysis,some_concerns,low,high,low,low,high
+2,Faigenbaum et al. 2007,24149486,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3794493/,Deng 2024 plyometric meta-analysis,some_concerns,low,some_concerns,low,low,some_concerns
+3,Tsang and DiPasquale 2011,21878823,,Deng 2024 plyometric meta-analysis,some_concerns,low,low,low,low,some_concerns
+4,Chaouachi et al. 2014,23669821,,Deng 2024 plyometric meta-analysis,some_concerns,low,low,low,some_concerns,some_concerns
+5,Racil et al. 2015,26701117,,Deng 2024 plyometric meta-analysis,some_concerns,low,high,low,low,high
+6,Marin-Cascales et al. 2015,25978688,,Deng 2024 plyometric meta-analysis,some_concerns,low,high,low,low,high
+7,Nobre et al. 2017,27787471,,Deng 2024 plyometric meta-analysis,some_concerns,low,low,low,low,some_concerns
+8,Marin-Cascales et al. 2017,27998241,,Deng 2024 plyometric meta-analysis,low,low,high,low,low,high
+9,Van Roie et al. 2020,32841300,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7447006/,Deng 2024 plyometric meta-analysis,low,low,high,low,low,high
+10,Radwan et al. 2021,34059568,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8185267/,Deng 2024 plyometric meta-analysis,some_concerns,low,low,low,low,some_concerns
+11,Singh et al. 2022,35719236,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9157518/,Deng 2024 plyometric meta-analysis,low,low,low,low,low,low
+12,Marzouki et al. 2022,36101416,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9312845/,Deng 2024 plyometric meta-analysis,some_concerns,low,low,low,low,some_concerns
