@@ -841,6 +841,10 @@ class Database:
         overwritten by the new values. Returns True if the row was
         inserted or updated.
 
+        Note: SQLite's ON CONFLICT DO UPDATE always touches the row, so
+        rowcount is 1 for both fresh inserts and updates. False is
+        returned only on a database error (logged via ``logger.warning``).
+
         Args:
             pmid: PMID of the paper. Must already exist in ``papers``.
             verification_set: Tag identifying the curated set (e.g.
@@ -854,29 +858,36 @@ class Database:
             notes: Free-form notes (e.g. error messages from the fetch).
         """
         self._ensure_connected()
-        cursor = self.conn.execute(
-            """INSERT INTO manually_verified
-                   (pmid, verification_set, trial_name, source_review,
-                    fulltext_path, fulltext_ok, notes)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(pmid, verification_set) DO UPDATE SET
-                   trial_name = excluded.trial_name,
-                   source_review = excluded.source_review,
-                   fulltext_path = excluded.fulltext_path,
-                   fulltext_ok = excluded.fulltext_ok,
-                   notes = excluded.notes""",
-            (
-                pmid,
-                verification_set,
-                trial_name,
-                source_review,
-                fulltext_path,
-                1 if fulltext_ok else 0,
-                notes,
-            ),
-        )
-        self.conn.commit()
-        return cursor.rowcount > 0
+        try:
+            cursor = self.conn.execute(
+                """INSERT INTO manually_verified
+                       (pmid, verification_set, trial_name, source_review,
+                        fulltext_path, fulltext_ok, notes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(pmid, verification_set) DO UPDATE SET
+                       trial_name = excluded.trial_name,
+                       source_review = excluded.source_review,
+                       fulltext_path = excluded.fulltext_path,
+                       fulltext_ok = excluded.fulltext_ok,
+                       notes = excluded.notes""",
+                (
+                    pmid,
+                    verification_set,
+                    trial_name,
+                    source_review,
+                    fulltext_path,
+                    1 if fulltext_ok else 0,
+                    notes,
+                ),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.warning(
+                f"Failed to upsert manually_verified "
+                f"(pmid={pmid!r}, set={verification_set!r}): {e}"
+            )
+            return False
 
     def _row_to_paper(self, row: sqlite3.Row) -> dict:
         """Convert a papers table row to a dict with deserialized JSON columns."""

@@ -63,7 +63,7 @@ def test_manually_verified_insert_valid_row(db_with_paper: Database) -> None:
 
 class TestUpsertManuallyVerified:
     def test_insert_then_update(self, db_with_paper: Database) -> None:
-        db_with_paper.upsert_manually_verified(
+        first = db_with_paper.upsert_manually_verified(
             pmid="P1",
             verification_set="rob2_manual_verify_20260421",
             trial_name="Test trial",
@@ -71,6 +71,7 @@ class TestUpsertManuallyVerified:
             fulltext_path="dataset/rob2_verification_fulltexts/P1.xml",
             fulltext_ok=True,
         )
+        assert first is True
         row = db_with_paper.conn.execute(
             "SELECT pmid, verification_set, trial_name, source_review, "
             "fulltext_path, fulltext_ok FROM manually_verified"
@@ -79,7 +80,7 @@ class TestUpsertManuallyVerified:
         assert row["fulltext_ok"] == 1
 
         # Re-run updates, does not duplicate.
-        db_with_paper.upsert_manually_verified(
+        second = db_with_paper.upsert_manually_verified(
             pmid="P1",
             verification_set="rob2_manual_verify_20260421",
             trial_name="Updated trial name",
@@ -88,6 +89,7 @@ class TestUpsertManuallyVerified:
             fulltext_ok=False,
             notes="fulltext went away",
         )
+        assert second is True
         rows = db_with_paper.conn.execute(
             "SELECT trial_name, fulltext_ok, notes FROM manually_verified"
         ).fetchall()
@@ -109,3 +111,12 @@ class TestUpsertManuallyVerified:
             "SELECT COUNT(*) AS n FROM manually_verified WHERE pmid='P1'"
         ).fetchone()["n"]
         assert count == 2
+
+    def test_returns_false_on_fk_violation(self, db_with_paper: Database) -> None:
+        # Unknown pmid → FK error → method logs and returns False,
+        # no exception propagates.
+        result = db_with_paper.upsert_manually_verified(
+            pmid="NOT_A_REAL_PMID",
+            verification_set="rob2_manual_verify_20260421",
+        )
+        assert result is False
