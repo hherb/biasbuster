@@ -45,6 +45,17 @@ from . import study_design
 from . import biasbuster as _biasbuster  # noqa: F401  (registration side effect)
 from . import cochrane_rob2 as _cochrane_rob2  # noqa: F401
 from . import quadas_2 as _quadas_2  # noqa: F401
+# Stubs — registered for discoverability via list_methodologies(); any
+# attempt to invoke them raises NotImplementedError with a specific
+# message. See each submodule's docstring for the intended spec.
+from . import robins_i as _robins_i  # noqa: F401
+from . import robins_e as _robins_e  # noqa: F401
+from . import probast as _probast  # noqa: F401
+from . import probast_plus_ai as _probast_plus_ai  # noqa: F401
+from . import rob_me as _rob_me  # noqa: F401
+from . import syrcle as _syrcle  # noqa: F401
+from . import robis as _robis  # noqa: F401
+from . import amstar_2 as _amstar_2  # noqa: F401
 
 
 def _register_builtin_methodologies() -> None:
@@ -65,6 +76,14 @@ def _register_builtin_methodologies() -> None:
     _biasbuster._register_once()
     _cochrane_rob2._register_once()
     _quadas_2._register_once()
+    _robins_i._register_once()
+    _robins_e._register_once()
+    _probast._register_once()
+    _probast_plus_ai._register_once()
+    _rob_me._register_once()
+    _syrcle._register_once()
+    _robis._register_once()
+    _amstar_2._register_once()
 
 
 __all__ = [
