@@ -164,6 +164,18 @@ CREATE TABLE IF NOT EXISTS eval_outputs (
     PRIMARY KEY (pmid, model_id, mode)
 );
 
+CREATE TABLE IF NOT EXISTS manually_verified (
+    pmid TEXT NOT NULL REFERENCES papers(pmid),
+    verification_set TEXT NOT NULL,
+    trial_name TEXT,
+    source_review TEXT,
+    fulltext_path TEXT,
+    fulltext_ok INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT DEFAULT (datetime('now')),
+    notes TEXT,
+    PRIMARY KEY (pmid, verification_set)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_papers_source ON papers(source);
 CREATE INDEX IF NOT EXISTS idx_enrichments_suspicion ON enrichments(suspicion_level);
@@ -184,6 +196,8 @@ CREATE INDEX IF NOT EXISTS idx_expert_ratings_source
 -- still help ad-hoc queries filtered on only one dimension.
 CREATE INDEX IF NOT EXISTS idx_expert_ratings_meth_pmid
     ON expert_methodology_ratings(methodology, pmid);
+CREATE INDEX IF NOT EXISTS idx_manually_verified_set
+    ON manually_verified(verification_set);
 """
 
 
