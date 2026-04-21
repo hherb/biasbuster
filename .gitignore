@@ -36,6 +36,8 @@ dataset/*.bak
 dataset/llm_rob_cache*.json
 dataset/llm_rob_cache*.bak
 dataset/cleanseed/annotated/
+dataset/rob2_verification_fulltexts/
+dataset/manual_verification_sets/*.jats.xml
 dataset_*/
 *.bak
 
