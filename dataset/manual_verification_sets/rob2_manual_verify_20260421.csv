@@ -1,0 +1,11 @@
+study_id,trial_name,pmid,pmc_url,source_review,randomization,deviations,missing_data,measurement,reporting,overall
+1,RECOVERY dexamethasone,32678530,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7383595/,AHRQ/Cochrane-style,low,some_concerns,low,low,low,low
+2,ACTT-1 remdesivir,32445440,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7262788/,Cochrane COVID review,low,low,low,low,low,low
+3,SOLIDARITY trial,33264556,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7729089/,WHO meta-analysis,low,some_concerns,low,low,low,low
+4,SPARCL atorvastatin,16899775,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1852416/,Cochrane stroke review,low,low,low,low,low,low
+5,RE-LY dabigatran,19717844,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2717924/,Cochrane anticoagulation,low,high,low,low,low,some_concerns
+6,ALLHAT antihypertensive,12479763,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC149558/,Cochrane HTN review,low,low,low,low,low,low
+7,UKPDS metformin,9742977,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC28637/,Cochrane diabetes review,low,high,low,low,low,some_concerns
+8,MAGELLAN rivaroxaban,21970978,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3164000/,Cochrane VTE review,low,some_concerns,low,low,low,low
+9,PROWESS sepsis APC,12495323,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1236530/,Cochrane sepsis review,low,low,some_concerns,low,low,low
+10,CRASH-2 tranexamic acid,20554319,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2898595/,Cochrane trauma review,low,low,low,low,low,low
