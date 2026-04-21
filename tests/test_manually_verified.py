@@ -36,11 +36,26 @@ def test_manually_verified_composite_pk(db_with_paper: Database) -> None:
 
 
 def test_manually_verified_foreign_key(db_with_paper: Database) -> None:
-    # Inserting with an unknown pmid should raise (foreign_keys=ON).
+    # FK is IMMEDIATE (no DEFERRABLE clause), so IntegrityError fires at
+    # execute time, not at commit time.
     with pytest.raises(sqlite3.IntegrityError):
         db_with_paper.conn.execute(
             "INSERT INTO manually_verified (pmid, verification_set) "
             "VALUES (?, ?)",
             ("UNKNOWN_PMID", "rob2_manual_verify_20260421"),
         )
-        db_with_paper.conn.commit()
+    db_with_paper.conn.rollback()
+
+
+def test_manually_verified_insert_valid_row(db_with_paper: Database) -> None:
+    db_with_paper.conn.execute(
+        "INSERT INTO manually_verified (pmid, verification_set) VALUES (?, ?)",
+        ("P1", "rob2_manual_verify_20260421"),
+    )
+    db_with_paper.conn.commit()
+    row = db_with_paper.conn.execute(
+        "SELECT fulltext_ok, added_at FROM manually_verified WHERE pmid='P1'"
+    ).fetchone()
+    assert row is not None
+    assert row["fulltext_ok"] == 0
+    assert row["added_at"] is not None
