@@ -381,11 +381,23 @@ def main() -> int:
             f"(default: {DEFAULT_VERIFICATION_SET})"
         ),
     )
+    parser.add_argument(
+        "--db", type=Path, default=None,
+        help=(
+            "Override the SQLite path from config.Config().db_path. "
+            "Useful when the default DB is on a legacy schema and you "
+            "want to target a post-methodology database (e.g. "
+            "dataset/biasbuster_recovered.db)."
+        ),
+    )
     args = parser.parse_args()
 
     _configure_logging()
 
     config = Config()
+    if args.db is not None:
+        logger.info("Overriding config.db_path: %s -> %s", config.db_path, args.db)
+        config.db_path = str(args.db)
     return asyncio.run(run(args.csv, args.verification_set, config))
 
 
