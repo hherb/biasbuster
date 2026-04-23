@@ -24,6 +24,74 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+# ---- Annotation JSON Schema validation ---------------------------------
+#
+# Annotations for methodologies registered in ``_ANNOTATION_SCHEMA_PATHS``
+# are validated against their JSON Schema before INSERT / UPDATE.
+# See docs/ANNOTATION_JSON_SPEC.md for the contract and audit workflow.
+#
+# Methodologies not in the registry (currently: ``biasbuster``, the
+# legacy single-call assessor) skip validation. New methodologies opt
+# in by adding a schema file and an entry below.
+
+_PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+_ANNOTATION_SCHEMA_PATHS: dict[str, Path] = {
+    "cochrane_rob2": _PROJECT_ROOT / "schemas" / "rob2_annotation.schema.json",
+    "quadas_2":      _PROJECT_ROOT / "schemas" / "quadas2_annotation.schema.json",
+}
+_ANNOTATION_VALIDATORS: dict[str, object] = {}
+
+
+def _annotation_validator(methodology: str):
+    """Return a cached jsonschema validator for *methodology*, or None.
+
+    Returns ``None`` for methodologies without a registered schema —
+    the caller treats this as "skip validation". Lazy import of
+    ``jsonschema`` keeps cold-start cost off code paths that never
+    touch the annotations table.
+    """
+    if methodology not in _ANNOTATION_SCHEMA_PATHS:
+        return None
+    cached = _ANNOTATION_VALIDATORS.get(methodology)
+    if cached is not None:
+        return cached
+    from jsonschema import Draft202012Validator
+    schema_path = _ANNOTATION_SCHEMA_PATHS[methodology]
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    _ANNOTATION_VALIDATORS[methodology] = validator
+    return validator
+
+
+def _validate_annotation_payload(
+    methodology: str, annotation: dict, *, pmid: str, model_name: str,
+) -> None:
+    """Validate *annotation* against the methodology's JSON Schema.
+
+    Raises ``jsonschema.exceptions.ValidationError`` on the first failed
+    constraint so a malformed annotation never lands in the DB. The
+    error message includes the JSON path of the offending field so an
+    operator can fix the producer (prompt, parser, or upstream
+    pipeline) without re-reading the schema.
+    """
+    validator = _annotation_validator(methodology)
+    if validator is None:
+        return
+    errors = sorted(validator.iter_errors(annotation), key=lambda e: e.path)
+    if not errors:
+        return
+    first = errors[0]
+    path = "/".join(str(p) for p in first.absolute_path) or "<root>"
+    logger.error(
+        "Annotation schema validation failed for %s/%s/%s at %s: %s "
+        "(%d total error%s)",
+        pmid, model_name, methodology, path, first.message,
+        len(errors), "" if len(errors) == 1 else "s",
+    )
+    raise first
+
 SCHEMA_SQL = """
 -- Core paper table: single source of truth for all papers
 CREATE TABLE IF NOT EXISTS papers (
@@ -1057,7 +1125,15 @@ class Database:
                 "biasbuster" for back-compat with pre-methodology callers.
             methodology_version: Optional prompt/schema version tag
                 (e.g. "v5a" for biasbuster, "rob2-2019" for Cochrane RoB 2).
+
+        Raises:
+            jsonschema.exceptions.ValidationError: If *methodology* has a
+                registered annotation schema and *annotation* does not
+                conform to it. See ``docs/ANNOTATION_JSON_SPEC.md``.
         """
+        _validate_annotation_payload(
+            methodology, annotation, pmid=pmid, model_name=model_name,
+        )
         try:
             cursor = self.conn.execute(
                 """INSERT OR IGNORE INTO annotations
@@ -1098,7 +1174,15 @@ class Database:
         See :meth:`insert_annotation` for argument semantics. On conflict
         the annotation JSON and summary fields are replaced, but the
         (pmid, model_name, methodology) identity is preserved.
+
+        Raises:
+            jsonschema.exceptions.ValidationError: If *methodology* has a
+                registered annotation schema and *annotation* does not
+                conform to it.
         """
+        _validate_annotation_payload(
+            methodology, annotation, pmid=pmid, model_name=model_name,
+        )
         try:
             cursor = self.conn.execute(
                 """INSERT INTO annotations

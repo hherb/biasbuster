@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biasbuster.local/schemas/quadas2_annotation.schema.json",
+  "title": "QUADAS-2 annotation",
+  "description": "Output shape of the biasbuster quadas_2 decomposed assessor. See docs/ANNOTATION_JSON_SPEC.md for the narrative spec and audit workflow.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "domains",
+    "worst_bias",
+    "worst_applicability"
+  ],
+  "properties": {
+    "pmid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string"
+    },
+    "abstract_text": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "methodology_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "notes": {
+      "type": ["string", "null"]
+    },
+    "overall_severity": {
+      "$ref": "#/$defs/quadas_rating"
+    },
+    "overall_applicability": {
+      "$ref": "#/$defs/quadas_rating"
+    },
+    "worst_bias": {
+      "$ref": "#/$defs/quadas_rating"
+    },
+    "worst_applicability": {
+      "$ref": "#/$defs/quadas_rating"
+    },
+    "domains": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/domain_judgement"
+      }
+    }
+  },
+  "$defs": {
+    "quadas_rating": {
+      "enum": ["low", "unclear", "high"]
+    },
+    "signalling_answer": {
+      "enum": ["yes", "no", "unclear"]
+    },
+    "domain_slug": {
+      "enum": [
+        "patient_selection",
+        "index_test",
+        "reference_standard",
+        "flow_and_timing"
+      ]
+    },
+    "evidence_quote": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "section": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "domain_judgement": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "domain",
+        "signalling_answers",
+        "bias_rating"
+      ],
+      "properties": {
+        "domain": {
+          "$ref": "#/$defs/domain_slug"
+        },
+        "signalling_answers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/signalling_answer"
+          }
+        },
+        "bias_rating": {
+          "$ref": "#/$defs/quadas_rating"
+        },
+        "applicability": {
+          "anyOf": [
+            {"$ref": "#/$defs/quadas_rating"},
+            {"type": "null"}
+          ]
+        },
+        "justification": {
+          "type": "string"
+        },
+        "evidence_quotes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_quote"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "description": "flow_and_timing carries no applicability dimension per Whiting 2011.",
+          "if": {
+            "properties": {"domain": {"const": "flow_and_timing"}},
+            "required": ["domain"]
+          },
+          "then": {
+            "properties": {
+              "applicability": {"type": "null"}
+            }
+          },
+          "else": {
+            "required": ["applicability"],
+            "properties": {
+              "applicability": {"$ref": "#/$defs/quadas_rating"}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

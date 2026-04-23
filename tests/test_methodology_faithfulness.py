@@ -448,7 +448,14 @@ class TestBackfillMissingWarning:
         db.insert_annotation(
             "P1", "anthropic",
             {
-                "outcomes": [], "worst_across_outcomes": "low",
+                # Minimal valid RoB 2 annotation (one outcome, no domains
+                # — the test exercises the missing-expert-rows warning,
+                # not annotation content; the empty-domains shape is the
+                # smallest payload that satisfies the schema).
+                "outcomes": [
+                    {"overall_judgement": "low", "domains": {}},
+                ],
+                "worst_across_outcomes": "low",
                 "methodology_version": "rob2-2019",
             },
             methodology="cochrane_rob2",
@@ -479,7 +486,14 @@ class TestBackfillMissingWarning:
         db.insert_annotation(
             "P1", "anthropic",
             {
-                "outcomes": [], "worst_across_outcomes": "low",
+                # Minimal valid RoB 2 annotation (one outcome, no domains
+                # — the test exercises the missing-expert-rows warning,
+                # not annotation content; the empty-domains shape is the
+                # smallest payload that satisfies the schema).
+                "outcomes": [
+                    {"overall_judgement": "low", "domains": {}},
+                ],
+                "worst_across_outcomes": "low",
                 "methodology_version": "rob2-2019",
             },
             methodology="cochrane_rob2",

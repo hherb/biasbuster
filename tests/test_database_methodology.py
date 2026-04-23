@@ -27,6 +27,22 @@ def fresh_db(tmp_path: Path) -> Database:
     return db
 
 
+def _rob2_annotation(severity: str = "low") -> dict:
+    """Minimal cochrane_rob2 annotation that satisfies the JSON Schema.
+
+    These tests exercise the (pmid, model, methodology) PK + filter
+    behaviour, not annotation content; the empty-domains outcome is
+    the smallest payload that passes validation.
+    """
+    return {
+        "outcomes": [
+            {"overall_judgement": severity, "domains": {}},
+        ],
+        "worst_across_outcomes": severity,
+        "overall_severity": severity,
+    }
+
+
 @pytest.fixture
 def legacy_db_path(tmp_path: Path) -> Path:
     """Create a DB with the pre-methodology schema (PK (pmid, model_name))."""
@@ -108,7 +124,7 @@ class TestPerMethodologyIsolation:
             methodology="biasbuster",
         )
         fresh_db.insert_annotation(
-            "P1", "anthropic", {"overall_severity": "some_concerns"},
+            "P1", "anthropic", _rob2_annotation("some_concerns"),
             methodology="cochrane_rob2",
         )
         rows = fresh_db.conn.execute(
@@ -141,7 +157,7 @@ class TestPerMethodologyIsolation:
     ) -> None:
         fresh_db.insert_annotation("P1", "anthropic", {}, methodology="biasbuster")
         fresh_db.insert_annotation(
-            "P1", "anthropic", {}, methodology="cochrane_rob2"
+            "P1", "anthropic", _rob2_annotation(), methodology="cochrane_rob2"
         )
         removed = fresh_db.delete_annotation(
             "P1", "anthropic", methodology="biasbuster"
@@ -155,12 +171,12 @@ class TestPerMethodologyIsolation:
         self, fresh_db: Database
     ) -> None:
         fresh_db.upsert_annotation(
-            "P1", "anthropic", {"overall_severity": "low"},
+            "P1", "anthropic", _rob2_annotation("low"),
             methodology="cochrane_rob2",
             methodology_version="rob2-2019",
         )
         fresh_db.upsert_annotation(
-            "P1", "anthropic", {"overall_severity": "high"},
+            "P1", "anthropic", _rob2_annotation("high"),
             methodology="cochrane_rob2",
             methodology_version="rob2-2019",
         )
@@ -182,7 +198,7 @@ class TestPerMethodologyIsolation:
             "P1", "deepseek", {}, methodology="biasbuster",
         )
         fresh_db.insert_annotation(
-            "P1", "anthropic", {}, methodology="cochrane_rob2",
+            "P1", "anthropic", _rob2_annotation(), methodology="cochrane_rob2",
         )
         biasbuster_rows = fresh_db.get_annotations(methodology="biasbuster")
         rob2_rows = fresh_db.get_annotations(methodology="cochrane_rob2")
@@ -196,7 +212,7 @@ class TestPerMethodologyIsolation:
             "P1", "anthropic", {}, methodology="biasbuster"
         )
         fresh_db.insert_annotation(
-            "P2", "anthropic", {}, methodology="cochrane_rob2"
+            "P2", "anthropic", _rob2_annotation(), methodology="cochrane_rob2"
         )
         bb_pmids = fresh_db.get_annotated_pmids("anthropic", methodology="biasbuster")
         rob2_pmids = fresh_db.get_annotated_pmids(
@@ -227,7 +243,7 @@ class TestPerMethodologyIsolation:
             "P1", "anthropic", {}, methodology="biasbuster",
         )
         fresh_db.insert_annotation(
-            "P1", "anthropic", {}, methodology="cochrane_rob2",
+            "P1", "anthropic", _rob2_annotation(), methodology="cochrane_rob2",
         )
         fresh_db.insert_annotation(
             "P2", "anthropic", {}, methodology="biasbuster",
@@ -284,7 +300,7 @@ class TestHumanReviewMethodology:
             "P1", "anthropic", {}, methodology="biasbuster"
         )
         fresh_db.insert_annotation(
-            "P1", "anthropic", {}, methodology="cochrane_rob2"
+            "P1", "anthropic", _rob2_annotation(), methodology="cochrane_rob2"
         )
         fresh_db.upsert_review(
             "P1", "anthropic", validated=True,

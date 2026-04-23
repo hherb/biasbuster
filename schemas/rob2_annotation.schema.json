@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biasbuster.local/schemas/rob2_annotation.schema.json",
+  "title": "Cochrane RoB 2 annotation",
+  "description": "Output shape of the biasbuster cochrane_rob2 decomposed assessor. See docs/ANNOTATION_JSON_SPEC.md for the narrative spec and audit workflow.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "outcomes",
+    "worst_across_outcomes"
+  ],
+  "properties": {
+    "pmid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string"
+    },
+    "abstract_text": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "methodology_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "notes": {
+      "type": ["string", "null"]
+    },
+    "overall_severity": {
+      "$ref": "#/$defs/rob2_judgement"
+    },
+    "worst_across_outcomes": {
+      "$ref": "#/$defs/rob2_judgement"
+    },
+    "outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/outcome"
+      }
+    }
+  },
+  "$defs": {
+    "rob2_judgement": {
+      "enum": ["low", "some_concerns", "high"]
+    },
+    "signalling_answer": {
+      "enum": ["Y", "PY", "PN", "N", "NI"]
+    },
+    "domain_slug": {
+      "enum": [
+        "randomization",
+        "deviations_from_interventions",
+        "missing_outcome_data",
+        "outcome_measurement",
+        "selection_of_reported_result"
+      ]
+    },
+    "evidence_quote": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "section": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "domain_judgement": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "domain",
+        "signalling_answers",
+        "judgement"
+      ],
+      "properties": {
+        "domain": {
+          "$ref": "#/$defs/domain_slug"
+        },
+        "signalling_answers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/signalling_answer"
+          }
+        },
+        "judgement": {
+          "$ref": "#/$defs/rob2_judgement"
+        },
+        "justification": {
+          "type": "string"
+        },
+        "evidence_quotes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_quote"
+          }
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "overall_judgement",
+        "domains"
+      ],
+      "properties": {
+        "outcome_label": {
+          "type": "string"
+        },
+        "result_label": {
+          "type": ["string", "null"]
+        },
+        "overall_judgement": {
+          "$ref": "#/$defs/rob2_judgement"
+        },
+        "overall_rationale": {
+          "type": "string"
+        },
+        "domains": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/domain_judgement"
+          }
+        }
+      }
+    }
+  }
+}

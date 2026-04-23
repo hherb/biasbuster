@@ -16,6 +16,7 @@ dependencies = [
     "bmlib[all]",
     "pdfplumber>=0.10",
     "requests>=2.33.1",
+    "jsonschema>=4.26.0",
 ]
 
 [project.scripts]
