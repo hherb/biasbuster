@@ -186,15 +186,46 @@ def _parse_domain_response(
     judgement = _coerce_judgement(blob.get("judgement"))
     if judgement is None:
         judgement = _coerce_judgement(blob.get("judgment"))
+
+    # Distinguish two failure modes:
+    #   (a) judgement field MISSING entirely ⇒ model hedged. Per the
+    #       Cochrane RoB 2 algorithm the documented default for
+    #       ambiguity is "some_concerns" ("otherwise" / "everything
+    #       else" in every per-domain prompt's algorithm block).
+    #       Fall back to that rather than aborting the whole paper.
+    #       Observed: PMID 36101416 / deviations_from_interventions
+    #       persistently omitted the field across 3 retries.
+    #   (b) judgement field PRESENT but invalid (e.g. "maybe") ⇒
+    #       model is confused. Don't paper over that — return None
+    #       and let the caller retry or skip.
     if judgement is None:
-        logger.warning(
-            "PMID %s: RoB 2 domain %s: no valid judgement in response "
-            "(judgement=%r, judgment=%r); blob keys=%s; skipping domain",
-            pmid, domain_slug,
-            blob.get("judgement"), blob.get("judgment"),
-            sorted(blob.keys()),
+        judgement_field_present = (
+            "judgement" in blob or "judgment" in blob
         )
-        return None
+        if judgement_field_present:
+            logger.warning(
+                "PMID %s: RoB 2 domain %s: judgement field present "
+                "but invalid (judgement=%r, judgment=%r); skipping "
+                "domain", pmid, domain_slug,
+                blob.get("judgement"), blob.get("judgment"),
+            )
+            return None
+        if isinstance(answers, dict) and answers:
+            logger.warning(
+                "PMID %s: RoB 2 domain %s: judgement field missing "
+                "(blob keys=%s) but %d signalling answers are present; "
+                "defaulting to 'some_concerns' per Cochrane's "
+                "ambiguity rule.",
+                pmid, domain_slug, sorted(blob.keys()), len(answers),
+            )
+            judgement = "some_concerns"  # type: ignore[assignment]
+        else:
+            logger.warning(
+                "PMID %s: RoB 2 domain %s: no judgement AND no "
+                "signalling answers (blob keys=%s); skipping domain",
+                pmid, domain_slug, sorted(blob.keys()),
+            )
+            return None
 
     justification = blob.get("justification") or ""
     if not isinstance(justification, str):

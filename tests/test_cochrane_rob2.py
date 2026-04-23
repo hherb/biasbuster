@@ -492,6 +492,46 @@ class TestDomainResponseParser:
             "definitely not json", "randomization", pmid="T1",
         ) is None
 
+    def test_missing_judgement_with_answers_defaults_to_some_concerns(
+        self,
+    ) -> None:
+        """Sonnet sometimes returns valid JSON with signalling_answers and
+        justification but omits the judgement field entirely (3-retry
+        persistent failure observed on PMID 36101416 /
+        deviations_from_interventions). Per Cochrane's documented
+        ambiguity rule (every per-domain prompt's algorithm specifies
+        'some_concerns' as the 'otherwise' bucket), default to that
+        rather than aborting the whole paper. Signalling answers are
+        preserved so an auditor can override.
+        """
+        raw = json.dumps({
+            "domain": "deviations_from_interventions",
+            "signalling_answers": {"2.1": "PN", "2.2": "PN", "2.6": "PY"},
+            "justification": "Open-label intervention as expected.",
+            "evidence_quotes": [],
+            # Note: no "judgement" / "judgment" key.
+        })
+        parsed = _parse_domain_response(
+            raw, "deviations_from_interventions", pmid="T1",
+        )
+        assert parsed is not None
+        assert parsed.judgement == "some_concerns"
+        # The model's signalling work is preserved.
+        assert parsed.signalling_answers == {
+            "2.1": "PN", "2.2": "PN", "2.6": "PY",
+        }
+
+    def test_missing_judgement_without_answers_skips_domain(self) -> None:
+        """If the JSON has no judgement AND no signalling answers, we
+        have nothing to fall back to. Skip rather than fabricate.
+        """
+        raw = json.dumps({
+            "domain": "randomization",
+            "signalling_answers": {},  # empty
+            "justification": "Could not assess.",
+        })
+        assert _parse_domain_response(raw, "randomization", pmid="T1") is None
+
     def test_american_spelling_judgment_accepted(self) -> None:
         """Sonnet 4.6 on the Deng 2024 run emitted ``"judgment": "low"``
         (American spelling) despite the prompt schema using the British
