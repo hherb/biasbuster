@@ -138,6 +138,16 @@ def _parse_domain_response(
     """Parse a single QUADAS-2 domain LLM response into a typed judgement."""
     blob = _loose_parse_json(raw)
     if blob is None:
+        # Surface the raw response for diagnosis. Without this an operator
+        # only sees the "parse failed" retry warnings and has no way to
+        # tell whether the LLM emitted prose, malformed JSON, or hit a
+        # token limit. Truncate to keep logs readable.
+        snippet = raw if len(raw) <= 500 else raw[:500] + "...[truncated]"
+        logger.warning(
+            "PMID %s: QUADAS-2 domain %s: JSON parse failed. "
+            "Raw response (first 500 chars): %s",
+            pmid, domain_slug, snippet,
+        )
         return None
 
     # Signalling answers
