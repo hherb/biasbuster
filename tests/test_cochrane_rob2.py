@@ -491,3 +491,20 @@ class TestDomainResponseParser:
         assert _parse_domain_response(
             "definitely not json", "randomization", pmid="T1",
         ) is None
+
+    def test_prose_then_json_extracted(self) -> None:
+        """Sonnet 4.6 lapsed into prose-then-JSON on the Deng 2024 RoB 2
+        run (PMID 32841300, 34059568, 36101416 all aborted on the
+        randomization domain). The brace-balanced fallback in
+        ``_loose_parse_json`` must catch these so the assessor doesn't
+        burn 3 retries and abort.
+        """
+        raw = (
+            "Looking at the randomization process for this trial:\n\n"
+            "**Q1.1** Was the allocation sequence random? Probably yes.\n"
+            "**Q1.2** Was the allocation sequence concealed? Yes.\n\n"
+            + _domain_response("randomization", "low")
+        )
+        parsed = _parse_domain_response(raw, "randomization", pmid="T1")
+        assert parsed is not None
+        assert parsed.judgement == "low"

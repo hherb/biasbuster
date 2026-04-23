@@ -147,6 +147,15 @@ def _parse_domain_response(
         # parse_llm_json rejected — try the looser parser as a fallback.
         blob = _loose_parse_json(raw)
     if blob is None:
+        # Surface the raw response for diagnosis. Without this an operator
+        # only sees retry warnings and has no way to tell whether the LLM
+        # emitted prose, malformed JSON, or hit a token limit.
+        snippet = raw if len(raw) <= 500 else raw[:500] + "...[truncated]"
+        logger.warning(
+            "PMID %s: RoB 2 domain %s: JSON parse failed. "
+            "Raw response (first 500 chars): %s",
+            pmid, domain_slug, snippet,
+        )
         return None
 
     returned_domain = blob.get("domain")
@@ -194,19 +203,64 @@ def _parse_domain_response(
 
 
 def _loose_parse_json(raw: str) -> Optional[dict]:
-    """Fallback JSON parser that strips markdown fences."""
+    """Fallback JSON parser tolerant to markdown fences and prose wrapping.
+
+    Resolution order:
+      1. Direct ``json.loads`` after whitespace strip.
+      2. Strip a leading/trailing markdown ``````` fence and retry.
+      3. Brace-balance scan: find the first ``{``, walk forward tracking
+         brace depth (skipping over string contents), and try to parse
+         the substring up to and including its matching ``}``. Catches
+         the common case where the model leads with prose then emits a
+         JSON object, despite our prompt asking for JSON-only output.
+    """
     text = raw.strip()
-    if text.startswith("```"):
-        # strip opening fence line
-        lines = text.splitlines()
-        lines = lines[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines)
     try:
         return json.loads(text)
     except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Strip a markdown fence if present and retry.
+    if text.startswith("```"):
+        lines = text.splitlines()[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        fenced = "\n".join(lines)
+        try:
+            return json.loads(fenced)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Brace-balance scan: extract the first complete top-level object.
+    start = text.find("{")
+    if start == -1:
         return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = text[start : i + 1]
+                try:
+                    return json.loads(candidate)
+                except (json.JSONDecodeError, TypeError):
+                    return None
+    return None
 
 
 class CochraneRoB2Assessor:

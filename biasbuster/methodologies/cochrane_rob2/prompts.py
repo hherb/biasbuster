@@ -56,6 +56,10 @@ overall domain judgement using Cochrane's algorithm:
   - "high": Q1.1 no/PN OR Q1.2 no/PN OR Q1.3 yes/PY.
   - "some_concerns": everything else (including NI in key questions).
 
+CRITICAL OUTPUT RULE: Respond with ONLY the JSON object below. No
+prose, no markdown headings, no commentary, no thinking-aloud. Your
+entire reply must start with `{` and end with `}` and parse as JSON.
+
 Return JSON with exactly this shape:
 
 {
@@ -79,6 +83,10 @@ Return JSON with exactly this shape:
 # would be unreliable. The ``<DOMAIN_SLUG>`` placeholder is substituted
 # at module-load time.
 _JSON_SHAPE_SUFFIX_TEMPLATE = """
+
+CRITICAL OUTPUT RULE: Respond with ONLY the JSON object below. No
+prose, no markdown headings, no commentary, no thinking-aloud. Your
+entire reply must start with `{` and end with `}` and parse as JSON.
 
 Return JSON with exactly this shape:
 
@@ -209,6 +217,10 @@ for the outcome-level overall: "high" if any domain is "high", else
 
 Given the domain judgements, write a 2-3 sentence rationale for the
 overall judgement that names the domains driving the result.
+
+CRITICAL OUTPUT RULE: Respond with ONLY the JSON object below. No
+prose, no markdown headings, no commentary, no thinking-aloud. Your
+entire reply must start with `{` and end with `}` and parse as JSON.
 
 Return JSON:
 {
