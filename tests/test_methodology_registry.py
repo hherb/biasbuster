@@ -379,6 +379,19 @@ class TestStudyDesignDetector:
         }
         assert study_design.detect(paper) == "rct_parallel"
 
+    def test_overall_rob_alone_does_not_imply_rct(self) -> None:
+        """``overall_rob`` is methodology-agnostic — it can hold the
+        worst rating from QUADAS-2 or ROBINS-I too. Without one of the
+        five RoB 2-specific per-domain columns, ``_cochrane_signal``
+        must NOT classify a paper as ``rct_parallel``.
+        """
+        paper = {
+            "title": "",
+            "abstract": "",
+            "overall_rob": "low",  # could be QUADAS-2's overall, not RoB 2's
+        }
+        assert study_design.detect(paper) == "unknown"
+
     def test_empty_paper_is_unknown(self) -> None:
         assert study_design.detect({}) == "unknown"
 

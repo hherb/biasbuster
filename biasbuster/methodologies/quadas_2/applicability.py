@@ -15,14 +15,21 @@ two-tier:
    :func:`biasbuster.methodologies.study_design.detect` slug.
 2. This function is the second filter, giving the methodology a chance
    to refuse based on finer-grained paper state. For the MVP it stays
-   lightweight — refusing non-diagnostic designs with a specific
-   reason. Step 10 prompt-iteration can add heuristics (e.g. detecting
-   "likelihood ratio" / "AUROC" in the abstract to confirm).
+   lightweight — refusing *clearly wrong* designs (RCT, systematic
+   review, cohort, etc.) with a specific reason, but accepting
+   ``unknown`` because the regex/MeSH detector frequently misses
+   diagnostic-accuracy studies that don't use the canonical phrasing.
+   When the user explicitly opts into QUADAS-2 via ``--methodology=quadas_2``
+   we trust that opt-in for ambiguous designs.
 """
 
 from __future__ import annotations
 
+import logging
+
 from biasbuster.methodologies import study_design
+
+logger = logging.getLogger(__name__)
 
 
 def check_applicability(
@@ -32,6 +39,15 @@ def check_applicability(
     del enrichment, full_text_available  # unused in the MVP check
     detected = study_design.detect(paper)
     if detected == "diagnostic_accuracy":
+        return True, ""
+    if detected == "unknown":
+        # Heuristic detector failed; trust the user's --methodology=quadas_2
+        # opt-in. Log so the operator can audit if the design was wrong.
+        logger.warning(
+            "PMID %s: QUADAS-2 accepted on 'unknown' study design — "
+            "verify this is a primary diagnostic-accuracy study.",
+            paper.get("pmid", "?"),
+        )
         return True, ""
     # Common mistakes worth naming: systematic reviews of diagnostic
     # accuracy (which need ROBIS not QUADAS-2) and RCTs (which need RoB 2).

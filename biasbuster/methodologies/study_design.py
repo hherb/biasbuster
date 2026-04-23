@@ -123,12 +123,17 @@ def _cochrane_signal(paper: dict) -> str | None:
     """Return ``'rct_parallel'`` if the paper carries Cochrane RoB 2 ratings.
 
     Cochrane reviewers assess parallel-group RCTs; the presence of non-empty
-    domain ratings (randomization_bias, deviation_bias, etc.) is strong
+    per-domain ratings (randomization_bias, deviation_bias, etc.) is strong
     evidence of that design. Returns None otherwise.
+
+    ``overall_rob`` is intentionally excluded: that column holds the
+    worst rating from any methodology stored on ``papers`` (RoB 2,
+    QUADAS-2, ROBINS-I), so a non-empty value is not RoB 2-specific.
+    Only the five per-domain columns are uniquely RoB 2.
     """
     cochrane_fields = (
         "randomization_bias", "deviation_bias", "missing_outcome_bias",
-        "measurement_bias", "reporting_bias", "overall_rob",
+        "measurement_bias", "reporting_bias",
     )
     for f in cochrane_fields:
         val = paper.get(f)

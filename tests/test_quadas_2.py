@@ -232,6 +232,24 @@ class TestApplicability:
         assert ok is False
         assert "cochrane_rob2" in reason
 
+    def test_unknown_design_accepted_when_user_opted_in(self) -> None:
+        """Heuristic detector returns 'unknown' for many real diagnostic-
+        accuracy papers (e.g. Deng-2024-style salivary glucose studies
+        whose abstracts use 'screening' / 'validation' phrasing rather
+        than 'sensitivity and specificity'). When the user explicitly
+        passes ``--methodology=quadas_2`` we trust that opt-in for
+        ambiguous designs and let the assessor run.
+        """
+        paper = {
+            "pmid": "P1",
+            "title": "A study of biomarker X in disease Y",
+            "abstract": "We measured X and compared with the standard test.",
+            "mesh_terms": [],
+        }
+        ok, reason = check_applicability(paper, {}, True)
+        assert ok is True
+        assert reason == ""
+
     def test_check_or_raise_refuses_cohort(self) -> None:
         paper = {"mesh_terms": ["Cohort Studies"]}
         with pytest.raises(ApplicabilityError):
