@@ -290,8 +290,42 @@ class TestApplicability:
         assert ok is True
         assert reason == ""
 
-    def test_check_or_raise_refuses_cohort(self) -> None:
-        paper = {"mesh_terms": ["Cohort Studies"]}
+    def test_cohort_accepted_for_prospective_diagnostic_studies(self) -> None:
+        """Prospective cohort designs are common for diagnostic-accuracy
+        studies (consecutive enrollment + reference standard); QUADAS-2
+        applies. Trust the user's opt-in.
+        """
+        paper = {"pmid": "P_cohort", "mesh_terms": ["Cohort Studies"]}
+        ok, reason = check_applicability(paper, {}, True)
+        assert ok is True
+        assert reason == ""
+
+    def test_case_control_accepted_with_high_bias_warning(self) -> None:
+        """Case-control diagnostic designs are explicitly addressed by
+        QUADAS-2 Q1.2 ('Was a case-control design avoided?'). Refusing
+        them at the gate would prevent the assessor from doing exactly
+        what the tool was designed for.
+        """
+        paper = {"pmid": "P_cc", "mesh_terms": ["Case-Control Studies"]}
+        ok, reason = check_applicability(paper, {}, True)
+        assert ok is True
+        assert reason == ""
+
+    def test_check_or_raise_refuses_rct(self) -> None:
+        """The applicability gate must still refuse intervention trials —
+        those have their own tool (RoB 2). This is the inverse of the
+        cohort/case-control acceptance: RCTs are *clearly* not diagnostic.
+        """
+        paper = {"mesh_terms": ["Randomized Controlled Trial"]}
+        with pytest.raises(ApplicabilityError):
+            check_or_raise(
+                METHODOLOGY, paper, {},
+                full_text_available=True,
+                detected_design=study_design.detect(paper),
+            )
+
+    def test_check_or_raise_refuses_systematic_review(self) -> None:
+        paper = {"mesh_terms": ["Systematic Review"]}
         with pytest.raises(ApplicabilityError):
             check_or_raise(
                 METHODOLOGY, paper, {},
