@@ -30,6 +30,10 @@ from biasbuster.prompts_v3 import SECTION_EXTRACTION_SYSTEM_PROMPT
 # emit both ratings.
 _JSON_SHAPE_APPLICABILITY = """
 
+CRITICAL OUTPUT RULE: Respond with ONLY the JSON object below. No
+prose, no markdown headings, no commentary, no thinking-aloud. Your
+entire reply must start with `{` and end with `}` and parse as JSON.
+
 Return JSON with exactly this shape:
 
 {{

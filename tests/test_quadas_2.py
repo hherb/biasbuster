@@ -45,6 +45,7 @@ from biasbuster.methodologies.quadas_2.applicability import (
 )
 from biasbuster.methodologies.quadas_2.assessor import (
     QUADAS2Assessor,
+    _loose_parse_json,
     _parse_domain_response,
 )
 from biasbuster.methodologies.quadas_2.prompts import (
@@ -231,6 +232,45 @@ class TestApplicability:
         ok, reason = check_applicability(paper, {}, True)
         assert ok is False
         assert "cochrane_rob2" in reason
+
+    def test_loose_parse_extracts_json_after_prose_preamble(self) -> None:
+        """When the LLM lapses into prose-then-JSON, the brace-balanced
+        scan must still extract the embedded object. Real Sonnet output
+        on PMID 22923999 looked like
+        ``"Looking at... **Q1.1** ... {bias_rating: ...}"``; without this
+        tolerance every domain call retried 3× then aborted the whole
+        assessment.
+        """
+        raw = (
+            "Looking at the study design for Domain 1:\n\n"
+            "**Q1.1** Was a consecutive sample enrolled? Unclear.\n"
+            "**Q1.2** Avoided case-control? No.\n\n"
+            '{"domain": "patient_selection", '
+            '"signalling_answers": {"1.1": "unclear", "1.2": "no", "1.3": "yes"}, '
+            '"bias_rating": "high", "applicability": "low", '
+            '"justification": "Case-control design.", "evidence_quotes": []}'
+        )
+        parsed = _loose_parse_json(raw)
+        assert parsed is not None
+        assert parsed["bias_rating"] == "high"
+        assert parsed["signalling_answers"]["1.2"] == "no"
+
+    def test_loose_parse_handles_string_with_braces(self) -> None:
+        """Brace-tracking must not split inside a string literal — a
+        literal ``"}"`` inside a justification field would otherwise
+        terminate the scan early.
+        """
+        raw = (
+            "Some prose.\n"
+            '{"domain": "patient_selection", '
+            '"signalling_answers": {"1.1": "yes"}, '
+            '"bias_rating": "low", "applicability": "low", '
+            '"justification": "Authors wrote \\"reproducible}\\" results.", '
+            '"evidence_quotes": []}'
+        )
+        parsed = _loose_parse_json(raw)
+        assert parsed is not None
+        assert parsed["bias_rating"] == "low"
 
     def test_unknown_design_accepted_when_user_opted_in(self) -> None:
         """Heuristic detector returns 'unknown' for many real diagnostic-
