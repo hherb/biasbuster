@@ -1,0 +1,19 @@
+# 12 RCTs with RoB 2 expert ground truth from Deng 2024 plyometric review
+# (rating_source = 'cochrane_review_pmid:38760392',
+#  cochrane_review_doi = '10.1038/s41598-024-61905-7')
+# Source: dataset/manual_verification_sets/rob2_deng2024_20260421.csv
+#
+# JATS-cached subset:  32841300, 34059568, 36101416
+# Abstract-only:       all others (cochrane_rob2 needs full text → those will skip)
+16882633
+21878823
+23669821
+24149486
+25978688
+26701117
+27787471
+27998241
+32841300
+34059568
+35719236
+36101416
