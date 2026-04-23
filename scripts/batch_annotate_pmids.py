@@ -144,6 +144,9 @@ async def _run_batch(pmids: list[str], args: argparse.Namespace) -> dict[str, in
     from biasbuster.database import Database
 
     config = Config()
+    if getattr(args, "db", None) is not None:
+        logger.info("Overriding config.db_path: %s -> %s", config.db_path, args.db)
+        config.db_path = str(args.db)
     db = Database(config.db_path)
     db.initialize()
     stats = {"total": len(pmids), "annotated": 0, "skipped": 0, "failed": 0}
@@ -188,6 +191,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--source", type=str, default="manual_import",
         help="Source tag for newly fetched papers not already in the DB. "
              "Default: manual_import.",
+    )
+    p.add_argument(
+        "--db", type=Path, default=None,
+        help="Override config.Config().db_path (e.g. dataset/biasbuster_recovered.db).",
     )
     p.add_argument(
         "--force", action="store_true",
