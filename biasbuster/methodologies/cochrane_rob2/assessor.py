@@ -180,12 +180,19 @@ def _parse_domain_response(
         if coerced is not None:
             answers[str(k)] = coerced
 
+    # Accept the American spelling "judgment" as an alias for the British
+    # "judgement" used in the Cochrane handbook. Sonnet 4.6 occasionally
+    # emits the former despite the prompt schema specifying the latter.
     judgement = _coerce_judgement(blob.get("judgement"))
+    if judgement is None:
+        judgement = _coerce_judgement(blob.get("judgment"))
     if judgement is None:
         logger.warning(
             "PMID %s: RoB 2 domain %s: no valid judgement in response "
-            "(got %r); skipping domain",
-            pmid, domain_slug, blob.get("judgement"),
+            "(judgement=%r, judgment=%r); blob keys=%s; skipping domain",
+            pmid, domain_slug,
+            blob.get("judgement"), blob.get("judgment"),
+            sorted(blob.keys()),
         )
         return None
 

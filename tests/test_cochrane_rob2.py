@@ -492,6 +492,24 @@ class TestDomainResponseParser:
             "definitely not json", "randomization", pmid="T1",
         ) is None
 
+    def test_american_spelling_judgment_accepted(self) -> None:
+        """Sonnet 4.6 on the Deng 2024 run emitted ``"judgment": "low"``
+        (American spelling) despite the prompt schema using the British
+        ``"judgement"``. All 3 cached-JATS papers hit retries on the
+        deviations_from_interventions domain and one aborted outright.
+        Accept both spellings as aliases so this specific model quirk
+        doesn't burn 60-90s of retries per affected domain.
+        """
+        raw = json.dumps({
+            "domain": "randomization",
+            "signalling_answers": {"1.1": "Y", "1.2": "PY", "1.3": "PN"},
+            "judgment": "some_concerns",  # American spelling
+            "justification": "Allocation concealed but deviations present.",
+        })
+        parsed = _parse_domain_response(raw, "randomization", pmid="T1")
+        assert parsed is not None
+        assert parsed.judgement == "some_concerns"
+
     def test_prose_then_json_extracted(self) -> None:
         """Sonnet 4.6 lapsed into prose-then-JSON on the Deng 2024 RoB 2
         run (PMID 32841300, 34059568, 36101416 all aborted on the
