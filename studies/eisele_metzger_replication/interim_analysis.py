@@ -28,7 +28,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "studies/eisele_metzger_replication"))
 
 from sanity_check_kappa import cohen_kappa, raw_agreement  # noqa: E402
 
-DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
+DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 DOMAINS = ("d1", "d2", "d3", "d4", "d5", "overall")
 
 
@@ -144,9 +144,18 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model", required=True)
     p.add_argument("--protocol", required=True, choices=("abstract", "fulltext"))
+    p.add_argument(
+        "--db-path", type=Path, default=DEFAULT_DB_PATH,
+        help=(
+            "SQLite DB to read from. Default is the canonical "
+            "dataset/eisele_metzger_benchmark.db. Point this at a host "
+            "shard (e.g. dataset/eisele_metzger_benchmark.spark.db) to "
+            "peek at results before merging."
+        ),
+    )
     args = p.parse_args()
 
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"file:{args.db_path}?mode=ro", uri=True)
     try:
         coverage_table(conn, args.model, args.protocol)
         label_distribution(conn, args.model, args.protocol, "overall")
