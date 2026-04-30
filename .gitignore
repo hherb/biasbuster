@@ -47,3 +47,7 @@ annotation_evaluation.md
 
 # Git worktrees
 worktrees/
+
+# Third-party research data with unresolved redistribution rights
+# (e.g. Eisele-Metzger 2025 supplementary CSVs — keep local until copyright is clear)
+DATA/
