@@ -48,7 +48,7 @@ from eval_input import (  # noqa: E402
 )
 from eval_ollama import DOMAIN_TO_STAGE, OllamaCallResult, OllamaRunner  # noqa: E402
 
-DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
+DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 
 # Model registry: short label → (Ollama tag, runner kind, "human-friendly" name).
 # The short label is the prefix for source strings in the DB.
@@ -315,6 +315,18 @@ def main() -> int:
         "--ollama-host", default="http://localhost:11434",
         help="Ollama server URL.",
     )
+    parser.add_argument(
+        "--db-path", type=Path, default=DEFAULT_DB_PATH,
+        help=(
+            "SQLite DB to write judgments to. Default is the canonical "
+            "dataset/eisele_metzger_benchmark.db. For multi-host parallel "
+            "runs (e.g. Mac + Spark DGX), point each host at its own "
+            "shard (e.g. dataset/eisele_metzger_benchmark.spark.db) and "
+            "merge afterwards with merge_eval_dbs.py. Each shard must be "
+            "initialised first with build_benchmark_db.py against the "
+            "same EM CSV (output is byte-identical given frozen input)."
+        ),
+    )
     args = parser.parse_args()
 
     if MODEL_REGISTRY[args.model]["runner"] != "ollama":
@@ -329,7 +341,14 @@ def main() -> int:
             print(f"[error] pass {p} not in 1..3", file=sys.stderr)
             return 2
 
-    conn = sqlite3.connect(DB_PATH)
+    if not args.db_path.exists():
+        print(f"[error] DB not found at {args.db_path}. Run "
+              "build_benchmark_db.py first to initialise it with the EM "
+              "RCTs and Cochrane judgments.", file=sys.stderr)
+        return 2
+    print(f"[db] writing to {args.db_path}")
+
+    conn = sqlite3.connect(args.db_path)
     runner = OllamaRunner(
         model_id=MODEL_REGISTRY[args.model]["model_id"],
         host=args.ollama_host,

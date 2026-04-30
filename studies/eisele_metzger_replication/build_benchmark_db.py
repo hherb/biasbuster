@@ -521,6 +521,22 @@ def write_spotcheck(conn: sqlite3.Connection, em_rows: list[EMRow], n: int = 10)
 # --- main ---------------------------------------------------------------
 
 def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--db-path", type=Path, default=DB_PATH,
+        help=(
+            "Output SQLite DB path. Default is the canonical "
+            "dataset/eisele_metzger_benchmark.db. For multi-host parallel "
+            "evaluation, each host should build its own shard, e.g. "
+            "dataset/eisele_metzger_benchmark.spark.db. The build is "
+            "deterministic given the frozen EM CSV — every host's shard "
+            "starts byte-identical for benchmark_rct and benchmark_judgment."
+        ),
+    )
+    args = parser.parse_args()
+    db_path = args.db_path
+
     print(f"[load] EM CSV: {EM_CSV}")
     em_rows = load_em_rows()
     print(f"[load] {len(em_rows)} EM rows")
@@ -529,9 +545,9 @@ def main() -> None:
     acq = load_acquisition_metadata()
     print(f"[load] {len(acq)} per-RCT metadata.json files")
 
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    print(f"[build] {DB_PATH}")
-    conn = sqlite3.connect(DB_PATH)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[build] {db_path}")
+    conn = sqlite3.connect(db_path)
     try:
         stats = populate(conn, em_rows, acq)
         print(f"[stats] {stats['rcts']} RCTs, {stats['judgments_total']} judgment rows")
