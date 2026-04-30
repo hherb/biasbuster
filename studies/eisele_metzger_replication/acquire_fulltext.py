@@ -85,7 +85,8 @@ USER_AGENT = "biasbuster-replication-study/1.0 (mailto:horst.herb@gmail.com)"
 _PMID_RE = re.compile(r"\bPMID[:\s]*(\d{6,9})\b", re.IGNORECASE)
 _DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
 _NCT_RE = re.compile(r"\bNCT\d{8}\b", re.IGNORECASE)
-_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+# Allow trailing disambiguator letter (e.g. "2013a") after the 4-digit year.
+_YEAR_RE = re.compile(r"\b(19|20)\d{2}(?:[a-z])?\b")
 
 _PARTICLES = {"de", "del", "della", "di", "da", "do", "dos", "du",
               "el", "la", "le", "van", "von", "der", "den", "ter",
@@ -142,11 +143,15 @@ def extract_identifiers(row: EMRow) -> None:
     if row.rct_author:
         for tok in row.rct_author.replace(",", " ").split():
             tok_lc = tok.lower().rstrip(".")
-            if len(tok_lc) >= 3 and not tok_lc.isdigit() and tok_lc not in _PARTICLES:
+            # Accept ≥2-char tokens to allow Chinese/Korean-style surnames
+            # (Hu, Ye, Wu, Li, ...). Filter pure digits and Latin particles.
+            if len(tok_lc) >= 2 and not tok_lc.isdigit() and tok_lc not in _PARTICLES:
                 row.first_author_surname = tok.rstrip(",.")
                 break
     if m := _YEAR_RE.search(row.rct_author or row.rct_ref):
-        row.publication_year = m.group(0)
+        # Strip any trailing disambiguator letter — PubMed [pdat] takes the year only.
+        year_str = m.group(0)
+        row.publication_year = year_str[:4] if year_str[-1].isalpha() else year_str
 
 
 # --- Network helpers -----------------------------------------------------
@@ -331,9 +336,17 @@ def _title_keywords(rct_ref: str, surname: str) -> list[str]:
              "double", "blind", "placebo", "patients", "effect", "effects",
              "treatment", "compared", "comparison", "versus", "abstract",
              "background", "methods", "results", "conclusion", "conclusions"}
-    # Drop the author-list segment (everything up to and including the first ". ").
-    # If the citation has no ". " (e.g. malformed), fall through to the original text.
-    body = rct_ref.split(". ", 1)[1] if ". " in rct_ref else rct_ref
+    # Drop the author-list segment. The author list typically ends with one of:
+    #   "et al."   (long lists; sometimes with no trailing space, e.g. "et al.Efficacy")
+    #   ". "       (period followed by whitespace before the title)
+    # We try "et al." first because some citations omit the space after it,
+    # which would defeat the ". " split.
+    if "et al." in rct_ref:
+        body = rct_ref.split("et al.", 1)[1].lstrip()
+    elif ". " in rct_ref:
+        body = rct_ref.split(". ", 1)[1]
+    else:
+        body = rct_ref
     words = re.findall(r"[A-Za-z]{6,}", body.lower())
     seen: set[str] = set()
     out: list[str] = []
