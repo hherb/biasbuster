@@ -1,0 +1,276 @@
+PMID:37762773 | PMC:PMC10531538 | DOI:10.3390/jcm12185832
+Date:{"year":"2023","month":"09","day":"07"} | Journal:{"title":"Journal of clinical medicine","iso_abbreviation":"J Clin Med"}
+Title: Effectiveness and Consequences of Direct Access in Physiotherapy: A Systematic Review.
+Authors: Gallotti M; Campagnola B; Cocchieri A (+3 more)
+Abstract: Direct access in physiotherapy (DAPT) occurs when a patient has the ability to self-refer to physical therapy without physician referral. This model of care in musculoskeletal diseases (MSDs) has shown better outcomes than the traditional-based medical model of care that requires physician referral to access physiotherapist services. This traditional physician referral often results in a delay in care. Unfortunately, DAPT is still not permitted in many countries.The primary objective of this systematic review was to compare the effectiveness, safety, and the accuracy of DAPT compared to the ph
+---
+PMID:38597256 | PMC:PMC11005084 | DOI:10.1002/14651858.CD015636.pub2
+Date:{"year":"2024","month":"04","day":"10"} | Journal:{"title":"The Cochrane database of systematic reviews","iso_abbreviation":"Cochrane Database Syst Rev"}
+Title: Wolbachia-carrying Aedes mosquitoes for preventing dengue infection.
+Authors: Fox T; Sguassero Y; Chaplin M (+4 more)
+Abstract: Dengue is a global health problem of high significance, with 3.9 billion people at risk of infection. The geographic expansion of dengue virus (DENV) infection has resulted in increased frequency and severity of the disease, and the number of deaths has increased in recent years. Wolbachia,an intracellular bacterial endosymbiont, has been under investigation for several years as a novel dengue-control strategy. Some dengue vectors (Aedes mosquitoes) can be transinfected with specific strains of Wolbachia, which decreases their fitness (ability to survive and mate) and their ability to reproduc
+---
+PMID:38504373 | PMC:PMC10949788 | DOI:10.1186/s13643-024-02467-7
+Date:{"year":"2024","month":"03","day":"19"} | Journal:{"title":"Systematic reviews","iso_abbreviation":"Syst Rev"}
+Title: The effects of manual therapy in pain and safety of patients with knee osteoarthritis: a systematic review and meta-analysis.
+Authors: Zhu B; Ba H; Kong L (+4 more)
+Abstract: Manual therapy (MT) is frequently used in combination with management of osteoarthritis of the knee, but there is no consensus on the exact efficacy of this treatment strategy. The purpose of this systematic review and meta-analysis was to evaluate the pain relief and safety of MT for treatment of knee osteoarthritis (KOA).  Randomized controlled trials evaluating MT in patients with KOA in major English and Chinese journals were searched in the following databases: Wanfang, China Science and Technology Journal Database (VIP database), China National Knowledge Infrastructure (CNKI), PubMed, Em
+---
+PMID:38887420 | PMC:PMC11180068 | DOI:10.1007/s40670-024-02034-8
+Date:{"year":"2024","month":"04","day":"05"} | Journal:{"title":"Medical science educator","iso_abbreviation":"Med Sci Educ"}
+Title: Assessing Risk of Bias Using ChatGPT-4 and Cochrane ROB2 Tool.
+Authors: Trevi&#xf1;o-Juarez AS
+Abstract: In the world of evidence-based medicine, systematic reviews have long been the gold standard. But they have had a problem-they take forever. That is where ChatGPT-4 and automation come in. They are like a breath of fresh air, speeding things up and making the process more reliable. ChatGPT-4 is like having a super-smart assistant who can quickly assess bias risk in research studies. It is a game-changer, especially in a field where getting the latest research quickly can mean life or death for patients. Sure, it is not perfect, and we still need humans to keep an eye on things and ensure every
+---
+PMID:38345071 | PMC:PMC10860379 | DOI:10.1002/14651858.CD013763.pub3
+Date:{"year":"2024","month":"02","day":"12"} | Journal:{"title":"The Cochrane database of systematic reviews","iso_abbreviation":"Cochrane Database Syst Rev"}
+Title: Erector spinae plane block for postoperative pain.
+Authors: Oostvogels L; Weibel S; Mei&#xdf;ner M (+4 more)
+Abstract: Acute and chronic postoperative pain are important healthcare problems, which can be treated with a combination of opioids and regional anaesthesia. The erector spinae plane block (ESPB) is a new regional anaesthesia technique, which might be able to reduce opioid consumption and related side effects.  To compare the analgesic effects and side effect profile of ESPB against no block, placebo block or other regional anaesthetic techniques.  We searched the Cochrane Central Register of Controlled Trials (CENTRAL), MEDLINE, Embase and Web of Science on 4 January 2021 and updated the search on 3 J
+---
+PMID:34537386 | PMC:- | DOI:10.1016/j.jclinepi.2021.09.021
+Date:{"year":"2021","month":"09","day":"16"} | Journal:{"title":"Journal of clinical epidemiology","iso_abbreviation":"J Clin Epidemiol"}
+Title: Reliability of the revised Cochrane risk-of-bias tool for randomised trials (RoB2) improved with the use of implementation instruction.
+Authors: Minozzi S; Dwan K; Borrelli F (+1 more)
+Abstract: to assess the inter-rater reliability (IRR) of the revised Cochrane risk-of-bias tool for randomised trials (RoB2).  Four raters independently applied RoB2 on critical and important outcomes of individually randomized parallel-group trials (RCTs) included in the Cochrane Review "Cannabis and cannabinoids for people with multiple sclerosis." We calculated Fleiss' Kappa for multiple raters and time to complete the tool; we performed a calibration exercise on five studies, then we developed an implementation document (ID) specific for the condition, and the intervention addressed by the review wi
+---
+PMID:35852769 | PMC:- | DOI:10.1007/s40279-022-01726-8
+Date:{"year":"2022","month":"07","day":"19"} | Journal:{"title":"Sports medicine (Auckland, N.Z.)","iso_abbreviation":"Sports Med"}
+Title: Recreational Football and Bone Health: A Systematic Review and Meta-analysis.
+Authors: Milanovi&#x107; Z; &#x10c;ovi&#x107; N; Helge EW (+2 more)
+Abstract: Recreational football is an intense, versatile form of exercise with multiple high- and odd-impact actions. Recreational football is therefore hypothesized to be suitable for bone modeling and bone health.  The aim of the present systematic review and meta-analysis was to evaluate the effects of recreational football on bone mineral density (BMD), bone mineral content (BMC) and bone turnover markers (BTM).  Systematic review and meta-analysis.  MEDLINE, PubMed, SPORTDiscus, Web of Science, Cumulative Index to Nursing and Allied Health Literature (CINAHL) and Google Scholar were searched prior 
+---
+PMID:35016613 | PMC:PMC8753859 | DOI:10.1186/s12877-021-02656-2
+Date:{"year":"2022","month":"01","day":"11"} | Journal:{"title":"BMC geriatrics","iso_abbreviation":"BMC Geriatr"}
+Title: Systematic review and meta-analysis of clinical effectiveness of self-management interventions in Parkinson's disease.
+Authors: Pigott JS; Kane EJ; Ambler G (+2 more)
+Abstract: Parkinson's disease is a complex neurodegenerative condition with significant impact on quality of life (QoL), wellbeing and function. The objective of this review is to evaluate the clinical effectiveness of self-management interventions for people with Parkinson's disease, taking a broad view of self-management and considering effects on QoL, wellbeing and function.  Systematic searches of four databases (MEDLINE, Embase, PsycINFO, Web of Science) were conducted for studies evaluating self-management interventions for people with Parkinson's disease published up to 16th November 2020. Origin
+---
+PMID:33073552 | PMC:- | DOI:10.23736/S0031-0808.20.04024-0
+Date:{"year":"2020","month":"10","day":"19"} | Journal:{"title":"Panminerva medica","iso_abbreviation":"Panminerva Med"}
+Title: Repurposing of drugs for COVID-19: a systematic review and meta-analysis.
+Authors: Kotecha P; Light A; Checcucci E (+5 more)
+Abstract: The aim of this systematic review was to evaluate the data currently available regarding the repurposing of different drugs for COVID-19 treatment. Participants with suspected or diagnosed COVID-19 were included in this study. The interventions that have been considered were repurposed drugs and comparators that included standard of care treatment or placebo.  We searched Ovid-MEDLINE, EMBASE, Cochrane library, clinical trial registration site in the UK(NIHR), Europe (clinicaltrialsregister.eu), US (ClinicalTrials.gov) and internationally (isrctn.com), and reviewed the reference lists of artic
+---
+PMID:33919443 | PMC:PMC8122620 | DOI:10.3390/ijms22094347
+Date:{"year":"2021","month":"04","day":"21"} | Journal:{"title":"International journal of molecular sciences","iso_abbreviation":"Int J Mol Sci"}
+Title: Mitochondrial Bioenergetic, Photobiomodulation and Trigeminal Branches Nerve Damage, What's the Connection? A Review.
+Authors: Ravera S; Colombo E; Pasquale C (+4 more)
+Abstract: Injury of the trigeminal nerve in oral and maxillofacial surgery can occur. Schwann cell mitochondria are regulators in the development, maintenance and regeneration of peripheral nerve axons. Evidence shows that after the nerve injury, mitochondrial bioenergetic dysfunction occurs and is associated with pain, neuropathy and nerve regeneration deficit. A challenge for research is to individuate new therapies able to normalise mitochondrial and energetic metabolism to aid nerve recovery after damage. Photobiomodulation therapy can be an interesting candidate, because it is a technique involving
+---
+PMID:37907014 | PMC:- | DOI:10.1016/j.ijmedinf.2023.105263
+Date:{"year":"2023","month":"10","day":"14"} | Journal:{"title":"International journal of medical informatics","iso_abbreviation":"Int J Med Inform"}
+Title: Effects of online support and social media communities on gestational diabetes: A systematic review.
+Authors: Cheng Z; Hao H; Tsofliou F (+2 more)
+Abstract: Gestational diabetes mellitus (GDM) is a common complication in pregnancy that can lead to negative maternal and fetal outcomes. Online support interventions have been suggested as a potential tool to improve the management of GDM.  This systematic review aimed to summarize the effectiveness of social media and online support interventions for the management of GDM.  We conducted a thorough systematic search across Web of Science, Scopus, and PubMed, following PRISMA guidelines, and supplemented it with a manual search. Our results included both qualitative and quantitative research. We rigoro
+---
+PMID:33244728 | PMC:- | DOI:10.1007/s40263-020-00773-x
+Date:{"year":"2020","month":"11","day":"26"} | Journal:{"title":"CNS drugs","iso_abbreviation":"CNS Drugs"}
+Title: Cannabinoids in the Treatment of Insomnia Disorder: A Systematic Review and Meta-Analysis.
+Authors: Bhagavan C; Kung S; Doppen M (+5 more)
+Abstract: Insomnia is associated with significant comorbidity, disability and impact on quality of life and, despite advances in pharmacotherapy and psychotherapy, remains a significant burden to society. Cannabinoids are gaining acceptance for use as medicines in the treatment of insomnia disorder.  We conducted a systematic review and meta-analysis to evaluate the efficacy of cannabinoids in the treatment of insomnia disorder.  We performed a systematic review of the PubMed, Cochrane Library, MEDLINE, and Cumulative Index to Nursing and Allied Health Literature Complete databases from inception to 5 D
+---
+PMID:33098745 | PMC:- | DOI:10.1111/andr.12927
+Date:{"year":"2020","month":"11","day":"14"} | Journal:{"title":"Andrology","iso_abbreviation":"Andrology"}
+Title: Medical, non-invasive, and minimally invasive treatment for Peyronie's disease: A systematic review.
+Authors: El-Sakka AI
+Abstract: The treatment of Peyronie's disease (PD) remains a dilemma as the true pathogenesis of PD remains an enigma. Consequently, new molecules and therapies continue to evolve. The safety and efficacy of conservative treatment for PD have not yet established.  To provide the available information of the status of conservative therapy for PD.  A systematic literature search was conducted using PubMed, EMBASE, and the Cochrane Library for English-language journal articles between January 2000 and July 2019, using the terms "Conservative treatment for PD", "medical treatment for PD", "non-invasive ther
+---
+PMID:36517098 | PMC:PMC9756173 | DOI:10.1136/bmjopen-2022-062469
+Date:{"year":"2022","month":"12","day":"14"} | Journal:{"title":"BMJ open","iso_abbreviation":"BMJ Open"}
+Title: Impact of intrawork rest breaks on doctors' performance and well-being: systematic review.
+Authors: O'Neill A; Baldwin D; Cortese S (+1 more)
+Abstract: To summarise evidence on intrawork breaks and their associated effect on doctors' well-being and/or performance at work.  Systematic review following Preferred Reporting Items for Systematic Reviews and Meta-Analyses 2020 statement guidelines DATA SOURCES: Embase, PubMed, Web of Science (Core Collection) and PsychINFO were systematically searched on 6 June 2021.  No restrictions were placed on language, study design or date of publication.  Methodological quality was appraised using Cochrane's Risk of Bias (ROB-2), Cochrane's Risk of Bias in Non-randomised Studies (ROBINS-I), and the Johanna B
+---
+PMID:38057883 | PMC:PMC10702000 | DOI:10.1186/s13643-023-02389-w
+Date:{"year":"2023","month":"12","day":"07"} | Journal:{"title":"Systematic reviews","iso_abbreviation":"Syst Rev"}
+Title: Inter-rater reliability of risk of bias tools for non-randomized studies.
+Authors: Kalaycioglu I; Rioux B; Briard JN (+5 more)
+Abstract: There is limited knowledge on the reliability of risk of bias (ROB) tools for assessing internal validity in systematic reviews of exposure and frequency studies. We aimed to identify and then compare the inter-rater reliability (IRR) of six commonly used tools for frequency (Loney scale, Gyorkos checklist, American Academy of Neurology [AAN] tool) and exposure (Newcastle-Ottawa scale, SIGN50 checklist, AAN tool) studies.  Six raters independently assessed the ROB of 30 frequency and 30 exposure studies using the three respective ROB tools. Articles were rated as low, intermediate, or high ROB
+---
+PMID:39274540 | PMC:PMC11396360 | DOI:10.3390/jcm13175327
+Date:{"year":"2024","month":"09","day":"09"} | Journal:{"title":"Journal of clinical medicine","iso_abbreviation":"J Clin Med"}
+Title: Effectiveness of Laser Therapy in Treatment of Temporomandibular Joint and Muscle Pain.
+Authors: Buduru S; Oprea DM; Manziuc MM (+2 more)
+Abstract: Temporomandibular joint disorders (TMDs) express a condition derived from a broad spectrum of etiological factors and clinical manifestations. Many treatment options have been developed for TMDs; nevertheless, conservative and non-invasive approaches ought to be prioritized. Laser therapy is an effective treatment for pain management due to its non-invasive nature and capacity for tissue regeneration. This review aimed at bringing an overview of the present evidence regarding the efficiency of laser therapy on myofascial or temporomandibular joint disorders pain.The search was conducted in fou
+---
+PMID:28757720 | PMC:PMC5442897 | DOI:10.1016/j.tcmj.2016.04.006
+Date:{"year":"2016","month":"06","day":"21"} | Journal:{"title":"Tzu chi medical journal","iso_abbreviation":"Tzu Chi Med J"}
+Title: Validity and reliability of swallowing screening tools used by nurses for dysphagia: A systematic review.
+Authors: Jiang JL; Fu SY; Wang WH (+1 more)
+Abstract: Dysphagia following neurological impairment increases the risk of dehydration, malnutrition, aspiration pneumonia, and even death. Screening for dysphagia has been reported to change negative outcomes. This review evaluated the validity and reliability of measurement tools for screening dysphagia in patients with neurological disorders to identify a feasible tool that can be used by nurses. Electronic databases were searched for studies from 1992 to 2015 related to dysphagia screening measurements. The search was applied to the Pubmed, CINAHL, Cochrane, Medline, EBSCO host, and CEPS + CETD dat
+---
+PMID:35585618 | PMC:PMC9118621 | DOI:10.1186/s12903-022-02210-5
+Date:{"year":"2022","month":"05","day":"18"} | Journal:{"title":"BMC oral health","iso_abbreviation":"BMC Oral Health"}
+Title: Tooth retention, health, and quality of life in older adults: a scoping review.
+Authors: Atanda AJ; Livinski AA; London SD (+4 more)
+Abstract: This scoping review describes the relationship between tooth retention, health, and quality of life in older adults.  Seven databases were searched for English language articles for subjects &#x2265;&#x2009;65 y from 1981 to 2021. Exposure was tooth retention (&#x2265;&#x2009;20), and outcomes were general/systemic health and quality of life. Methodological quality was assessed using the Newcastle-Ottawa Scale and Cochrane Risk of Bias 2.0 tool.  140 articles were included, only four were randomized trials. Inter-rater agreement (&#x3ba;) regarding study inclusion was 0.924. Most were assessed
+---
+PMID:35863649 | PMC:- | DOI:10.1016/j.wneu.2022.07.043
+Date:{"year":"2022","month":"07","day":"19"} | Journal:{"title":"World neurosurgery","iso_abbreviation":"World Neurosurg"}
+Title: Critical Appraisal of Randomized Controlled Trials on Unruptured Brain Arteriovenous Malformations.
+Authors: Tasiou A; Brotis AG; Tzerefos C (+10 more)
+Abstract: Brain arteriovenous malformations management remains controversial despite the numerous, available treatment options. Randomized controlled trials (RCTs) theoretically provide the strongest evidence for the assessment of any therapeutic intervention. However, poorly designed RCTs may be associated with biases, inaccuracies, and misleading conclusions. The purpose of our study is to assess reporting transparency and methodological quality of the existing RCTs.  A search was performed in the PubMed, Scopus, Embase, clinicaltrials.gov, and Cochrane databases. The search was limited to English lit
+---
+PMID:32813559 | PMC:- | DOI:10.1080/09638288.2020.1804626
+Date:{"year":"2020","month":"08","day":"19"} | Journal:{"title":"Disability and rehabilitation","iso_abbreviation":"Disabil Rehabil"}
+Title: The diagnostic value of Red Flags in thoracolumbar pain: a systematic review.
+Authors: Maselli F; Palladino M; Barbari V (+3 more)
+Abstract: Red Flags (RFs) are signs and symptoms related to the screening of serious underlying pathologies mimicking a musculoskeletal pain. The current literature wonders about the usefulness of RFs, due to high false-positive rates and low diagnostic accuracy. The aims of this systematic review are: (a) to identify and (b) to evaluate the most important RFs that could be found by a health care professional during the assessment of patients with low and upper back pain (named as thoracolumbar pain (TLP)) to screen serious pathologies.  A systematic review of the literature was conducted. Searches were
+---
+PMID:32051035 | PMC:PMC7017505 | DOI:10.1186/s13643-020-01291-z
+Date:{"year":"2020","month":"02","day":"12"} | Journal:{"title":"Systematic reviews","iso_abbreviation":"Syst Rev"}
+Title: Inter-rater reliability and validity of risk of bias instrument for non-randomized studies of exposures: a study protocol.
+Authors: Jeyaraman MM; Al-Yousif N; Robson RC (+8 more)
+Abstract: A new tool, "risk of bias (ROB) instrument for non-randomized studies of exposures (ROB-NRSE)," was recently developed. It is important to establish consistency in its application and interpretation across review teams. In addition, it is important to understand if specialized training and guidance will improve the reliability in the results of the assessments. Therefore, the objective of this cross-sectional study is to establish the inter-rater reliability (IRR), inter-consensus reliability (ICR), and concurrent validity of the new ROB-NRSE tool. Furthermore, as this is a relatively new tool
+---
+PMID:30981833 | PMC:- | DOI:10.1016/j.jclinepi.2019.04.001
+Date:{"year":"2019","month":"04","day":"11"} | Journal:{"title":"Journal of clinical epidemiology","iso_abbreviation":"J Clin Epidemiol"}
+Title: Risk of bias in nonrandomized studies of interventions showed low inter-rater reliability and challenges in its application.
+Authors: Minozzi S; Cinquini M; Gianola S (+3 more)
+Abstract: To assess the inter-rater reliability (IRR) and usability of the risk of bias in nonrandomized studies of interventions tool (ROBINS-I).  We designed a cross-sectional study. Five raters independently applied ROBINS-I to the nonrandomized cohort studies in three systematic reviews on vaccines, opiate abuse, and rehabilitation. We calculated Fleiss' Kappa for multiple raters as a measure of IRR and discussed the application of ROBINS-I to identify difficulties and possible reasons for disagreement.  Thirty one studies were included (195 evaluations). IRRs were slight for overall judgment (IRR 0
+---
+PMID:30826034 | PMC:- | DOI:10.1016/j.ajodo.2018.10.015
+Date:{"year":"2019","month":"Mar"} | Journal:{"title":"American journal of orthodontics and dentofacial orthopedics : official publication of the American Association of Orthodontists, its constituent societies, and the American Board of Orthodontics","iso_abbreviation":"Am J Orthod Dentofacial Orthop"}
+Title: Orthodontic mechanotherapies and their influence on external root resorption: A systematic review.
+Authors: Currell SD; Liaw A; Blackmore Grant PD (+2 more)
+Abstract: This systematic review assesses the literature regarding the association between orthodontic tooth movement and external root resorption. By determining the evidence level supporting the association, the results could provide clinical evidence for minimizing the deleterious effect of orthodontic tooth movement.  Electronic databases, including MEDLINE, PubMed, Embase, Scopus, CINAHL, Cochrane Library, and LILACS, were searched up to February 2018, with hand searching of selected orthodontic journals undertaken to identify any preelectronic publications. Searches were undertaken with no restric
+---
+PMID:32472714 | PMC:- | DOI:10.1111/jopr.13206
+Date:{"year":"2020","month":"06","day":"11"} | Journal:{"title":"Journal of prosthodontics : official journal of the American College of Prosthodontists","iso_abbreviation":"J Prosthodont"}
+Title: Methodological Quality of Systematic Reviews Relating to Performance of All-Ceramic Implant Abutments, Frameworks, and Restorations.
+Authors: Al-Rabab'ah MA; AlTarawneh S; Jarad FD (+1 more)
+Abstract: To assess the methodological quality of published systematic reviews relating to all ceramic implant frameworks, abutments and restorations.  Published systematic reviews relating to all ceramic implant restorations for single tooth and multiple teeth replacements were retrieved to assess their methodological qualities. Sixteen systematic reviews were included for methodological quality assessment by two independent assessors using AMSTAR-2 critical appraisal tool. Inter-rater agreement was assessed using the weighted Cohen's Kappa statistic.  Most systematic reviews included randomized clinic
+---
+PMID:23680535 | PMC:- | DOI:10.1016/j.archger.2013.04.009
+Date:{"year":"2013","month":"05","day":"13"} | Journal:{"title":"Archives of gerontology and geriatrics","iso_abbreviation":"Arch Gerontol Geriatr"}
+Title: Assessment of people with cognitive impairment and hip fracture: a systematic review and meta-analysis.
+Authors: Smith T; Hameed Y; Cross J (+2 more)
+Abstract: This study systematically assesses the literature pertaining to the diagnostic test accuracy of assessment instruments to evaluate patients following hip fracture surgery who present with cognitive impairment. A systematic review and meta-analysis was performed. Studies assessing the reliability, validity, sensitivity or specificity of assessment tools for patients following hip fracture who were cognitively impaired were included. An assessment of published (MEDLINE, EMBASE, CINHAL, AMED, Cochrane library, PEDro) and unpublished/trial registry (OpenGrey, the WHO International Clinical Trials 
+---
+PMID:27160280 | PMC:PMC4862216 | DOI:10.1186/s13643-016-0259-8
+Date:{"year":"2016","month":"05","day":"10"} | Journal:{"title":"Systematic reviews","iso_abbreviation":"Syst Rev"}
+Title: Evaluation of the Cochrane tool for assessing risk of bias in randomized clinical trials: overview of published comments and analysis of user practice in Cochrane and non-Cochrane reviews.
+Authors: J&#xf8;rgensen L; Paludan-M&#xfc;ller AS; Laursen DR (+5 more)
+Abstract: The Cochrane risk of bias tool for randomized clinical trials was introduced in 2008 and has frequently been commented on and used in systematic reviews. We wanted to evaluate the tool by reviewing published comments on its strengths and challenges and by describing and analysing how the tool is applied to both Cochrane and non-Cochrane systematic reviews.  A review of published comments (searches in PubMed, The Cochrane Methodology Register and Google Scholar) and an observational study (100 Cochrane and 100 non-Cochrane reviews from 2014).  Our review included 68 comments, 15 of which were c
+---
+PMID:30389608 | PMC:- | DOI:10.1016/j.jpainsymman.2018.10.504
+Date:{"year":"2018","month":"10","day":"30"} | Journal:{"title":"Journal of pain and symptom management","iso_abbreviation":"J Pain Symptom Manage"}
+Title: The Effectiveness of Music Therapy for Terminally Ill Patients: A Meta-Analysis and Systematic Review.
+Authors: Gao Y; Wei Y; Yang W (+4 more)
+Abstract: The quality of death has increasingly raised concern because of the physical and psychological suffering of patients with advanced disease. Music therapy has been widely used in palliative care; however, its physical and mental effectiveness remains unclear.  To assess the effectiveness of music therapy during palliative care in improving physiology and psychology outcomes.  Randomized controlled trials evaluating music therapy for terminally ill patients were searched and included from inception up to April 25, 2018. The quality of the studies was assessed using the risk of bias tool recommen
+---
+PMID:31031179 | PMC:- | DOI:10.1016/j.sleh.2019.03.001
+Date:{"year":"2019","month":"04","day":"26"} | Journal:{"title":"Sleep health","iso_abbreviation":"Sleep Health"}
+Title: Does evidence support "banking/extending sleep" by shift workers to mitigate fatigue, and/or to improve health, safety, or performance? A systematic review.
+Authors: Patterson PD; Ghen JD; Antoon SF (+5 more)
+Abstract: Sleep deprivation is common in shift work occupations, including safety-sensitive occupations. While extending sleep prior to scheduled shifts (i.e., "banking sleep") may be an intuitive strategy for fatigue mitigation, the evidence behind this strategy is unclear.  We performed a systematic review of literature retrieved in searches of four databases. We examined agreement between two independent screeners, abstracted key findings, reviewed and synthesized findings, and evaluated the quality of evidence using the Grading of Recommendations, Assessment, Development, and Evaluation (GRADE) meth
+---
+PMID:26177494 | PMC:PMC4780895 | DOI:10.3310/hta19520
+Date:{"year":"2015","month":"Jul"} | Journal:{"title":"Health technology assessment (Winchester, England)","iso_abbreviation":"Health Technol Assess"}
+Title: Clinical effectiveness and cost-effectiveness of parenting interventions for children with severe attachment problems: a systematic review and meta-analysis.
+Authors: Wright B; Barry M; Hughes E (+16 more)
+Abstract: Services have variable practices for identifying and providing interventions for 'severe attachment problems' (disorganised attachment patterns and attachment disorders). Several government reports have highlighted the need for better parenting interventions in at-risk groups. This report was commissioned to evaluate the clinical effectiveness and cost-effectiveness of parenting interventions for children with severe attachment problems (the main review). One supplementary review explored the evaluation of assessment tools and a second reviewed 10-year outcome data to better inform health econ
+---
+PMID:32562833 | PMC:- | DOI:10.1016/j.jclinepi.2020.06.015
+Date:{"year":"2020","month":"06","day":"18"} | Journal:{"title":"Journal of clinical epidemiology","iso_abbreviation":"J Clin Epidemiol"}
+Title: The revised Cochrane risk of bias tool for randomized trials (RoB 2) showed low interrater reliability and challenges in its application.
+Authors: Minozzi S; Cinquini M; Gianola S (+2 more)
+Abstract: The objective of the study is to assess the interrater reliability (IRR) and usability of the revised Cochrane risk of bias tool for randomized trials (RoB 2).  This is a cross-sectional study. Four raters independently applied RoB 2 on the primary outcome of a random sample of individually randomized parallel-group trials (randomized controlled trials (RCTs)). We calculated the Fleiss' kappa for multiple raters, the time needed to complete the tool, and discussed the application of RoB 2 to identify difficulties and reasons for disagreement.  A total of 70 outcomes from 70 RCTs were included.
+---
+PMID:32419337 | PMC:- | DOI:10.1111/1756-185X.13829
+Date:{"year":"2020","month":"05","day":"17"} | Journal:{"title":"International journal of rheumatic diseases","iso_abbreviation":"Int J Rheum Dis"}
+Title: Effect of TNF-inhibitor therapy on spinal structural progression in ankylosing spondylitis patients: A systematic review and meta-analysis.
+Authors: Ajrawat P; Touma Z; Sari I (+3 more)
+Abstract: To review the effect of tumor necrosis factor-alpha inhibitor (TNFi) therapies on radiographic progression in ankylosing spondylitis (AS) patients as evaluated by the modified Stoke Ankylosing Spondylitis Spine Score (mSASSS). Pubmed, MEDLINE, EMBASE, and the Cochrane Library databases were searched from inception to August 2019. All comparative and non-comparative studies that evaluated the clinical effectiveness of TNFi on radiographic progression as assessed by mSASSS change at a minimum follow-up of 1&#xa0;year were included. The Newcastle-Ottawa Scale and Cochrane Collaboration Risk of Bi
+---
+PMID:30606262 | PMC:PMC6317181 | DOI:10.1186/s13643-018-0925-0
+Date:{"year":"2019","month":"01","day":"03"} | Journal:{"title":"Systematic reviews","iso_abbreviation":"Syst Rev"}
+Title: The Evidence Project risk of bias tool: assessing study rigor for both randomized and non-randomized intervention studies.
+Authors: Kennedy CE; Fonner VA; Armstrong KA (+4 more)
+Abstract: Different tools exist for assessing risk of bias of intervention studies for systematic reviews. We present a tool for assessing risk of bias across both randomized and non-randomized study designs. The tool was developed by the Evidence Project, which conducts systematic reviews and meta-analyses of behavioral interventions for HIV in low- and middle-income countries.  We present the eight items of the tool and describe considerations for each and for the tool as a whole. We then evaluate reliability of the tool by presenting inter-rater reliability for 125 selected studies from seven publish
+---
+PMID:39056432 | PMC:- | DOI:10.23736/S2724-5683.24.06568-2
+Date:{"year":"2024","month":"07","day":"26"} | Journal:{"title":"Minerva cardiology and angiology","iso_abbreviation":"Minerva Cardiol Angiol"}
+Title: Using ChatGPT to perform a systematic review: a tutorial.
+Authors: Teperikidis L; Boulmpou A; Papadopoulos C (+1 more)
+Abstract: This tutorial provides a comprehensive guide on leveraging ChatGPT for systematic literature reviews, leveraging actual applications in cardiovascular research. Systematic reviews, while essential, are resource-intensive, and ChatGPT offers a potential solution to streamline the process. The tutorial covers the entire review process, from preparation to finalization. In the preparation phase, ChatGPT assists in defining research questions and generating search strings. During the screening phase, ChatGPT can efficiently screen titles and abstracts, processing multiple abstracts simultaneously.
+---
+PMID:36981544 | PMC:PMC10048148 | DOI:10.3390/healthcare11060887
+Date:{"year":"2023","month":"03","day":"19"} | Journal:{"title":"Healthcare (Basel, Switzerland)","iso_abbreviation":"Healthcare (Basel)"}
+Title: ChatGPT Utility in Healthcare Education, Research, and Practice: Systematic Review on the Promising Perspectives and Valid Concerns.
+Authors: Sallam M
+Abstract: ChatGPT is an artificial intelligence (AI)-based conversational large language model (LLM). The potential applications of LLMs in health care education, research, and practice could be promising if the associated valid concerns are proactively examined and addressed. The current systematic review aimed to investigate the utility of ChatGPT in health care education, research, and practice and to highlight its potential limitations. Using the PRIMSA guidelines, a systematic search was conducted to retrieve English records in PubMed/MEDLINE and Google Scholar (published research or preprints) tha
+---
+PMID:39546795 | PMC:PMC11607553 | DOI:10.2196/59607
+Date:{"year":"2024","month":"11","day":"15"} | Journal:{"title":"Journal of medical Internet research","iso_abbreviation":"J Med Internet Res"}
+Title: Examining the Role of Large Language Models in Orthopedics: Systematic Review.
+Authors: Zhang C; Liu S; Zhou X (+5 more)
+Abstract: Large language models (LLMs) can understand natural language and generate corresponding text, images, and even videos based on prompts, which holds great potential in medical scenarios. Orthopedics is a significant branch of medicine, and orthopedic diseases contribute to a significant socioeconomic burden, which could be alleviated by the application of LLMs. Several pioneers in orthopedics have conducted research on LLMs across various subspecialties to explore their performance in addressing different issues. However, there are currently few reviews and summaries of these studies, and a sys
+---
+PMID:37674957 | PMC:PMC10478591 | DOI:10.7759/cureus.43023
+Date:{"year":"2023","month":"08","day":"06"} | Journal:{"title":"Cureus","iso_abbreviation":"Cureus"}
+Title: Streamlining Systematic Reviews: Harnessing Large Language Models for Quality Assessment and Risk-of-Bias Evaluation.
+Authors: Nashwan AJ; Jaradat JH
+Abstract: This editorial explores the innovative application of large language Models (LLMs) in conducting systematic reviews, specifically focusing on quality assessment and risk-of-bias evaluation. As integral components of systematic reviews, these tasks traditionally require extensive human effort, subjectivity, and time. Integrating LLMs can revolutionize this process, providing an objective, consistent, and rapid methodology for quality assessment and risk-of-bias evaluation. With their ability to comprehend context, predict semantic relationships, and extract relevant information, LLMs can effect
+---
+PMID:38776081 | PMC:PMC11112444 | DOI:10.1001/jamanetworkopen.2024.12687
+Date:{"year":"2024","month":"05","day":"01"} | Journal:{"title":"JAMA network open","iso_abbreviation":"JAMA Netw Open"}
+Title: Assessing the Risk of Bias in Randomized Clinical Trials With Large Language Models.
+Authors: Lai H; Ge L; Sun M (+15 more)
+Abstract: Large language models (LLMs) may facilitate the labor-intensive process of systematic reviews. However, the exact methods and reliability remain uncertain.  To explore the feasibility and reliability of using LLMs to assess risk of bias (ROB) in randomized clinical trials (RCTs).  A survey study was conducted between August 10, 2023, and October 30, 2023. Thirty RCTs were selected from published systematic reviews.  A structured prompt was developed to guide ChatGPT (LLM 1) and Claude (LLM 2) in assessing the ROB in these RCTs using a modified version of the Cochrane ROB tool developed by the 
+---
+PMID:35192910 | PMC:- | DOI:10.1016/j.neubiorev.2022.104591
+Date:{"year":"2022","month":"02","day":"19"} | Journal:{"title":"Neuroscience and biobehavioral reviews","iso_abbreviation":"Neurosci Biobehav Rev"}
+Title: Hypnosis to manage musculoskeletal and neuropathic chronic pain: A systematic review and meta-analysis.
+Authors: Langlois P; Perrochon A; David R (+14 more)
+Abstract: This systematic review and meta-analysis aims to identify and quantify the current available evidence of hypnosis efficacy to manage pain in patients with chronic musculoskeletal and neuropathic pain. Randomized Control Trials (RCTs) with hypnosis and/or self-hypnosis treatment used to manage musculoskeletal and/or neuropathic chronic pain in adults and assessing pain intensity were included. Reviews, meta-analyses, non-randomized clinical trials, case reports and meeting abstracts were excluded. Five databases, up until May 13th 2021, were used to search for RCTs using hypnosis to manage chro
+---
+PMID:35907406 | PMC:- | DOI:10.1016/S2215-0366(22)00193-6
+Date:{"year":"2022","month":"07","day":"27"} | Journal:{"title":"The lancet. Psychiatry","iso_abbreviation":"Lancet Psychiatry"}
+Title: Prevalence of suicidal ideation and self-harm behaviours in children aged 12 years and younger: a systematic review and meta-analysis.
+Authors: Geoffroy MC; Bouchard S; Per M (+6 more)
+Abstract: Suicide in children is a pressing public health concern. The increasing number of deaths by suicide and emergency visits for suicidal ideation and self-harm in children might not be fully representative; it is likely that many more children are in distress but do not seek out help. We conducted a systematic review and meta-analysis of existing studies to quantify the prevalence of suicidal ideation and self-harm behaviours among children in the community aged 12 years and younger.  In this systematic review and meta-analysis, we searched PsycINFO, MEDLINE, and Web of Science via OVID from data
+---
+PMID:37624775 | PMC:PMC10632686 | DOI:10.1182/bloodadvances.2023010587
+Date:{"year":"2023","month":"Nov","day":"14"} | Journal:{"title":"Blood advances","iso_abbreviation":"Blood Adv"}
+Title: Treatment strategy for acquired pure red cell aplasia: a systematic review and meta-analysis.
+Authors: Lobbes H; Lega JC; Le Guenno G (+2 more)
+Abstract: The treatment of autoimmune acquired pure red cell aplasia (aPRCA) is challenging. Guidelines are based on expert recommendations in the absence of controlled trials. We assessed the efficacy of the main treatment strategy through a systematic review and meta-analysis using MEDLINE, EMBASE, and the Cochrane Library up to September 2022. The overall response rate (ORR) was pooled using random-effects models. In total, 24 observational studies (19 retrospective, median follow-up of 48&#xa0;months) encompassing 753 patients (49% male) were included. Primary aPRCA represented 57% of the cases. The
+---
+PMID:39685937 | PMC:PMC11642440 | DOI:10.3390/jcm13237480
+Date:{"year":"2024","month":"12","day":"09"} | Journal:{"title":"Journal of clinical medicine","iso_abbreviation":"J Clin Med"}
+Title: Exploring the Role of Large Language Models in Melanoma: A Systematic Review.
+Authors: Zarfati M; Nadkarni GN; Glicksberg BS (+4 more)
+Abstract: : This systematic review evaluates the current applications, advantages, and challenges of large language models (LLMs) in melanoma care.A systematic search was conducted in PubMed and Scopus databases for studies published up to 23 July 2024, focusing on the application of LLMs in melanoma. The review adhered to PRISMA guidelines, and the risk of bias was assessed using the modified QUADAS-2 tool.Nine studies were included, categorized into subgroups: patient education, diagnosis, and clinical management. In patient education, LLMs demonstrated high accuracy, though readability often exceeded
+---
+PMID:39290765 | PMC:PMC11407534 | DOI:10.22037/aaem.v12i1.2384
+Date:{"year":"2024","month":"07","day":"30"} | Journal:{"title":"Archives of academic emergency medicine","iso_abbreviation":"Arch Acad Emerg Med"}
+Title: Diagnostic Accuracy of ChatGPT for Patients' Triage; a Systematic Review and Meta-Analysis.
+Authors: Kaboudi N; Firouzbakht S; Shahir Eftekhar M (+13 more)
+Abstract: Artificial intelligence (AI), particularly ChatGPT developed by OpenAI, has shown the potential to improve diagnostic accuracy and efficiency in emergency department (ED) triage. This study aims to evaluate the diagnostic performance and safety of ChatGPT in prioritizing patients based on urgency in ED settings.  A systematic review and meta-analysis were conducted following PRISMA guidelines. Comprehensive literature searches were performed in Scopus, Web of Science, PubMed, and Embase. Studies evaluating ChatGPT's diagnostic performance in ED triage were included. Quality assessment was cond
+---
+PMID:38887420 | PMC:PMC11180068 | DOI:10.1007/s40670-024-02034-8
+Date:{"year":"2024","month":"04","day":"05"} | Journal:{"title":"Medical science educator","iso_abbreviation":"Med Sci Educ"}
+Title: Assessing Risk of Bias Using ChatGPT-4 and Cochrane ROB2 Tool.
+Authors: Trevi&#xf1;o-Juarez AS
+Abstract: In the world of evidence-based medicine, systematic reviews have long been the gold standard. But they have had a problem-they take forever. That is where ChatGPT-4 and automation come in. They are like a breath of fresh air, speeding things up and making the process more reliable. ChatGPT-4 is like having a super-smart assistant who can quickly assess bias risk in research studies. It is a game-changer, especially in a field where getting the latest research quickly can mean life or death for patients. Sure, it is not perfect, and we still need humans to keep an eye on things and ensure every
+---
+PMID:38798194 | PMC:- | DOI:10.1111/apt.18058
+Date:{"year":"2024","month":"05","day":"27"} | Journal:{"title":"Alimentary pharmacology & therapeutics","iso_abbreviation":"Aliment Pharmacol Ther"}
+Title: Systematic review: The use of large language models as medical chatbots in digestive diseases.
+Authors: Giuffr&#xe8; M; Kresevic S; You K (+4 more)
+Abstract: Interest in large language models (LLMs), such as OpenAI's ChatGPT, across multiple specialties has grown as a source of patient-facing medical advice and provider-facing clinical decision support. The accuracy of LLM responses for gastroenterology and hepatology-related questions is unknown.  To evaluate the accuracy and potential safety implications for LLMs for the diagnosis, management and treatment of questions related to gastroenterology and hepatology.  We conducted a systematic literature search including Cochrane Library, Google Scholar, Ovid Embase, Ovid MEDLINE, PubMed, Scopus and t
+---
+PMID:37648071 | PMC:- | DOI:10.1016/j.jclinepi.2023.08.012
+Date:{"year":"2023","month":"08","day":"28"} | Journal:{"title":"Journal of clinical epidemiology","iso_abbreviation":"J Clin Epidemiol"}
+Title: Replication of systematic reviews: is it to the benefit or detriment of methodological quality?
+Authors: Chapelle C; Ollier E; Bonjean P (+4 more)
+Abstract: To perform an overview of the overlap of systematic reviews (SRs) assessing direct oral anticoagulants and characterize these reviews in terms of bias and methodological quality (PROSPERO: CRD42022316273).  A PubMed-indexed search was performed from inception to January 31, 2022 to identify SRs evaluating direct oral anticoagulants in patients treated for an acute venous thromboembolism. The risk of bias of these SRs was assessed according to the Risk Of Bias In Systematic reviews tool. Redundancy was defined as overlap in terms of the type of population considered, the interventions compared,
+---
+PMID:41626932 | PMC:PMC12527486 | DOI:10.1017/rsm.2025.12
+Date:{"year":"2025","month":"May"} | Journal:{"title":"Research synthesis methods","iso_abbreviation":"Res Synth Methods"}
+Title: Exploring the potential of Claude 2 for risk of bias assessment: Using a large language model to assess randomized controlled trials with RoB 2.
+Authors: Eisele-Metzger A; Lieberum JL; Toews M (+5 more)
+Abstract: Systematic reviews are essential for evidence-based health care, but conducting them is time- and resource-consuming. To date, efforts have been made to accelerate and (semi-)automate various steps of systematic reviews through the use of artificial intelligence (AI) and the emergence of large language models (LLMs) promises further opportunities. One crucial but complex task within systematic review conduct is assessing the risk of bias (RoB) of included studies. Therefore, the aim of this study was to test the LLM Claude 2 for RoB assessment of 100 randomized controlled trials, published in 
+---
