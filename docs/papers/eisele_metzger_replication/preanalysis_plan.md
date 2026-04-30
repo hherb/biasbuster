@@ -5,8 +5,8 @@
 **Authors:** Horst Herb (corresponding).
 **AI assistance disclosure:** see §11.
 **Date drafted:** 2026-04-30.
-**Lock date:** *to be filled at commit time.*
-**Lock commit hash:** *to be filled at commit time.*
+**Lock date:** 2026-04-30 18:19:54 +0800.
+**Lock commit hash:** `7854a1caefee7b5412f3be1e903e5bdc0ada9382`.
 
 ---
 

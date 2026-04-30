@@ -1,9 +1,9 @@
 # Prompt Specification v1 — RoB 2 Assessment
 
-**Status:** DRAFT, awaiting sign-off and commit-hash lock-in.
+**Status:** LOCKED 2026-04-30 18:19:54 +0800.
 **Companion to:** `preanalysis_plan.md` in the same folder.
 **Source of truth for the running code:** `biasbuster/methodologies/cochrane_rob2/prompts.py` at the commit hash recorded below.
-**Commit hash (lock):** *to be filled at commit time.*
+**Commit hash (lock):** `7854a1caefee7b5412f3be1e903e5bdc0ada9382`.
 
 ---
 
