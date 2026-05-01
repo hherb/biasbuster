@@ -163,12 +163,26 @@ def load_eligible_rcts(conn: sqlite3.Connection, protocol: str,
 # --- Custom-id parsing -------------------------------------------------
 
 def make_custom_id(source_label: str, rct_id: str, domain: str) -> str:
-    return f"{source_label}/{rct_id}/{domain}"
+    """Build a Batch-API-legal custom_id.
+
+    Anthropic constrains custom_id to ``^[a-zA-Z0-9_-]{1,64}$`` — only
+    alphanumerics, underscore, and hyphen. Source labels already use
+    underscores (``sonnet_4_6_fulltext_pass3``), so we use hyphen as
+    the field separator. Max length under our schema:
+        ``sonnet_4_6_fulltext_pass3-RCT100-overall`` = 40 chars (well under 64).
+    """
+    return f"{source_label}-{rct_id}-{domain}"
 
 
 def parse_custom_id(custom_id: str) -> tuple[str, str, str]:
-    """Inverse of make_custom_id. Returns (source_label, rct_id, domain)."""
-    parts = custom_id.split("/")
+    """Inverse of make_custom_id. Returns (source_label, rct_id, domain).
+
+    Splits from the right on ``-`` because the source label contains
+    underscores but never hyphens, RCT id is ``RCT###`` (no hyphens),
+    and domain is ``d1..d5`` or ``overall`` (no hyphens). So the last
+    two hyphens are unambiguously the separators.
+    """
+    parts = custom_id.rsplit("-", 2)
     if len(parts) != 3:
         raise ValueError(f"unexpected custom_id shape: {custom_id!r}")
     return parts[0], parts[1], parts[2]
