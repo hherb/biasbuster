@@ -30,7 +30,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-PROJECT_ROOT = Path("/Users/hherb/src/biasbuster")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 STUDY_DIR = PROJECT_ROOT / "studies/eisele_metzger_replication"
 REPORT_MD = STUDY_DIR / "sanity_check_report.md"

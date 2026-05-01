@@ -34,7 +34,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path("/Users/hherb/src/biasbuster")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "studies/eisele_metzger_replication"))
 
 from run_evaluation import MODEL_REGISTRY  # noqa: E402

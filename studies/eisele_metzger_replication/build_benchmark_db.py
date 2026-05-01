@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path("/Users/hherb/src/biasbuster")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EM_CSV = PROJECT_ROOT / "DATA/20240318_Data_for_analysis_full/Extracted_Data_Test_Data-Table 1.csv"
 FULLTEXT_DIR = PROJECT_ROOT / "DATA/20240318_Data_for_analysis_full/fulltext"
 DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"

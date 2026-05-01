@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Iterator
 
 # Paths are absolute so the script runs from any working directory.
-PROJECT_ROOT = Path("/Users/hherb/src/biasbuster")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EM_CSV = PROJECT_ROOT / "DATA/20240318_Data_for_analysis_full/Extracted_Data_Test_Data-Table 1.csv"
 DB_PATH = PROJECT_ROOT / "dataset/biasbuster.db"
 OUT_DIR = PROJECT_ROOT / "studies/eisele_metzger_replication"

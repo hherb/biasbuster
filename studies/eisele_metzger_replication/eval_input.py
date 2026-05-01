@@ -24,7 +24,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-PROJECT_ROOT = Path("/Users/hherb/src/biasbuster")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FULLTEXT_DIR = PROJECT_ROOT / "DATA/20240318_Data_for_analysis_full/fulltext"
 
 NOT_AVAILABLE = "NOT AVAILABLE"
