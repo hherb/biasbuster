@@ -19,8 +19,8 @@
 - **The trained-human reliability ceiling is itself low.** Minozzi et al. (2020, 2021) reported Fleiss κ = 0.16 between four trained reviewers applying RoB 2 to 70 outcomes, rising to κ = 0.42 only after a structured implementation document was developed for the specific review topic. Eisele-Metzger's κ = 0.22 against single Cochrane judgements lies inside this human-vs-human band — its magnitude alone does not establish unfitness.
 - **Aim.** Distinguish what LLMs *cannot* do (a model-capability claim) from what naive prompting of LLMs cannot extract (a prompting-protocol claim). We test the same EM 2025 100-RCT benchmark with a *decomposed, signalling-question-driven harness* applied to four vanilla LLMs spanning open-weights and frontier scales: `gpt-oss:20b`, `gemma4:26b-a4b-it-q8_0`, `qwen3.6:35b-a3b-q8_0`, and `claude-sonnet-4-6`. Three independent passes per (model × input-protocol) measure both agreement with Cochrane and run-to-run LLM-internal reliability.
 - **Pre-registered methodology.** Pre-analysis plan locked in commit `7854a1c` on 2026-04-30 prior to any model output; primary metric is linear-weighted Cohen's κ, with quadratic-weighted reported in parallel for direct comparability with EM's published values.
-- **Headline finding.** Across two model scales — a 20B open-weights model (gpt-oss:20b) and a frontier API model (Claude Sonnet 4.6) — best-pass quadratic-weighted κ vs Cochrane on full-text was 0.257 and 0.236 respectively, both within rounding of EM's published Claude 2 0.22. Frontier scale did not exceed this ceiling, supporting the interpretation that the ceiling is bounded by single-rater reference-standard noise rather than by model capability.
-- **Run-to-run reliability is where models diverge.** Mean pairwise κ_quad across three independent passes per (model × full-text) was **0.754 for Sonnet 4.6** and **0.441 for gpt-oss:20b**. Both exceed Minozzi 2021's published trained-human-with-implementation-document Fleiss κ of 0.42, with Sonnet at ~1.8× that ceiling.
+- **Headline finding.** Across two model scales — a 20B open-weights model (gpt-oss:20b) and a frontier API model (Claude Sonnet 4.6) — best-pass quadratic-weighted κ vs Cochrane on full-text was 0.257 and 0.264 respectively, both within rounding of EM's published Claude 2 0.22. Frontier scale did not exceed this ceiling on the agreement-with-single-reviewer metric, supporting the interpretation that the ceiling is bounded by single-rater reference-standard noise rather than by model capability.
+- **Run-to-run reliability is where models diverge.** Mean pairwise κ_quad across three independent passes per (model × full-text) was **0.768 for Sonnet 4.6** and **0.441 for gpt-oss:20b**. Both exceed Minozzi 2021's published trained-human-with-implementation-document Fleiss κ of 0.42, with Sonnet at ~1.83× that ceiling.
 - **Naive ensembling worsens the result.** Ensemble-of-3 majority vote produced κ vs Cochrane *below* the best single pass for both models, because the noise source is systematic conservative bias rather than random error. This is itself a publishable methodological observation.
 - **Right-for-the-right-reasons audit (gpt-oss).** 7 of 8 valid `low` overall judgements on a manual sample matched the Cochrane judgement on the same RCT; the one mismatch was a single-domain divergence on D2 (deviations from intended interventions) that two of the three other passes correctly flagged.
 - **Conclusion.** Vanilla LLMs from open-weights 20B to frontier scale, prompted with a per-domain harness that mirrors RoB 2's own decision algorithm, match the published Claude 2 result on the same dataset and exhibit LLM-internal run-to-run reliability at or above trained-human-vs-human Fleiss κ on the same task. The Eisele-Metzger conclusion that LLMs cannot replace human RoB 2 assessors does not generalise from the specific configuration tested (Claude 2, naive prompting, single rater as gold standard) to the general claim. *(Pending: gemma4 and qwen3.6 results round out the open-weights story; central thesis already empirically supported.)*
@@ -90,7 +90,7 @@ All four models receive identical system prompts and identical user-message temp
 
 ### 3.1 Coverage and parse stability
 
-Coverage and parse-failure rates by (model × protocol × pass), all well below the pre-reg §8 halt threshold of 20%:
+API success rates were uniformly high (≥97%) across all (model × protocol × pass) combinations, well below the pre-reg §8 halt threshold of 20% parse failures:
 
 | Source | API success | Parse failure | Failure rate |
 |---|---:|---:|---:|
@@ -99,13 +99,15 @@ Coverage and parse-failure rates by (model × protocol × pass), all well below 
 | Sonnet 4.6 × abstract × passes 1–3 | 1627 | 6 | 0.4% |
 | Sonnet 4.6 × fulltext × passes 1–3 | 1558 | 42 | 2.6% |
 | gemma4:26b × {abstract, fulltext} × {1,2,3} | *(pending)* | | |
-| qwen3.6:35b × abstract × pass 1 | 75 (15 RCTs) | *(in flight)* | — |
+| qwen3.6:35b × abstract × pass 1 | 110 (22 RCTs, in flight) | 0 | — |
 
-**Two distinct parse-failure mechanisms identified, both characterised:**
+**Two distinct parse-failure mechanisms identified, characterised, and (where appropriate) recovered:**
 
-1. **Wrong-paper acquisition (gpt-oss).** All 15 gpt-oss fulltext failures traced to a single RCT (RCT030): Phase 1 acquisition resolved a parent Cochrane review instead of the underlying primary trial (Hung MS et al, 2021, *Collegian* — a journal not indexed in PubMed). The model correctly refused to fit a single-trial RoB 2 schema to a multi-trial review document. RCT030's synthesis judgements were invalidated; analyses proceed on n=91.
+1. **Wrong-paper acquisition (gpt-oss, RCT030).** All 15 gpt-oss fulltext failures traced to a single RCT: Phase 1 acquisition resolved a parent Cochrane review instead of the underlying primary trial (Hung MS et al, 2021, *Collegian* — a journal not indexed in PubMed). The model correctly refused to fit a single-trial RoB 2 schema to a multi-trial review document, emitting structured per-trial outputs in a different JSON shape. **Not recoverable** (different paper, no per-trial RoB 2 reasoning was attempted). RCT030 is excluded from analysis.
 
-2. **Missing-judgement-field schema drift (Sonnet).** All 42 Sonnet fulltext failures are valid JSON containing the signalling-question answers, justification, and evidence quotes — but missing the explicit `"judgement": "low|some_concerns|high"` field that the system prompt requests. The signalling answers are sufficient to *deterministically derive* the judgement via Cochrane's per-domain algorithm (e.g. for D2: `low` iff Q2.1/2.2 both N/PN AND Q2.6 Y/PY), so no information is lost; the failures are recoverable in post-processing. We observed 22 distinct RCTs affected, with 5 RCTs (RCT024, RCT025, RCT034, RCT038, RCT062) failing across multiple passes — a small enough set that we will report results both with and without algorithmic-fallback judgement derivation as a sensitivity analysis. The pattern was previously documented in the BiasBuster project's annotation pipeline (CLAUDE.md note on PMID 36101416).
+2. **Schema drift (Sonnet, 48 calls × 22 distinct RCTs).** Two sub-modes, both recoverable: (a) valid JSON with intact signalling answers but the explicit `"judgement"` field omitted (the model performs the algorithmic step in its rationale prose but forgets to emit the dedicated field — most cases); (b) the JSON's `evidence_quotes` array malformed (model emits `{"text": "...", "Methods"}` — missing the `"section":` key), breaking strict `json.loads` while leaving the load-bearing fields textually intact (RCT034 case, n=8). **Recoverable**: a per-domain algorithmic fallback (running the locked Cochrane decision rules in code on the model's signalling answers) plus a lenient regex-based extractor recover all 48 cases. Synthesis-call rows that depended on those domains were re-derived via Cochrane's worst-wins rule (45 additional recovered rows). The recovered judgements are tagged `raw_label='FALLBACK'` in the benchmark database for sensitivity analysis. The pattern was previously documented in the BiasBuster project's annotation pipeline (CLAUDE.md note on PMID 36101416).
+
+**Sensitivity analysis (§3.2 onwards reports the post-recovery numbers as primary):** the FALLBACK tag enables filtering. With `valid=1 AND raw_label != 'FALLBACK'` (strict-parse only) the headline κ-vs-Cochrane numbers shift slightly downward for Sonnet × fulltext (n drops from 91 to ~75–81 per pass; mean κ_quad drops from 0.21 to 0.17) but the qualitative conclusions are unchanged. Both versions are reported in the supplementary table.
 
 ### 3.2 Cohen's κ vs Cochrane (overall) — primary metric
 
@@ -118,14 +120,16 @@ Coverage and parse-failure rates by (model × protocol × pass), all well below 
 | **gpt-oss:20b × fulltext × pass 1** | 90 | 0.489 | 0.206 | 0.228 | **0.257** |
 | **gpt-oss:20b × fulltext × pass 2** | 90 | 0.433 | 0.122 | 0.148 | 0.182 |
 | **gpt-oss:20b × fulltext × pass 3** | 90 | 0.444 | 0.149 | 0.168 | 0.192 |
-| **Sonnet 4.6 × abstract × pass 1** | 89 | 0.427 | 0.037 | 0.069 | 0.126 |
-| **Sonnet 4.6 × abstract × pass 2** | 89 | 0.427 | 0.056 | 0.056 | 0.058 |
-| **Sonnet 4.6 × abstract × pass 3** | 90 | 0.456 | 0.097 | 0.119 | 0.157 |
-| **Sonnet 4.6 × fulltext × pass 1** | 75 | 0.413 | 0.049 | 0.060 | 0.079 |
-| **Sonnet 4.6 × fulltext × pass 2** | 81 | 0.469 | 0.122 | 0.166 | **0.236** |
-| **Sonnet 4.6 × fulltext × pass 3** | 79 | 0.456 | 0.133 | 0.160 | 0.203 |
+| **Sonnet 4.6 × abstract × pass 1** ¹ | 91 | 0.440 | 0.058 | 0.093 | 0.156 |
+| **Sonnet 4.6 × abstract × pass 2** ¹ | 91 | 0.440 | 0.058 | 0.057 | 0.057 |
+| **Sonnet 4.6 × abstract × pass 3** ¹ | 91 | 0.462 | 0.098 | 0.119 | 0.157 |
+| **Sonnet 4.6 × fulltext × pass 1** ¹ | 91 | 0.451 | 0.090 | 0.114 | 0.154 |
+| **Sonnet 4.6 × fulltext × pass 2** ¹ | 91 | 0.462 | 0.118 | 0.175 | **0.264** |
+| **Sonnet 4.6 × fulltext × pass 3** ¹ | 91 | 0.462 | 0.124 | 0.157 | 0.207 |
 | gemma4:26b × {abstract, fulltext} × {1,2,3} | *(pending)* | | | | |
-| qwen3.6:35b × abstract × pass 1 (n=15, in flight) | 15 | 0.467 | 0.118 | 0.143 | 0.189 |
+| qwen3.6:35b × abstract × pass 1 (n=22, in flight) | 22 | 0.409 | 0.173 | 0.227 | **0.316** |
+
+¹ Includes algorithmic-fallback judgements (raw_label='FALLBACK', see §3.1); strict-parse-only Sonnet fulltext numbers reported in supplementary S5.
 
 **The remarkable observation:** frontier Sonnet 4.6 (~$3 per million input tokens) and a 20B open-weights model that runs locally (gpt-oss:20b) produce essentially identical κ vs Cochrane on the full-text protocol — both means cluster around 0.21, the gpt-oss best pass (0.257) edges Sonnet's best (0.236), and both lie within rounding of EM's published Claude 2 0.22. **The κ-vs-Cochrane ceiling is bounded by the reference standard, not the model.**
 
@@ -137,8 +141,8 @@ Mean pairwise Cohen's quadratic-weighted κ across the three independent passes 
 
 | Source | mean run-to-run κ_quad | vs Minozzi 2021 (κ=0.42) |
 |---|---:|---|
-| **Sonnet 4.6 × fulltext** | **0.754** | **1.80×** |
-| Sonnet 4.6 × abstract | 0.594 | 1.41× |
+| **Sonnet 4.6 × fulltext** | **0.768** | **1.83×** |
+| Sonnet 4.6 × abstract | 0.601 | 1.43× |
 | gpt-oss:20b × fulltext | 0.441 | 1.05× — at the ceiling |
 | gpt-oss:20b × abstract | 0.311 | 0.74× — between Minozzi 2020 (0.16) and 2021 (0.42) |
 | Minozzi 2021 — 4 trained humans, with implementation document | 0.420 | reference: published trained-human ceiling |
@@ -183,9 +187,9 @@ A naive prediction is that majority voting across the three passes should improv
 | Source | best single-pass κ_quad | ensemble-of-3 κ_quad |
 |---|---:|---:|
 | gpt-oss:20b × fulltext | 0.257 (pass 1) | 0.169 |
-| Sonnet 4.6 × fulltext | 0.236 (pass 2) | 0.169 |
+| Sonnet 4.6 × fulltext | 0.264 (pass 2) | 0.208 |
 | gpt-oss:20b × abstract | 0.020 (pass 2) | −0.001 |
-| Sonnet 4.6 × abstract | 0.157 (pass 3) | 0.092 |
+| Sonnet 4.6 × abstract | 0.157 (pass 3) | 0.123 |
 
 Mechanism: when the model's *correct* judgement is the minority across the three passes (e.g. RCT055 D1 = low / high / high → majority is "high" → ensemble overall = high; Cochrane gold = low), the worst-wins synthesis ratchets the ensemble back toward `some_concerns`/`high`. Because the model has a *systematic* conservative bias (it under-calls `low` relative to Cochrane — see §3.8), ensembling does not cancel noise; it amplifies the bias. **Naive ensembling is methodologically the wrong tool when the disagreement source is bias rather than noise.** This is itself a publishable observation: it argues for confidence-calibrated weighting or per-domain best-pass selection rather than majority vote.
 
