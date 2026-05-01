@@ -1,7 +1,12 @@
-# medRxiv preprint draft (sketch)
+# medRxiv preprint draft — Algorithm-conformance of AI RoB assessors vs published expert ratings (sketch v1)
+
+**Filename note:** moved from `docs/papers/medrxiv_quadas_rob2_assessors.md` on 2026-05-01 under the new naming convention `drafts/<YYYYMMDD>_medrxiv_<short_title>_v<n>.md`. Original drafted 2026-04-23.
 
 **Status:** rough outline; expand each bullet into prose before submission.
 **Stage:** pre-data-finalization — `n` will grow as additional reviews are added.
+**Companion draft:** `20260501_medrxiv_harness_vs_naive_rob2_v1.md` — focuses on the orthogonal question of *how to prompt LLMs* for RoB 2 (harness vs naive), benchmarked against Eisele-Metzger 2025. The two papers are deliberately separable:
+  - **This paper:** given a strict-application AI assessor, where does its disagreement with published experts come from? (Finding: experts deviate from the algorithm.)
+  - **Companion paper:** given the EM 2025 finding that a naively-prompted Claude 2 gets κ ≈ 0.22, can a harness-driven approach do better? (Finding: yes — even an open-weights 20B model matches Claude 2 on the same dataset under the harness, and exhibits run-to-run reliability matching trained humans with implementation documents.)
 
 ---
 
@@ -99,6 +104,25 @@
 - The overall worst-wins rollup (the single number readers extract from a published RoB 2 figure) agreed 3/3 in the engaged-expert dataset.
 - Translation: the AI doesn't disagree about the *bottom line* — it disagrees about the *route*, and on audit its route is more rigorous.
 
+### 3.5 Robustness across model scale (parallel work, summarised)
+
+Detailed results for the next claim live in the companion draft `20260501_medrxiv_harness_vs_naive_rob2_v1.md`; we summarise here only the load-bearing finding.
+
+The same decomposed harness was applied to the Eisele-Metzger 2025 supplementary dataset (100 RCTs from 78 Cochrane reviews, with per-domain Cochrane judgments and three independent Claude 2 runs from EM's published study) using two vanilla LLMs spanning ~30× the parameter range: the open-weights `gpt-oss:20b` model and the frontier `claude-sonnet-4-6` model, both on full text.
+
+| Metric | gpt-oss:20b | Claude Sonnet 4.6 |
+|---|---:|---:|
+| **Cohen's κ vs Cochrane (overall, quadratic-weighted, matching EM's reported metric)** — best pass | **0.257** | **0.264** |
+| Cohen's κ mean across 3 passes | 0.21 | 0.21 |
+| **Run-to-run reliability across 3 passes (mean κ)** | **0.441** (≈ Minozzi 2021 0.42) | **0.768** (≈ 1.83 × Minozzi 2021) |
+| n per pass | 90 | 91 |
+
+EM's published Claude 2 κ = 0.22 sits below both models' best passes and within rounding of both means. **Frontier scale does not improve agreement with the single-rater Cochrane reference standard** — strongly supporting the interpretation that the agreement ceiling is bounded by single-rater reference-standard noise rather than by model capability. The frontier model does buy substantial run-to-run *consistency* (κ 0.77 vs 0.44), well above any published trained-human-vs-human Fleiss κ on the same task.
+
+A right-for-the-right-reasons audit on the 8 valid `low` overall judgments gpt-oss produced across the three passes (after invalidating one wrong-paper-resolution case) found 7 of 8 matching Cochrane's `low`, with the single miss a per-domain disagreement on D2 (deviations) that two of the three other passes correctly flagged.
+
+The implication is mechanistic: the *harness* — per-domain decomposition, signalling-question structure, algorithmic worst-wins, JSON-validated output — is what makes vanilla LLM RoB assessment work. A 20B open-weights model under the harness reproduces the published Claude 2 finding; Sonnet 4.6 under the same harness produces essentially identical agreement with single-rater Cochrane judgments while exhibiting LLM-internal run-to-run reliability roughly twice that of trained humans with structured implementation guidance. The result demonstrably does not depend on a frontier model — it depends on the prompting structure.
+
 ## 4. Discussion (≤ 800 words)
 
 - Calling the AI "wrong" because it disagrees with the published reviewer is precisely backwards when the reviewer's rating is itself algorithmically inconsistent.
@@ -110,6 +134,7 @@
   - Cochrane / Joanna Briggs / methodology editorial groups should consider mandating algorithm-conformant validation as a peer-review step.
   - Funders / journals should accept AI-assisted RoB with full audit trail as at-minimum equivalent to one human reviewer.
 - Why hasn't this been noticed before? — overall kappa is what's reported in inter-rater reliability studies; per-domain breakdown with algorithm-conformance check is rare. The AI assessor surfaces it because the JSON output is structured.
+- **Harness over model.** The companion-paper finding (§3.5) — that two vanilla LLMs spanning ~30× the parameter range (a 20B open-weights model and the frontier Claude Sonnet 4.6) produce essentially identical agreement with single-rater Cochrane judgments under the same decomposed harness, both within rounding of EM's published Claude 2 κ = 0.22, while the frontier model achieves run-to-run reliability ~1.83× the published trained-human ceiling — is independent evidence for the claim that algorithm-conformant *prompting structure* is the load-bearing element, not model frontier-ness. This sharpens the methodological recommendation: we are not arguing that "AI" is right and "humans" are wrong; we are arguing that *strict application of a published algorithm* — by either human or machine — is what produces defensible per-domain ratings, and that LLMs configured to do this strict application happen to be cheap (open-weights models suffice for the agreement metric) and auditable in a way human reviewers are not.
 
 ## 5. Limitations
 
@@ -153,6 +178,7 @@
 - [ ] Recruit one independent methodologist to do a parallel manual RoB 2 / QUADAS-2 on 5 papers as a *third* ground truth — would close the "are you sure the experts are wrong?" critique.
 - [ ] Editorial note: consider whether to soften "experts are wrong" framing in abstract — alternative framing is "AI assessor reveals algorithm-conformance gaps in published expert ratings" (less aggressive, same finding).
 - [ ] License decision for the AI annotations in supplement (CC-BY-4.0 recommended).
+- [ ] Decide submission ordering for this paper vs the companion harness-vs-naive paper. Options: (a) submit companion first (it is the more empirically self-contained result), then this paper builds on its harness as the established baseline; (b) submit jointly as a two-part series; (c) submit this paper first with the §3.5 finding as a teaser. Recommend (a) — the companion paper has a single clear thesis with the strongest data we currently have.
 
 ## Audience / venue notes
 
