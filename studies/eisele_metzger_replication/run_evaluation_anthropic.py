@@ -424,7 +424,14 @@ def ingest_results(conn: sqlite3.Connection, runner: AnthropicBatchRunner,
             counts[parse_status] += 1
             error_str = (r.error_message or r.error_type or "")[:500]
         else:
-            judgment, rationale = parse_response(r.text_response, output_kind)
+            # Pass the domain code (e.g. "d1") so parse_response can apply
+            # the algorithmic fallback if the model omits the explicit
+            # judgement field. Synthesis calls (output_kind="synthesis")
+            # have domain_code=None internally.
+            judgment, rationale = parse_response(
+                r.text_response, output_kind,
+                domain_code=domain if output_kind == "domain" else None,
+            )
             if judgment is None:
                 valid = 0
                 parse_status = "parse_failure"

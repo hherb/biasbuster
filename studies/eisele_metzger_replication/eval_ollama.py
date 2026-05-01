@@ -145,6 +145,11 @@ class OllamaRunner:
         last_error: str | None = None
         last_tokens: dict[str, int | None] = {"input": None, "output": None}
         last_duration = 0.0
+        # The domain code (e.g. ``d1``) is passed to ``parse_response`` so the
+        # algorithmic fallback can derive a judgement from signalling_answers
+        # when the model omits the explicit field. Synthesis calls do not use
+        # the fallback (no per-domain algorithm applies).
+        domain_code_for_parser = domain if output_kind == "domain" else None
         for attempt in range(1, max_attempts + 1):
             text, tokens, duration, error = self._chat(system_prompt, user_message)
             last_text = text
@@ -164,7 +169,9 @@ class OllamaRunner:
                     input_tokens=tokens["input"], output_tokens=tokens["output"],
                     error=error,
                 )
-            judgment, rationale = parse_response(text, output_kind)
+            judgment, rationale = parse_response(
+                text, output_kind, domain_code=domain_code_for_parser,
+            )
             if judgment is not None:
                 status = "ok" if attempt == 1 else "retry_succeeded"
                 return OllamaCallResult(
@@ -253,12 +260,24 @@ def _normalize_judgment(raw: Any) -> str | None:
     return canonical
 
 
-def parse_response(text: str, output_kind: str) -> tuple[str | None, str | None]:
+def parse_response(text: str, output_kind: str,
+                   domain_code: str | None = None,
+                   ) -> tuple[str | None, str | None]:
     """Extract (judgment, rationale) from the model's raw response text.
 
     Returns (None, None) on parse failure so the caller can retry.
     `output_kind` is "domain" or "synthesis" — they expect different JSON
     shapes per prompt_v1.md §3.
+
+    For ``output_kind == "domain"``, ``domain_code`` (e.g. ``"d1"``) is
+    optional; when provided, this function will attempt algorithmic
+    fallback derivation if the model omits the explicit ``judgement``
+    field but emits valid ``signalling_answers``. The fallback applies
+    Cochrane's per-domain rules (encoded in
+    :mod:`biasbuster.methodologies.cochrane_rob2.algorithms`) — same
+    rules the model was instructed to apply in the system prompt; we
+    just run them in code when the model forgets to emit the field.
+    Without ``domain_code`` the fallback is skipped (legacy behaviour).
     """
     json_str = _extract_json_object(text)
     if not json_str:
@@ -273,6 +292,16 @@ def parse_response(text: str, output_kind: str) -> tuple[str | None, str | None]
     if output_kind == "domain":
         judgment = _normalize_judgment(data.get("judgement"))
         rationale = data.get("justification")
+        if judgment is None and domain_code is not None:
+            # Algorithmic fallback: derive from signalling_answers per the
+            # Cochrane per-domain rule the model was supposed to apply.
+            signalling = data.get("signalling_answers")
+            if isinstance(signalling, dict):
+                from biasbuster.methodologies.cochrane_rob2.algorithms import (
+                    derive_domain_judgement,
+                )
+                normalized = {str(k): str(v) for k, v in signalling.items()}
+                judgment = derive_domain_judgement(domain_code, normalized)
         if judgment is None:
             return None, None
         return judgment, rationale if isinstance(rationale, str) else None
