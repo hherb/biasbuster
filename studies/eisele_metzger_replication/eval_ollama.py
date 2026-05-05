@@ -67,9 +67,24 @@ class OllamaRunner:
     calls (matches the pre-reg's pass-independence guarantee).
     """
 
-    def __init__(self, model_id: str, host: str = OLLAMA_DEFAULT_HOST):
+    def __init__(self, model_id: str, host: str = OLLAMA_DEFAULT_HOST,
+                 sampling_params: dict[str, Any] | None = None):
+        """Construct an Ollama runner.
+
+        Args:
+            model_id: Ollama model tag (e.g. "gpt-oss:20b").
+            host: Base URL for the Ollama server (default localhost:11434).
+            sampling_params: Optional dict passed through as Ollama's
+                "options" field on each /api/chat call. When None
+                (default), Ollama applies the model's Modelfile defaults
+                — which is what the locked pre-reg specifies for the
+                primary analysis. Provide a dict like
+                ``{"temperature": 0.0}`` only for sensitivity analyses
+                that are explicitly outside the locked methodology.
+        """
         self.model_id = model_id
         self.host = host
+        self._sampling_params = sampling_params
         self._client = httpx.Client(timeout=HTTP_TIMEOUT)
 
     def close(self) -> None:
@@ -84,16 +99,21 @@ class OllamaRunner:
     def _chat(self, system_prompt: str, user_message: str) -> tuple[str, dict[str, int | None], float, str | None]:
         """Single Ollama /api/chat call. Returns (text, token_counts, duration, error)."""
         url = f"{self.host}/api/chat"
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model_id,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ],
             "stream": False,
-            # We accept Ollama's defaults for temperature/top_p; pre-reg §5
-            # commits to "model defaults" and we don't override per model.
+            # Default behaviour: rely on Ollama's Modelfile defaults
+            # (temperature 0.8, top_p 0.9, top_k 40 for most models).
+            # Pre-reg §5 commits to this default for the primary analysis.
+            # Sensitivity analyses (e.g. temperature_sweep.py) override
+            # by passing a dict to OllamaRunner(sampling_params=...).
         }
+        if self._sampling_params is not None:
+            payload["options"] = dict(self._sampling_params)
         t0 = time.monotonic()
         try:
             r = self._client.post(url, json=payload)
