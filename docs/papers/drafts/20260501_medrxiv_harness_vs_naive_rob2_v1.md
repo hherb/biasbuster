@@ -91,22 +91,26 @@ All four models receive identical system prompts and identical user-message temp
 
 ### 3.1 Coverage and parse stability
 
-API success rates were uniformly high (≥97%) across all (model × protocol × pass) combinations, well below the pre-reg §8 halt threshold of 20% parse failures:
+API success rates were uniformly high (≥98.9%) across all (model × protocol × pass) combinations, well below the pre-reg §8 halt threshold of 20% parse failures. Each (model × protocol) cell totals 91 RCTs × 6 calls (5 domains + 1 synthesis) × 3 passes = 1,638 calls:
 
-| Source | API success | Parse failure | Failure rate |
+| Source | API success | Parse failure (final) | Failure rate |
 |---|---:|---:|---:|
-| gpt-oss:20b × abstract × passes 1–3 | 1635 | 3 | 0.2% |
-| gpt-oss:20b × fulltext × passes 1–3 | 1623 | 15 | 0.9% |
-| Sonnet 4.6 × abstract × passes 1–3 | 1627 | 6 | 0.4% |
-| Sonnet 4.6 × fulltext × passes 1–3 | 1558 | 42 | 2.6% |
-| gemma4:26b × {abstract, fulltext} × {1,2,3} | *(pending)* | | |
-| qwen3.6:35b × abstract × pass 1 | 110 (22 RCTs, in flight) | 0 | — |
+| gpt-oss:20b × abstract × passes 1–3 | 1638 | 0 | 0.0% |
+| gpt-oss:20b × fulltext × passes 1–3 | 1638 | 18 | 1.1% |
+| gemma4:26b-A4B × abstract × passes 1–3 | 1638 | 0 | 0.0% |
+| gemma4:26b-A4B × fulltext × passes 1–3 | 1638 | 0 | 0.0% |
+| qwen3.6:35b-A3B × abstract × passes 1–3 | 1638 | 0 | 0.0% |
+| qwen3.6:35b-A3B × fulltext × passes 1–3 | 1638 | 15 | 0.9% |
+| Sonnet 4.6 × abstract × passes 1–3 ¹ | 1638 | 0 | 0.0% |
+| Sonnet 4.6 × fulltext × passes 1–3 ¹ | 1638 | 0 | 0.0% |
+
+¹ Sonnet's parse-failure column counts only *unrecovered* failures. Algorithmic-fallback recovery (mechanism 2 below) tagged 11 abstract calls and 80 fulltext calls as `raw_label='FALLBACK'`; these are valid but disclosed in §3.2.
 
 **Two distinct parse-failure mechanisms identified, characterised, and (where appropriate) recovered:**
 
-1. **Wrong-paper acquisition (gpt-oss, RCT030).** All 15 gpt-oss fulltext failures traced to a single RCT: Phase 1 acquisition resolved a parent Cochrane review instead of the underlying primary trial (Hung MS et al, 2021, *Collegian* — a journal not indexed in PubMed). The model correctly refused to fit a single-trial RoB 2 schema to a multi-trial review document, emitting structured per-trial outputs in a different JSON shape. **Not recoverable** (different paper, no per-trial RoB 2 reasoning was attempted). RCT030 is excluded from analysis.
+1. **Wrong-paper acquisition (gpt-oss and qwen, RCT030).** Every remaining parse failure (18 gpt-oss fulltext + 15 qwen fulltext = 33 total, across two models × three passes) traces to a single RCT. Phase 1 acquisition resolved a parent Cochrane review instead of the underlying primary trial (Hung MS et al, 2021, *Collegian* — a journal not indexed in PubMed). Both models correctly refused to fit a single-trial RoB 2 schema to a multi-trial review document, emitting structured per-trial outputs in a different JSON shape. (gpt-oss attempted synthesis on the failed domains and produced 6 invalid rows per pass; qwen skipped synthesis entirely after 5 domain failures, producing 5 invalid rows per pass. Identical content failure, different orchestration choice.) **Not recoverable** (different paper, no per-trial RoB 2 reasoning was attempted). RCT030 is excluded from analysis. Sonnet and gemma did not exhibit this failure on RCT030 — both produced parseable, single-trial-shaped output despite the same input mismatch (a rater-confidence calibration concern documented in §5).
 
-2. **Schema drift (Sonnet, 48 calls × 22 distinct RCTs).** Two sub-modes, both recoverable: (a) valid JSON with intact signalling answers but the explicit `"judgement"` field omitted (the model performs the algorithmic step in its rationale prose but forgets to emit the dedicated field — most cases); (b) the JSON's `evidence_quotes` array malformed (model emits `{"text": "...", "Methods"}` — missing the `"section":` key), breaking strict `json.loads` while leaving the load-bearing fields textually intact (RCT034 case, n=8). **Recoverable**: a per-domain algorithmic fallback (running the locked Cochrane decision rules in code on the model's signalling answers) plus a lenient regex-based extractor recover all 48 cases. Synthesis-call rows that depended on those domains were re-derived via Cochrane's worst-wins rule (45 additional recovered rows). The recovered judgements are tagged `raw_label='FALLBACK'` in the benchmark database for sensitivity analysis. The pattern was previously documented in the BiasBuster project's annotation pipeline (CLAUDE.md note on PMID 36101416).
+2. **Schema drift (Sonnet, 91 calls).** Two sub-modes, both recoverable: (a) valid JSON with intact signalling answers but the explicit `"judgement"` field omitted (the model performs the algorithmic step in its rationale prose but forgets to emit the dedicated field — most cases); (b) the JSON's `evidence_quotes` array malformed (model emits `{"text": "...", "Methods"}` — missing the `"section":` key), breaking strict `json.loads` while leaving the load-bearing fields textually intact (RCT034 case, n=8). **Recoverable**: a per-domain algorithmic fallback (running the locked Cochrane decision rules in code on the model's signalling answers) plus a lenient regex-based extractor recover every case. Synthesis-call rows that depended on those domains were re-derived via Cochrane's worst-wins rule. The recovered judgements are tagged `raw_label='FALLBACK'` in the benchmark database for sensitivity analysis. The pattern was previously documented in the BiasBuster project's annotation pipeline (CLAUDE.md note on PMID 36101416).
 
 **Sensitivity analysis (§3.2 onwards reports the post-recovery numbers as primary):** the FALLBACK tag enables filtering. With `valid=1 AND raw_label != 'FALLBACK'` (strict-parse only) the headline κ-vs-Cochrane numbers shift slightly downward for Sonnet × fulltext (n drops from 91 to ~75–81 per pass; mean κ_quad drops from 0.21 to 0.17) but the qualitative conclusions are unchanged. Both versions are reported in the supplementary table.
 
