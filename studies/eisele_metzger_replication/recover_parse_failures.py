@@ -52,22 +52,21 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from biasbuster.methodologies.cochrane_rob2.algorithms import (  # noqa: E402
     derive_domain_judgement,
     synthesis_worst_wins,
 )
 
-DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
-
-# RCTs whose Phase-1 acquisition resolved the WRONG DOCUMENT (e.g. the
-# parent Cochrane review instead of the underlying primary trial). Their
+# WRONG_PAPER_RCTS is the single source of truth for wrong-paper exclusions,
+# shared with the κ analysis scripts (see exclusions.py and issue #29). Their
 # parse-failure rows contain model output about a different paper, so
-# algorithmic recovery would inject wrong-paper judgements into the
-# benchmark. These RCTs are excluded from analysis entirely and must
-# never be recovered (see benchmark_rct.notes and the §3.1 parse-failure
-# narrative in docs/papers/drafts/20260501_medrxiv_harness_vs_naive_rob2_v1.md).
-WRONG_PAPER_RCTS = frozenset({"RCT030"})
+# algorithmic recovery would inject wrong-paper judgements into the benchmark
+# — this module's guard skips them entirely.
+from exclusions import WRONG_PAPER_RCTS  # noqa: E402
+
+DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 
 
 import re

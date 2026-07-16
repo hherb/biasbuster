@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "studies/eisele_metzger_replication"))
 
 from sanity_check_kappa import cohen_kappa, raw_agreement  # noqa: E402
+from exclusions import wrong_paper_filter  # noqa: E402
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 SOURCE_RE = re.compile(
@@ -69,7 +70,12 @@ def find_temperature_sources(conn: sqlite3.Connection, model: str,
 
 def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
                domain: str = "overall") -> list[tuple[str, str]]:
-    """Joined (judgement_a, judgement_b) for matched (rct_id, domain) rows."""
+    """Joined (judgement_a, judgement_b) for matched (rct_id, domain) rows.
+
+    Wrong-paper RCTs (exclusions.WRONG_PAPER_RCTS) are excluded, consistent
+    with the main-study κ scripts.
+    """
+    wp_sql, wp_params = wrong_paper_filter("a", "b")
     return conn.execute(
         """SELECT a.judgment, b.judgment
            FROM benchmark_judgment a
@@ -77,8 +83,9 @@ def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
              ON a.rct_id = b.rct_id AND a.domain = b.domain
            WHERE a.source = ? AND b.source = ? AND a.domain = ?
              AND a.judgment IS NOT NULL AND b.judgment IS NOT NULL
-             AND a.valid = 1 AND b.valid = 1""",
-        (source_a, source_b, domain),
+             AND a.valid = 1 AND b.valid = 1"""
+        + wp_sql,
+        (source_a, source_b, domain, *wp_params),
     ).fetchall()
 
 
