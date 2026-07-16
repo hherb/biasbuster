@@ -47,6 +47,7 @@ from sanity_check_kappa import (  # noqa: E402
     cohen_kappa,
     raw_agreement,
 )
+from exclusions import wrong_paper_filter  # noqa: E402
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 STUDY_DIR = PROJECT_ROOT / "studies/eisele_metzger_replication"
@@ -108,6 +109,7 @@ def _fallback_filter(*aliases: str) -> str:
 
 def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
                domain: str) -> list[tuple[str, str]]:
+    wp_sql, wp_params = wrong_paper_filter("a", "b")
     return conn.execute(
         """SELECT a.judgment, b.judgment
            FROM benchmark_judgment a
@@ -116,20 +118,27 @@ def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
            WHERE a.source = ? AND b.source = ? AND a.domain = ?
              AND a.judgment IS NOT NULL AND b.judgment IS NOT NULL
              AND a.valid = 1 AND b.valid = 1"""
-        + _fallback_filter("a", "b"),
-        (source_a, source_b, domain),
+        + _fallback_filter("a", "b")
+        + wp_sql,
+        (source_a, source_b, domain, *wp_params),
     ).fetchall()
 
 
 def load_judgments(conn: sqlite3.Connection, source: str, domain: str
                    ) -> dict[str, str]:
-    """{rct_id: judgment} for one (source, domain), valid rows only."""
+    """{rct_id: judgment} for one (source, domain), valid rows only.
+
+    Wrong-paper RCTs (exclusions.WRONG_PAPER_RCTS) are dropped here, which
+    also keeps them out of the ensemble (built from these judgments).
+    """
+    wp_sql, wp_params = wrong_paper_filter("")
     return dict(conn.execute(
         """SELECT rct_id, judgment FROM benchmark_judgment
            WHERE source = ? AND domain = ? AND valid = 1
              AND judgment IS NOT NULL"""
-        + _fallback_filter(""),
-        (source, domain),
+        + _fallback_filter("")
+        + wp_sql,
+        (source, domain, *wp_params),
     ).fetchall())
 
 

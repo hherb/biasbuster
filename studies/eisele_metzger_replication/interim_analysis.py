@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "studies/eisele_metzger_replication"))
 
 from sanity_check_kappa import cohen_kappa, raw_agreement  # noqa: E402
+from exclusions import wrong_paper_filter  # noqa: E402
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 DOMAINS = ("d1", "d2", "d3", "d4", "d5", "overall")
@@ -52,6 +53,7 @@ def _fallback_filter(*aliases: str) -> str:
 def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
                domain: str) -> list[tuple[str, str]]:
     cur = conn.cursor()
+    wp_sql, wp_params = wrong_paper_filter("a", "b")
     return cur.execute(
         """SELECT a.judgment, b.judgment
            FROM benchmark_judgment a
@@ -60,8 +62,9 @@ def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
            WHERE a.source = ? AND b.source = ? AND a.domain = ?
              AND a.judgment IS NOT NULL AND b.judgment IS NOT NULL
              AND a.valid = 1 AND b.valid = 1"""
-        + _fallback_filter("a", "b"),
-        (source_a, source_b, domain),
+        + _fallback_filter("a", "b")
+        + wp_sql,
+        (source_a, source_b, domain, *wp_params),
     ).fetchall()
 
 
@@ -100,11 +103,13 @@ def label_distribution(conn: sqlite3.Connection, model_short: str,
                 f"{model_short}_{protocol}_pass1",
                 f"{model_short}_{protocol}_pass2",
                 f"{model_short}_{protocol}_pass3"]:
+        wp_sql, wp_params = wrong_paper_filter("")
         counts = dict(cur.execute(
-            """SELECT judgment, COUNT(*) FROM benchmark_judgment
-               WHERE source = ? AND domain = ? AND valid = 1
-               GROUP BY judgment""",
-            (src, domain),
+            "SELECT judgment, COUNT(*) FROM benchmark_judgment "
+            "WHERE source = ? AND domain = ? AND valid = 1"
+            + wp_sql
+            + " GROUP BY judgment",
+            (src, domain, *wp_params),
         ).fetchall())
         n = sum(counts.values())
         print(f"{src:<40} {counts.get('low', 0):>5} "
