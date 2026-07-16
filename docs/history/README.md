@@ -53,3 +53,9 @@ lives in `docs/harness/`, not here.
 | `biasbuster_medrxiv_draft.md` | Early dataset-paper draft (superseded by the drafts in `docs/papers/drafts/`) |
 | `ESSAY.md` | Narrative essay on the project |
 | `JOURNEY_CREATING_BIASBUSTER_DATASET.md` | Narrative account of building the dataset |
+
+## Session runbooks
+
+| Document | What it records |
+|---|---|
+| `EISELE_METZGER_RUNBOOK_2026-07.md` | The 2026-05→07 next-session runbook for the Eisele-Metzger replication: Phase-5 state mid-run, the recovery infrastructure, and the 2026-07-16 sixteen-finding code-audit record with per-fix summary. Superseded by the living `HANDOVER.md` at the repo root |

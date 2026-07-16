@@ -171,7 +171,9 @@ path like `collectors/` or `pipeline.py` means `biasbuster/collectors/` or
 `biasbuster/evaluation/harness.py` — do not move it), the training
 orchestrator shell scripts (`run_training*.sh`, `run_merge*.sh`,
 `lora2ollama.sh`, `train_and_evaluate.sh` — invoked by path from the GUI), and
-`biasbuster_next_session.md` (the active Eisele-Metzger study runbook). Both
+the session-workflow docs `HANDOVER.md` (current state, open work, and
+conventions — read it at the start of every session; the `nextsession` skill
+does this) and `ROADMAP.md` (feature status grouped by objective). Both
 `config.example.py` and the real `config.py` (gitignored) live at the repo
 root — `biasbuster/pipeline.py` imports it as a top-level module
 (`from config import Config`).
