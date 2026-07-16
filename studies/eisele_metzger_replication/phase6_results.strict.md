@@ -5,7 +5,7 @@
 
 Coverage of the table fills in as Phase 5 evaluation runs complete. Empty model rows = data not yet in the DB.
 
-> **INCLUSIVE MODE (default):** algorithm-derived (`raw_label='FALLBACK'`) judgements are included. Re-run with `--exclude-fallback` for the pre-registered model-emitted primary metric.
+> **STRICT MODE (`--exclude-fallback`):** algorithm-derived (`raw_label='FALLBACK'`) judgements are excluded — these numbers reproduce the pre-registered *model-emitted* primary metric.
 
 ## 1. Single-pass κ vs Cochrane (overall judgment)
 
@@ -29,12 +29,12 @@ Coverage of the table fills in as Phase 5 evaluation runs complete. Empty model 
 | qwen3_6_35b_fulltext_pass1 | 91 | 0.516 | 0.235 | 0.235 [0.090, 0.380] | 0.234 |
 | qwen3_6_35b_fulltext_pass2 | 91 | 0.473 | 0.164 | 0.202 [0.062, 0.360] | 0.253 |
 | qwen3_6_35b_fulltext_pass3 | 91 | 0.462 | 0.158 | 0.182 [0.038, 0.323] | 0.214 |
-| sonnet_4_6_abstract_pass1 | 91 | 0.440 | 0.058 | 0.093 [0.003, 0.204] | 0.156 |
-| sonnet_4_6_abstract_pass2 | 91 | 0.440 | 0.058 | 0.057 [-0.022, 0.145] | 0.057 |
-| sonnet_4_6_abstract_pass3 | 91 | 0.462 | 0.098 | 0.119 [0.016, 0.220] | 0.157 |
-| sonnet_4_6_fulltext_pass1 | 91 | 0.451 | 0.090 | 0.114 [-0.010, 0.230] | 0.154 |
-| sonnet_4_6_fulltext_pass2 | 91 | 0.462 | 0.118 | 0.175 [0.045, 0.291] | 0.264 |
-| sonnet_4_6_fulltext_pass3 | 91 | 0.462 | 0.124 | 0.157 [0.024, 0.277] | 0.207 |
+| sonnet_4_6_abstract_pass1 | 89 | 0.427 | 0.037 | 0.069 [-0.013, 0.171] | 0.126 |
+| sonnet_4_6_abstract_pass2 | 89 | 0.427 | 0.056 | 0.056 [-0.020, 0.146] | 0.058 |
+| sonnet_4_6_abstract_pass3 | 90 | 0.456 | 0.097 | 0.119 [0.017, 0.224] | 0.157 |
+| sonnet_4_6_fulltext_pass1 | 75 | 0.413 | 0.049 | 0.060 [-0.055, 0.168] | 0.079 |
+| sonnet_4_6_fulltext_pass2 | 81 | 0.469 | 0.122 | 0.166 [0.042, 0.285] | 0.236 |
+| sonnet_4_6_fulltext_pass3 | 79 | 0.456 | 0.133 | 0.160 [0.045, 0.289] | 0.203 |
 
 *Reference:* EM Claude 2 published κ_quad ≈ 0.22.
 
@@ -48,8 +48,8 @@ Coverage of the table fills in as Phase 5 evaluation runs complete. Empty model 
 | Gemma 4 26B-A4B × fulltext | 3 | 0.753 | 0.769 | 0.797 |
 | Qwen 3.6 35B-A3B × abstract | 3 | 0.361 | 0.364 | 0.370 |
 | Qwen 3.6 35B-A3B × fulltext | 3 | 0.593 | 0.620 | 0.665 |
-| Claude Sonnet 4.6 × abstract | 3 | 0.601 | 0.601 | 0.601 |
-| Claude Sonnet 4.6 × fulltext | 3 | 0.756 | 0.760 | 0.768 |
+| Claude Sonnet 4.6 × abstract | 3 | 0.594 | 0.594 | 0.594 |
+| Claude Sonnet 4.6 × fulltext | 3 | 0.740 | 0.745 | 0.754 |
 
 *References:* Minozzi 2020 trained-human Fleiss κ = 0.16; Minozzi 2021 with implementation document = 0.42.
 
@@ -59,14 +59,14 @@ Each signalling domain (d1–d5) is a strict majority vote across the three pass
 
 | Source | n | raw agr | κ_unw | κ_lin (95% CI) | κ_quad |
 |---|---:|---:|---:|---|---:|
-| gpt_oss_20b_abstract_ensemble | 91 | 0.429 | 0.042 | 0.014 [-0.051, 0.112] | -0.037 |
-| gpt_oss_20b_fulltext_ensemble | 90 | 0.456 | 0.154 | 0.170 [0.060, 0.306] | 0.191 |
-| gemma4_26b_abstract_ensemble | 91 | 0.462 | 0.122 | 0.116 [0.001, 0.248] | 0.106 |
-| gemma4_26b_fulltext_ensemble | 91 | 0.451 | 0.167 | 0.198 [0.075, 0.329] | 0.236 |
-| qwen3_6_35b_abstract_ensemble | 91 | 0.418 | 0.034 | 0.058 [-0.035, 0.168] | 0.098 |
-| qwen3_6_35b_fulltext_ensemble | 91 | 0.495 | 0.191 | 0.212 [0.081, 0.347] | 0.241 |
-| sonnet_4_6_abstract_ensemble | 91 | 0.451 | 0.076 | 0.093 [-0.006, 0.205] | 0.123 |
-| sonnet_4_6_fulltext_ensemble | 91 | 0.462 | 0.115 | 0.151 [0.030, 0.277] | 0.208 |
+| gpt_oss_20b_abstract_ensemble | 91 | 0.429 | 0.042 | 0.014 [-0.051, 0.108] | -0.037 |
+| gpt_oss_20b_fulltext_ensemble | 90 | 0.456 | 0.154 | 0.170 [0.046, 0.295] | 0.191 |
+| gemma4_26b_abstract_ensemble | 91 | 0.462 | 0.122 | 0.116 [0.005, 0.231] | 0.106 |
+| gemma4_26b_fulltext_ensemble | 91 | 0.451 | 0.167 | 0.198 [0.069, 0.333] | 0.236 |
+| qwen3_6_35b_abstract_ensemble | 91 | 0.418 | 0.034 | 0.058 [-0.035, 0.162] | 0.098 |
+| qwen3_6_35b_fulltext_ensemble | 91 | 0.495 | 0.191 | 0.212 [0.068, 0.379] | 0.241 |
+| sonnet_4_6_abstract_ensemble | 91 | 0.451 | 0.076 | 0.093 [-0.000, 0.191] | 0.123 |
+| sonnet_4_6_fulltext_ensemble | 91 | 0.462 | 0.115 | 0.151 [0.032, 0.285] | 0.208 |
 
 ## 4. Per-domain κ_quad across all sources
 
@@ -97,13 +97,13 @@ Each signalling domain (d1–d5) is a strict majority vote across the three pass
 | qwen3_6_35b_fulltext_pass2 | 0.169 | 0.134 | 0.306 | 0.415 | 0.208 | 0.253 |
 | qwen3_6_35b_fulltext_pass3 | 0.258 | 0.129 | 0.239 | 0.391 | 0.111 | 0.214 |
 | sonnet_4_6_abstract_ensemble | 0.032 | 0.152 | 0.225 | 0.213 | 0.046 | 0.123 |
-| sonnet_4_6_abstract_pass1 | 0.032 | 0.152 | 0.232 | 0.176 | 0.034 | 0.156 |
-| sonnet_4_6_abstract_pass2 | 0.043 | 0.165 | 0.218 | 0.198 | 0.059 | 0.057 |
-| sonnet_4_6_abstract_pass3 | 0.022 | 0.152 | 0.232 | 0.225 | 0.046 | 0.157 |
+| sonnet_4_6_abstract_pass1 | 0.032 | 0.157 | 0.237 | 0.176 | 0.034 | 0.126 |
+| sonnet_4_6_abstract_pass2 | 0.043 | 0.170 | 0.222 | 0.198 | 0.059 | 0.058 |
+| sonnet_4_6_abstract_pass3 | 0.021 | 0.152 | 0.232 | 0.225 | 0.046 | 0.157 |
 | sonnet_4_6_fulltext_ensemble | 0.196 | 0.110 | 0.364 | 0.273 | 0.105 | 0.208 |
-| sonnet_4_6_fulltext_pass1 | 0.208 | 0.110 | 0.363 | 0.265 | 0.092 | 0.154 |
-| sonnet_4_6_fulltext_pass2 | 0.196 | 0.110 | 0.346 | 0.374 | 0.105 | 0.264 |
-| sonnet_4_6_fulltext_pass3 | 0.196 | 0.097 | 0.339 | 0.256 | 0.092 | 0.207 |
+| sonnet_4_6_fulltext_pass1 | 0.208 | 0.092 | 0.331 | 0.305 | 0.092 | 0.079 |
+| sonnet_4_6_fulltext_pass2 | 0.196 | 0.115 | 0.306 | 0.339 | 0.105 | 0.236 |
+| sonnet_4_6_fulltext_pass3 | 0.194 | 0.121 | 0.348 | 0.285 | 0.092 | 0.203 |
 
 ## 5. Forest-plot data (for the manuscript figure)
 
@@ -127,20 +127,20 @@ Each signalling domain (d1–d5) is a strict majority vote across the three pass
 | Qwen 3.6 35B-A3B (fulltext, pass 1) | 0.234 | 0.235 [0.090, 0.380] | 91 |
 | Qwen 3.6 35B-A3B (fulltext, pass 2) | 0.253 | 0.202 [0.062, 0.360] | 91 |
 | Qwen 3.6 35B-A3B (fulltext, pass 3) | 0.214 | 0.182 [0.038, 0.323] | 91 |
-| Claude Sonnet 4.6 (abstract, pass 1) | 0.156 | 0.093 [0.003, 0.204] | 91 |
-| Claude Sonnet 4.6 (abstract, pass 2) | 0.057 | 0.057 [-0.022, 0.145] | 91 |
-| Claude Sonnet 4.6 (abstract, pass 3) | 0.157 | 0.119 [0.016, 0.220] | 91 |
-| Claude Sonnet 4.6 (fulltext, pass 1) | 0.154 | 0.114 [-0.010, 0.230] | 91 |
-| Claude Sonnet 4.6 (fulltext, pass 2) | 0.264 | 0.175 [0.045, 0.291] | 91 |
-| Claude Sonnet 4.6 (fulltext, pass 3) | 0.207 | 0.157 [0.024, 0.277] | 91 |
-| gpt-oss 20B (abstract, ensemble) | -0.037 | 0.014 [-0.051, 0.112] | 91 |
-| gpt-oss 20B (fulltext, ensemble) | 0.191 | 0.170 [0.060, 0.306] | 90 |
-| Gemma 4 26B-A4B (abstract, ensemble) | 0.106 | 0.116 [0.001, 0.248] | 91 |
-| Gemma 4 26B-A4B (fulltext, ensemble) | 0.236 | 0.198 [0.075, 0.329] | 91 |
-| Qwen 3.6 35B-A3B (abstract, ensemble) | 0.098 | 0.058 [-0.035, 0.168] | 91 |
-| Qwen 3.6 35B-A3B (fulltext, ensemble) | 0.241 | 0.212 [0.081, 0.347] | 91 |
-| Claude Sonnet 4.6 (abstract, ensemble) | 0.123 | 0.093 [-0.006, 0.205] | 91 |
-| Claude Sonnet 4.6 (fulltext, ensemble) | 0.208 | 0.151 [0.030, 0.277] | 91 |
+| Claude Sonnet 4.6 (abstract, pass 1) | 0.126 | 0.069 [-0.013, 0.171] | 89 |
+| Claude Sonnet 4.6 (abstract, pass 2) | 0.058 | 0.056 [-0.020, 0.146] | 89 |
+| Claude Sonnet 4.6 (abstract, pass 3) | 0.157 | 0.119 [0.017, 0.224] | 90 |
+| Claude Sonnet 4.6 (fulltext, pass 1) | 0.079 | 0.060 [-0.055, 0.168] | 75 |
+| Claude Sonnet 4.6 (fulltext, pass 2) | 0.236 | 0.166 [0.042, 0.285] | 81 |
+| Claude Sonnet 4.6 (fulltext, pass 3) | 0.203 | 0.160 [0.045, 0.289] | 79 |
+| gpt-oss 20B (abstract, ensemble) | -0.037 | 0.014 [-0.051, 0.108] | 91 |
+| gpt-oss 20B (fulltext, ensemble) | 0.191 | 0.170 [0.046, 0.295] | 90 |
+| Gemma 4 26B-A4B (abstract, ensemble) | 0.106 | 0.116 [0.005, 0.231] | 91 |
+| Gemma 4 26B-A4B (fulltext, ensemble) | 0.236 | 0.198 [0.069, 0.333] | 91 |
+| Qwen 3.6 35B-A3B (abstract, ensemble) | 0.098 | 0.058 [-0.035, 0.162] | 91 |
+| Qwen 3.6 35B-A3B (fulltext, ensemble) | 0.241 | 0.212 [0.068, 0.379] | 91 |
+| Claude Sonnet 4.6 (abstract, ensemble) | 0.123 | 0.093 [-0.000, 0.191] | 91 |
+| Claude Sonnet 4.6 (fulltext, ensemble) | 0.208 | 0.151 [0.032, 0.285] | 91 |
 | EM Claude 2 (published, single pass) | 0.220 | — | — |
 | Minozzi 2020 — trained humans, no ID | 0.160 | — | — |
 | Minozzi 2021 — trained humans, with ID | 0.420 | — | — |

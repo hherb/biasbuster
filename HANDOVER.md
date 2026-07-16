@@ -1,10 +1,13 @@
 # HANDOVER — BiasBuster
 
-_Last updated: 2026-07-17 (stale tests #21/#22 fixed; suite green at 576 passed.
-Maintenance scaffolding introduced 2026-07-16: this file, ROADMAP.md, and the
-`nextsession`/`fixall` skills, seeded from the 2026-05-01 next-session runbook,
-now archived at `docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`. DB/GitHub state
-below was re-verified 2026-07-16 against the live benchmark DB and GitHub.)_
+_Last updated: 2026-07-17 (stale tests #21/#22 fixed, suite green at 579 passed;
+κ tables regenerated and both drafts updated to strict-primary numbers, but a
+review of PR #28 found those tables are polluted by RCT030 wrong-paper judgements —
+tracked as blocking issue #29, must regenerate before submission. Wrong-paper
+recovery guard added. Maintenance scaffolding introduced 2026-07-16: this file,
+ROADMAP.md, and the `nextsession`/`fixall` skills, seeded from the 2026-05-01
+next-session runbook, now archived at
+`docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`.)_
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -36,32 +39,45 @@ The §9 publishability gate was already cleared with gpt-oss:20b and Sonnet 4.6.
   (issues #21, #22) were realigned to the intended post-fix behaviour on
   2026-07-17: distinct PMIDs for the PMID-grouped export split, and the
   algorithm-derived judgement for the RoB 2 missing-judgement fallback.
-- **The reported κ tables are stale**: `phase6_results.{md,csv}` were generated
-  2026-05-06, before the FALLBACK/strict-mode fixes landed, and no
-  `phase6_results.strict.*` files exist yet. The regeneration gate below is the
-  main open work; the manuscript numbers will change.
+- **The κ regeneration gate ran (2026-07-17) but the output is BLOCKED by issue
+  #29**: retro-tag was a genuine no-op (0 untagged rows in 11,592 scanned);
+  `phase6_results.{md,csv}` and the new `phase6_results.strict.{md,csv}` + forest
+  CSVs were regenerated; both preprint drafts updated to the strict-primary
+  picture. The regenerated tables (and the numbers in both drafts) are **polluted
+  by RCT030 wrong-paper judgements** and must be regenerated again once #29 is
+  fixed — do not submit on the current numbers. The qualitative findings likely
+  survive but every figure will shift. For the record, the current (polluted)
+  headline: under the corrected worst-wins ensemble, naive ensembling underperforms
+  the best single pass for all four models (former "qwen exception" +0.012 became
+  −0.012); Sonnet strict best-pass fulltext κ_quad 0.236 (0.264 inclusive),
+  four-model spread 0.021.
+- **Recovery guard added (2026-07-17), but only covers parse-failure recovery**:
+  `recover_parse_failures.py` recovered 2 qwen fulltext d3 rows that belonged to
+  **RCT030 — the wrong-paper acquisition** (its signalling describes the parent
+  Cochrane review, not the trial). The rows were reverted from backup,
+  `WRONG_PAPER_RCTS = {"RCT030"}` now guards the recovery script (with tests in
+  `tests/test_recover_parse_failures.py`), and RCT030's exclusion is documented in
+  `benchmark_rct.notes`. **BUT** the guard does NOT touch RCT030's 179 already-valid
+  `benchmark_judgment` rows (full cochrane + all-model judgements, both protocols),
+  which are still counted in every κ script — see issue #29. So "excluded from
+  analysis" is documented and enforced in the *recovery* path only, not in the
+  *analysis* path. FALLBACK total stands at 91 (all Sonnet); the 29 RCT030
+  parse-failure rows stay out of recovery, but the wrong-paper *valid* rows do not.
 
 ## Open work (in priority order)
 
-### 1. Manuscript κ regeneration gate (needs the live DB)
+### 1. Fix the RCT030 κ pollution and regenerate (issue #29) — BLOCKS the manuscript
 
-Run against the canonical DB (and any shard) — the reported figures change:
-
-1. `uv run python studies/eisele_metzger_replication/retro_tag_live_fallback.py --dry-run`
-   then `--apply` — back-tags rows written by the old untagged live path. Note:
-   gemma/qwen sources currently show **0 FALLBACK rows**; the dry run also tells you
-   whether that is genuine (no schema drift) or untagged fallback.
-2. `uv run python studies/eisele_metzger_replication/recover_parse_failures.py --dry-run`
-   (apply if anything new is recoverable).
-3. Regenerate in **both** modes — strict is the pre-registered primary:
-   ```bash
-   uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py                     # inclusive
-   uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --exclude-fallback  # strict → *.strict.{md,csv}
-   ```
-   (The ensemble-overall figure now reflects worst-wins per the #7 fix.)
-4. Update **both** preprint drafts (§3 tables, abstract, conclusion) with the strict
-   4-model picture; report inclusive numbers as a sensitivity analysis; drop the
-   "(pending: gemma4 and qwen3.6)" caveats.
+RCT030 is documented "excluded from analysis" in `benchmark_rct.notes`, but the κ
+scripts have no RCT030 filter, so its wrong-paper judgements (179 valid rows) are in
+every phase-6 table and both drafts. Fix: centralise `WRONG_PAPER_RCTS` into a shared
+study module, enforce it in `compute_phase6_kappa.py` / `interim_analysis.py` /
+`temperature_analysis.py` / `sanity_check_kappa.py`, regenerate both κ modes against
+the canonical DB, then re-update both drafts (RCT030 is a *wrong-paper* exclusion
+distinct from the 9 unrecoverable regional-journal RCTs → n=90, not 91, for affected
+sources; §3.1 narrative needs rewording). Owner decision needed on whether RCT030 is
+the *only* wrong-paper acquisition (the set was populated reactively). Full evidence
+and a proposed patch are in issue #29.
 
 ### 2. Papers
 
@@ -119,6 +135,9 @@ Run against the canonical DB (and any shard) — the reported figures change:
 - Two near-identical filenames in `biasbuster/methodologies/cochrane_rob2/`:
   `algorithm.py` (consistency checking) vs `algorithms.py` (per-domain truth
   tables). Both carry cross-reference notes — mind which one you touch.
+- **RCT030 is the wrong-paper acquisition** — its 29 parse-failure rows must stay
+  excluded; `recover_parse_failures.py` guards this via `WRONG_PAPER_RCTS`. Never
+  "recover" them.
 - All κ / ensemble / synthesis numbers are computed in code, never by the model.
 - Repo-wide rules (CLAUDE.md): `uv` only; prompts single-sourced in `prompts*.py`;
   processes >2 min are printed for the user to run, never run in-session; anything
