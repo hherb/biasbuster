@@ -162,7 +162,11 @@ class TestExportDataset:
         assert (tmp_path / "metadata.json").exists()
 
     def test_split_proportions(self, tmp_path, sample_annotation):
-        annotations = [sample_annotation] * 100
+        # Distinct PMIDs: the split groups examples by PMID (anti-leakage),
+        # so identical PMIDs would collapse into a single train-only group.
+        annotations = [
+            {**sample_annotation, "pmid": f"P{i}"} for i in range(100)
+        ]
         export_dataset(annotations, tmp_path, fmt="alpaca")
         train_lines = (tmp_path / "train.jsonl").read_text().strip().split("\n")
         val_lines = (tmp_path / "val.jsonl").read_text().strip().split("\n")

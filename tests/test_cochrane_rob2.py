@@ -492,17 +492,18 @@ class TestDomainResponseParser:
             "definitely not json", "randomization", pmid="T1",
         ) is None
 
-    def test_missing_judgement_with_answers_defaults_to_some_concerns(
+    def test_missing_judgement_with_answers_derived_from_algorithm(
         self,
     ) -> None:
         """Sonnet sometimes returns valid JSON with signalling_answers and
         justification but omits the judgement field entirely (3-retry
         persistent failure observed on PMID 36101416 /
-        deviations_from_interventions). Per Cochrane's documented
-        ambiguity rule (every per-domain prompt's algorithm specifies
-        'some_concerns' as the 'otherwise' bucket), default to that
-        rather than aborting the whole paper. Signalling answers are
-        preserved so an auditor can override.
+        deviations_from_interventions). The parser derives the judgement
+        in code via the Cochrane per-domain truth table rather than
+        stamping a fixed 'some_concerns' — the answers may map to a
+        definite low/high, and the truth table itself returns
+        'some_concerns' for the genuine 'otherwise' bucket. Signalling
+        answers are preserved so an auditor can override.
         """
         raw = json.dumps({
             "domain": "deviations_from_interventions",
@@ -515,7 +516,9 @@ class TestDomainResponseParser:
             raw, "deviations_from_interventions", pmid="T1",
         )
         assert parsed is not None
-        assert parsed.judgement == "some_concerns"
+        # D2 truth table: 2.1=PN and 2.2=PN and 2.6=PY ⇒ 'low'
+        # (algorithms.domain_2_deviations).
+        assert parsed.judgement == "low"
         # The model's signalling work is preserved.
         assert parsed.signalling_answers == {
             "2.1": "PN", "2.2": "PN", "2.6": "PY",
