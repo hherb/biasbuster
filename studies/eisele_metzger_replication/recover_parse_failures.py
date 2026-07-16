@@ -355,6 +355,13 @@ def run_recovery(conn: sqlite3.Connection, dry_run: bool,
         if rct_id in WRONG_PAPER_RCTS:
             # The model was given the wrong document; its signalling
             # answers describe a different paper. Never recover.
+            # This guard sits before the domain=='overall' skip below, so
+            # excluded_wrong_paper counts *every* parse-failure row for the
+            # RCT (the five per-domain rows and the synthesis 'overall' row).
+            # It therefore does not partition cleanly against
+            # domain_recovered/domain_unrecoverable, which see only
+            # per-domain rows — that is intentional: the count is a
+            # per-RCT "everything skipped" diagnostic, not a domain tally.
             counts["excluded_wrong_paper"] += 1
             continue
         if domain == "overall":
