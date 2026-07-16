@@ -2,7 +2,7 @@
 name: nextsession
 description: Use when starting or resuming a work session on the biasbuster project, to load current project state and re-establish the coding rules and session workflow before doing any work.
 disable-model-invocation: true
-allowed-tools: Read, Edit, Bash(git add *), Bash(git commit *), Bash(git push *), Bash(git status *), Bash(git diff *), Bash(gh issue *), Bash(gh pr *), Bash(uv run pytest *), Bash(uv run python *), Bash(sqlite3 *)
+allowed-tools: Read, Edit, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git status:*), Bash(git diff:*), Bash(git switch:*), Bash(gh issue:*), Bash(gh pr:*), Bash(uv run pytest:*), Bash(uv run python:*), Bash(sqlite3:*)
 ---
 
 Read HANDOVER.md and follow the instructions. Ask me if you have any questions.
