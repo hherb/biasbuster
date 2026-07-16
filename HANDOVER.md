@@ -104,6 +104,9 @@ Run against the canonical DB (and any shard) — the reported figures change:
   default branch — worth a triage pass.
 - `dataset/` contains stray `* copy.db` files — confirm with the owner they are
   disposable before removing.
+- **#26**: the skills' `allowed-tools` need converting to the `Bash(cmd:*)` prefix
+  form (exact lines in the issue) — owner must apply by hand; the permission
+  classifier blocks agents from editing their own permission surface.
 
 ## Conventions and gotchas
 
@@ -155,7 +158,7 @@ SELECT source, COUNT(*) AS n_judgments,
        SUM(CASE WHEN valid=1 THEN 1 ELSE 0 END) AS n_valid,
        SUM(CASE WHEN raw_label='FALLBACK' THEN 1 ELSE 0 END) AS n_fallback
 FROM benchmark_judgment
-WHERE source NOT LIKE 'cochrane' AND source NOT LIKE 'em_claude2_%'
+WHERE source != 'cochrane' AND source NOT LIKE 'em_claude2_%'
 GROUP BY source ORDER BY source;
 SQL
 ```
