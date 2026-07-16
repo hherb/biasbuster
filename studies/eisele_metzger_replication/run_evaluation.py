@@ -46,7 +46,12 @@ from eval_input import (  # noqa: E402
     build_synthesis_user_message,
     load_rct_input,
 )
-from eval_ollama import DOMAIN_TO_STAGE, OllamaCallResult, OllamaRunner  # noqa: E402
+from eval_ollama import (  # noqa: E402
+    DOMAIN_TO_STAGE,
+    FALLBACK_RAW_LABEL,
+    OllamaCallResult,
+    OllamaRunner,
+)
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 
@@ -143,6 +148,10 @@ def record_result(conn: sqlite3.Connection, ctx: CallContext,
     )
 
     valid = 1 if result.judgment is not None else 0
+    # Tag algorithm-derived judgements (model omitted the field, we applied the
+    # Cochrane rule) so they can be excluded to reproduce the pre-registered
+    # model-emitted primary metric. Matches recover_parse_failures.py.
+    raw_label = FALLBACK_RAW_LABEL if result.is_fallback else result.judgment
     cur.execute(
         """INSERT OR REPLACE INTO benchmark_judgment
            (rct_id, source, domain, judgment, rationale, valid, raw_label)
@@ -150,7 +159,7 @@ def record_result(conn: sqlite3.Connection, ctx: CallContext,
         (
             ctx.rct_id, ctx.source_label, ctx.domain,
             result.judgment, result.rationale, valid,
-            result.judgment,  # raw_label = canonical for our own outputs
+            raw_label,
         ),
     )
     conn.commit()

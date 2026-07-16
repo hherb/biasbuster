@@ -43,6 +43,17 @@ DOMAIN_TO_STAGE = {
 
 VALID_JUDGMENTS = {"low", "some_concerns", "high"}
 
+# When the model omits the explicit ``judgement`` field but emits valid
+# ``signalling_answers``, we derive the judgement in code via the Cochrane
+# per-domain algorithm. Such rows MUST be distinguishable from genuine
+# model-emitted judgements so the pre-registered "model-emitted" primary
+# metric can be reproduced by filtering them out. We tag them exactly as the
+# post-hoc ``recover_parse_failures.py`` script does, so both code paths are
+# consistent: ``raw_label='FALLBACK'`` in benchmark_judgment and this marker
+# in ``evaluation_run.error``.
+FALLBACK_RAW_LABEL = "FALLBACK"
+FALLBACK_ERROR_MSG = "algorithmic_fallback: derived judgement from signalling_answers"
+
 
 @dataclass
 class OllamaCallResult:
@@ -56,6 +67,7 @@ class OllamaCallResult:
     input_tokens: int | None
     output_tokens: int | None
     error: str | None
+    is_fallback: bool = False  # judgement derived via Cochrane algorithm, not model-emitted
 
 
 class OllamaRunner:
@@ -189,7 +201,7 @@ class OllamaRunner:
                     input_tokens=tokens["input"], output_tokens=tokens["output"],
                     error=error,
                 )
-            judgment, rationale = parse_response(
+            judgment, rationale, is_fallback = parse_response(
                 text, output_kind, domain_code=domain_code_for_parser,
             )
             if judgment is not None:
@@ -199,7 +211,8 @@ class OllamaRunner:
                     raw_response=text, parse_status=status,
                     parse_attempts=attempt, duration_seconds=duration,
                     input_tokens=tokens["input"], output_tokens=tokens["output"],
-                    error=None,
+                    error=FALLBACK_ERROR_MSG if is_fallback else None,
+                    is_fallback=is_fallback,
                 )
             # Parse failure — retry with same prompt (pre-reg §6).
             if attempt < max_attempts:
@@ -282,10 +295,17 @@ def _normalize_judgment(raw: Any) -> str | None:
 
 def parse_response(text: str, output_kind: str,
                    domain_code: str | None = None,
-                   ) -> tuple[str | None, str | None]:
-    """Extract (judgment, rationale) from the model's raw response text.
+                   ) -> tuple[str | None, str | None, bool]:
+    """Extract (judgment, rationale, is_fallback) from the model's raw text.
 
-    Returns (None, None) on parse failure so the caller can retry.
+    Returns ``(None, None, False)`` on parse failure so the caller can retry.
+    ``is_fallback`` is True only when the judgement was derived in code via
+    the Cochrane per-domain algorithm because the model omitted the explicit
+    ``judgement`` field — callers MUST persist that flag (see
+    ``FALLBACK_RAW_LABEL``) so these rows stay distinguishable from
+    model-emitted ones and the pre-registered primary metric remains
+    reproducible.
+
     `output_kind` is "domain" or "synthesis" — they expect different JSON
     shapes per prompt_v1.md §3.
 
@@ -301,17 +321,18 @@ def parse_response(text: str, output_kind: str,
     """
     json_str = _extract_json_object(text)
     if not json_str:
-        return None, None
+        return None, None, False
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError:
-        return None, None
+        return None, None, False
     if not isinstance(data, dict):
-        return None, None
+        return None, None, False
 
     if output_kind == "domain":
         judgment = _normalize_judgment(data.get("judgement"))
         rationale = data.get("justification")
+        is_fallback = False
         if judgment is None and domain_code is not None:
             # Algorithmic fallback: derive from signalling_answers per the
             # Cochrane per-domain rule the model was supposed to apply.
@@ -322,15 +343,16 @@ def parse_response(text: str, output_kind: str,
                 )
                 normalized = {str(k): str(v) for k, v in signalling.items()}
                 judgment = derive_domain_judgement(domain_code, normalized)
+                is_fallback = judgment is not None
         if judgment is None:
-            return None, None
-        return judgment, rationale if isinstance(rationale, str) else None
+            return None, None, False
+        return judgment, rationale if isinstance(rationale, str) else None, is_fallback
 
     if output_kind == "synthesis":
         judgment = _normalize_judgment(data.get("overall_judgement"))
         rationale = data.get("overall_rationale")
         if judgment is None:
-            return None, None
-        return judgment, rationale if isinstance(rationale, str) else None
+            return None, None, False
+        return judgment, rationale if isinstance(rationale, str) else None, False
 
     raise ValueError(f"unknown output_kind: {output_kind!r}")

@@ -72,6 +72,30 @@ MINOZZI_2021_HUMAN_WITH_ID_KAPPA = 0.42
 
 # --- Data access -------------------------------------------------------
 
+# When True, algorithm-derived judgements (raw_label='FALLBACK', written by the
+# live-path fallback in eval_ollama.parse_response and by recover_parse_failures.py)
+# are excluded from every κ computation. That reproduces the pre-registered
+# "model-emitted judgement" primary metric; the default (False) reports the
+# inclusive numbers. Toggled by the --exclude-fallback CLI flag. Rows with a
+# NULL raw_label (e.g. Cochrane ground truth) are always kept.
+EXCLUDE_FALLBACK = False
+
+
+def _fallback_filter(*aliases: str) -> str:
+    """SQL fragment excluding FALLBACK-tagged rows, or '' when disabled.
+
+    Pass the table alias used for each ``benchmark_judgment`` reference in the
+    query (e.g. ``"a"``, ``"b"``); pass ``""`` for an unaliased table.
+    """
+    if not EXCLUDE_FALLBACK:
+        return ""
+    parts = []
+    for alias in aliases:
+        col = f"{alias}.raw_label" if alias else "raw_label"
+        parts.append(f"({col} IS NULL OR {col} != 'FALLBACK')")
+    return " AND " + " AND ".join(parts)
+
+
 def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
                domain: str) -> list[tuple[str, str]]:
     return conn.execute(
@@ -81,7 +105,8 @@ def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
              ON a.rct_id = b.rct_id AND a.domain = b.domain
            WHERE a.source = ? AND b.source = ? AND a.domain = ?
              AND a.judgment IS NOT NULL AND b.judgment IS NOT NULL
-             AND a.valid = 1 AND b.valid = 1""",
+             AND a.valid = 1 AND b.valid = 1"""
+        + _fallback_filter("a", "b"),
         (source_a, source_b, domain),
     ).fetchall()
 
@@ -92,7 +117,8 @@ def load_judgments(conn: sqlite3.Connection, source: str, domain: str
     return dict(conn.execute(
         """SELECT rct_id, judgment FROM benchmark_judgment
            WHERE source = ? AND domain = ? AND valid = 1
-             AND judgment IS NOT NULL""",
+             AND judgment IS NOT NULL"""
+        + _fallback_filter(""),
         (source, domain),
     ).fetchall())
 
@@ -265,7 +291,11 @@ def run_to_run_kappa(conn: sqlite3.Connection, model: str, protocol: str,
 
 # --- Reporting ---------------------------------------------------------
 
-def write_results(conn: sqlite3.Connection, run_ensembles: bool) -> None:
+def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
+                  results_md: Path = RESULTS_MD,
+                  results_csv: Path = RESULTS_CSV,
+                  forest_csv: Path = FOREST_CSV,
+                  exclude_fallback: bool = False) -> None:
     rows: list[dict] = []
     forest_rows: list[dict] = []
 
@@ -390,13 +420,13 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool) -> None:
     # CSV outputs
     fieldnames = ["source", "model", "protocol", "pass", "kind", "domain",
                   "n", "raw_agr", "k_unw", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi"]
-    with open(RESULTS_CSV, "w", newline="", encoding="utf-8") as fh:
+    with open(results_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=fieldnames)
         w.writeheader()
         for r in rows:
             w.writerow(r)
     forest_fields = ["label", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi", "n", "kind"]
-    with open(FOREST_CSV, "w", newline="", encoding="utf-8") as fh:
+    with open(forest_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=forest_fields)
         w.writeheader()
         for r in forest_rows:
@@ -420,6 +450,19 @@ def write_markdown_report(rows: list[dict], forest_rows: list[dict]) -> None:
     lines.append("**Output companions:** `phase6_results.csv` (raw rows) and `phase6_forest_data.csv` (forest-plot input).")
     lines.append("")
     lines.append("Coverage of the table fills in as Phase 5 evaluation runs complete. Empty model rows = data not yet in the DB.")
+    lines.append("")
+    if exclude_fallback:
+        lines.append(
+            "> **STRICT MODE (`--exclude-fallback`):** algorithm-derived "
+            "(`raw_label='FALLBACK'`) judgements are excluded — these numbers "
+            "reproduce the pre-registered *model-emitted* primary metric."
+        )
+    else:
+        lines.append(
+            "> **INCLUSIVE MODE (default):** algorithm-derived "
+            "(`raw_label='FALLBACK'`) judgements are included. Re-run with "
+            "`--exclude-fallback` for the pre-registered model-emitted primary metric."
+        )
     lines.append("")
 
     # Section 1: overall κ vs Cochrane per single pass
@@ -503,31 +546,51 @@ def write_markdown_report(rows: list[dict], forest_rows: list[dict]) -> None:
         lines.append(f"| {r['label']} | {fmt(r['k_quad'])} | {ci} | {n_str} |")
     lines.append("")
 
-    RESULTS_MD.write_text("\n".join(lines), encoding="utf-8")
+    results_md.write_text("\n".join(lines), encoding="utf-8")
 
 
 # --- main ---------------------------------------------------------------
 
 def main() -> int:
+    global EXCLUDE_FALLBACK
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument(
         "--no-ensembles", action="store_true",
         help="Skip the 3-pass majority-vote ensemble computation.",
     )
+    parser.add_argument(
+        "--exclude-fallback", action="store_true",
+        help="Exclude algorithm-derived (raw_label='FALLBACK') judgements from "
+             "all κ computations, reproducing the pre-registered model-emitted "
+             "primary metric. Writes to *.strict.{md,csv} so the inclusive "
+             "results are not overwritten.",
+    )
     args = parser.parse_args()
     if not args.db_path.exists():
         print(f"[error] DB not found at {args.db_path}", file=sys.stderr)
         return 2
 
+    EXCLUDE_FALLBACK = args.exclude_fallback
+    if args.exclude_fallback:
+        results_md = STUDY_DIR / "phase6_results.strict.md"
+        results_csv = STUDY_DIR / "phase6_results.strict.csv"
+        forest_csv = STUDY_DIR / "phase6_forest_data.strict.csv"
+        print("[mode] STRICT — excluding raw_label='FALLBACK' rows")
+    else:
+        results_md, results_csv, forest_csv = RESULTS_MD, RESULTS_CSV, FOREST_CSV
+        print("[mode] INCLUSIVE — FALLBACK rows included (use --exclude-fallback for primary metric)")
+
     conn = sqlite3.connect(args.db_path)
     try:
-        write_results(conn, run_ensembles=not args.no_ensembles)
+        write_results(conn, run_ensembles=not args.no_ensembles,
+                      results_md=results_md, results_csv=results_csv,
+                      forest_csv=forest_csv, exclude_fallback=args.exclude_fallback)
     finally:
         conn.close()
-    print(f"[write] {RESULTS_MD}")
-    print(f"[write] {RESULTS_CSV}")
-    print(f"[write] {FOREST_CSV}")
+    print(f"[write] {results_md}")
+    print(f"[write] {results_csv}")
+    print(f"[write] {forest_csv}")
     return 0
 
 
