@@ -21,6 +21,122 @@ You are continuing the **Eisele-Metzger 2025 RoB 2 replication study**. Read the
 
 ---
 
+## ⚠️ KNOWN BUGS — found in 2026-07-16 code review (READ BEFORE FINALIZING MANUSCRIPT)
+
+A logical/flow-and-bug review on 2026-07-16 (four parallel reviewers + spot-verification)
+found the following. Nothing here is fixed yet — the review was scoped to *find*, not fix.
+The first two are **paper-critical**: they affect the headline κ numbers and the pre-registered
+"model-emitted vs algorithm-derived" distinction the whole study rests on. Address these before
+posting either preprint.
+
+### Paper-critical (evaluation / statistics)
+
+1. **Live-path algorithmic fallback is stored UNTAGGED as a genuine model judgement.**
+   [`eval_ollama.py:315-327`](studies/eisele_metzger_replication/eval_ollama.py:315) derives a
+   domain judgement via `derive_domain_judgement()` when the model omits the `judgement` field,
+   and [`run_evaluation.py:145-154`](studies/eisele_metzger_replication/run_evaluation.py:145)
+   ingests it with `valid=1` and `raw_label = result.judgment` (the derived value) — i.e. it is
+   indistinguishable from a model-emitted label. Same for Sonnet at
+   [`run_evaluation_anthropic.py:431-434 → ingest ~467`](studies/eisele_metzger_replication/run_evaluation_anthropic.py:431).
+   This directly contradicts `recover_parse_failures.py`, which tags the *identical* derivation as
+   `raw_label='FALLBACK'` precisely so it can be excluded. **Consequence:** any *new* run (the
+   gemma/qwen passes that were still running) silently contaminates the pre-registered
+   "model-emitted judgement" primary arm with algorithm-derived labels. Fix: tag inline-derived
+   judgements as `FALLBACK` at ingest, matching the post-hoc recovery script.
+
+2. **The κ scripts never exclude `FALLBACK` rows**, so every reported κ mixes model-emitted and
+   algorithm-derived labels — and there is no code path to reproduce the pre-registered primary
+   metric. [`compute_phase6_kappa.py:75-97`](studies/eisele_metzger_replication/compute_phase6_kappa.py:75)
+   (`load_pairs`/`load_judgments`) and
+   [`interim_analysis.py`](studies/eisele_metzger_replication/interim_analysis.py) filter only on
+   `valid = 1`. `recover_parse_failures.py`'s own docstring says downstream analysis should filter
+   `raw_label != 'FALLBACK'` "to reproduce the original primary metric" — but no script offers that
+   filter. Fix: add a `--strict/--exclude-fallback` option (and report both strict and inclusive κ).
+
+3. **Ensemble "overall" κ is a direct majority vote, but the report claims worst-wins synthesis.**
+   [`compute_phase6_kappa.py:132-142`](studies/eisele_metzger_replication/compute_phase6_kappa.py:132)
+   majority-votes the `overall` label directly (DOMAINS includes `"overall"`), yet the Section 3
+   markdown at line 464 says "Per-domain majority vote … then worst-wins synthesis." The printed
+   number does not match its own description. Decide which you want and make text + code agree.
+
+4. **The §8 parse-failure halt aborts only the current pass; later passes still run.**
+   [`run_evaluation.py:286-289`](studies/eisele_metzger_replication/run_evaluation.py:286) returns
+   from `run_one_pass` on halt, but `main` (lines 357-363) loops over passes without checking the
+   halt — passes 2 and 3 run at the same broken failure rate. Defeats the "halt and revise prompts"
+   rule and wastes a full local-model run.
+
+### Production BiasBuster code (not the paper, but wrong RoB output)
+
+5. **`some_concerns` is hardcoded when the LLM omits `judgement` but signalling answers are present.**
+   [`assessor.py:213-221`](biasbuster/methodologies/cochrane_rob2/assessor.py:213) stamps
+   `some_concerns` unconditionally, citing "Cochrane's ambiguity rule" — but that rule only applies
+   when answers match *neither* the low nor high pattern. With answers present, the domain truth
+   table should decide. E.g. D1 `1.3=Y/PY` (baseline imbalance) or D4 `4.1=Y` → algorithm says
+   **high**, but this records **some_concerns**, and worst-wins can then downgrade the whole paper.
+   The correct function (`algorithms.derive_domain_judgement`) already exists but is never called here.
+
+6. **The per-domain consistency check is a no-op**, so the LLM's `judgement` is trusted verbatim.
+   [`algorithm.py:107-118`](biasbuster/methodologies/cochrane_rob2/algorithm.py:107)
+   `domain_judgement_is_consistent` always returns True; [`schema.py:80-83`](biasbuster/methodologies/cochrane_rob2/schema.py:80)
+   says the per-domain judgement "must be reproducible from the signalling inputs alone." The
+   truth-table functions in `algorithms.py` (plural) are **dead code** — nothing imports them except
+   the study's fallback path. Two near-identically-named files (`algorithm.py` vs `algorithms.py`) is
+   itself a trap: a future dev can wire in the wrong one silently. (Also: `algorithm.py:5` docstring
+   references a function `aggregate_domain` that does not exist.)
+
+7. **`upsert_cochrane_paper` overwrites all five domain ratings unconditionally** while the review-
+   metadata fields right below are COALESCE/NULLIF-guarded.
+   [`database.py:713-719`](biasbuster/database.py:713). `collect-rob` is designed to be re-run; if a
+   later run yields an empty/None domain (extraction dropped it), it blanks a previously-stored expert
+   rating. Matches the documented "domains are always authoritative" intent, so *verify intent* — but
+   a `COALESCE(NULLIF(excluded.x,''), papers.x)` guard would prevent empty-value blanking with no
+   downside.
+
+8. **Multi-model export can leak the same abstract across train/test.**
+   [`export.py:874-910`](export.py:874) `_stratified_split` splits per converted example with no
+   PMID-level grouping; [`pipeline.py:637`](biasbuster/pipeline.py:637) exports all models by default
+   (`export_model=None`). A PMID annotated by both anthropic and deepseek yields two examples with
+   identical abstract text that can land in different splits. Single-model export is unaffected. Fix:
+   group-by-PMID before splitting, or dedup abstract text across splits.
+
+### Collectors / annotators
+
+9. **Retracted papers are dropped even when `require_abstract=False`.**
+   [`retraction_watch.py:383-392`](biasbuster/collectors/retraction_watch.py:383) appends a paper only
+   inside `if paper.pmid in abstract_data:`, so papers with no PMID or not returned by PubMed are
+   discarded regardless of the flag. **Latent** today — the only caller
+   ([`pipeline.py:68`](biasbuster/pipeline.py:68)) uses the default `True` — but the flag is dead in
+   the `False` case.
+
+10. **`is_retraction_notice` misses long notices with an original-looking title.**
+    [`annotators/__init__.py:88-116`](biasbuster/annotators/__init__.py:88): if the title doesn't match
+    a retraction pattern, the abstract is only checked when it is `< 200` chars. A >200-char abstract
+    beginning "This article has been retracted at the request of…" with a normal title slips through and
+    gets sent for bias annotation.
+
+11. **Reversed JSON-array search can pick a trailing `[5]` citation → zero studies for the chunk.**
+    [`cochrane_rob.py:777-793`](biasbuster/collectors/cochrane_rob.py:777): iterating array matches in
+    reverse tries a trailing bracketed citation first; `json.loads("[5]")` succeeds, the real studies
+    array is discarded, and the chunk silently contributes zero RoB assessments.
+
+### Low severity / latent
+
+12. `seed_database.py:367` — `ZeroDivisionError` in `print_summary` when the papers table is empty.
+13. `merge_eval_dbs.py:63-78` — `INSERT OR IGNORE` gives no warning if two shards wrote the same
+    `(rct_id, source, domain)` with *different* data (silent divergence).
+14. `compute_phase6_kappa.py:172-203` — `mcnemar_test` is dead code and, if wired up, zips two
+    independently-ordered query results assuming matching row order (SQLite gives no such guarantee).
+15. `database.py:1289` / `pipeline.py:863-867` — unbatched `pmid IN (?, …)` can exceed SQLite's
+    parameter limit on very large undetectable-paper sets (only bites on SQLite < 3.32).
+
+### Documentation
+
+16. **`CLAUDE.md`'s Architecture section is stale.** It describes a flat root layout (`collectors/`,
+    `annotators/`, `database.py`, `pipeline.py`) that no longer exists — all code is under the
+    `biasbuster/` package now. This actively misdirects (it cost this review a detour). Worth a refresh.
+
+---
+
 ## State at end of last session
 
 ### Phase 5 evaluation matrix
@@ -227,6 +343,45 @@ SQL
 
 ## Open todo list (carry forward)
 
+**Bug fixes from 2026-07-16 review (see "⚠️ KNOWN BUGS" section above):**
+- [x] **BUG 1 — FIXED (2026-07-16):** inline algorithmic-fallback judgements are now tagged
+      `raw_label='FALLBACK'` at ingest in both runners (`eval_ollama.parse_response` returns an
+      `is_fallback` flag; `run_evaluation.py` + `run_evaluation_anthropic.py` persist it, matching
+      `recover_parse_failures.py`). **Action still needed:** run the new
+      `studies/eisele_metzger_replication/retro_tag_live_fallback.py --apply` against the canonical
+      DB (and any shard) to back-tag rows written by the *old* untagged live path before this fix.
+- [x] **BUG 2 — FIXED (2026-07-16):** `compute_phase6_kappa.py` and `interim_analysis.py` now
+      accept `--exclude-fallback`; strict mode writes to `phase6_results.strict.{md,csv}` and the
+      report header states which mode produced the numbers. **Action still needed:** regenerate the
+      manuscript κ tables in both modes and report the strict (pre-registered primary) numbers.
+- [x] **DOC — FIXED (2026-07-16):** CLAUDE.md now has a "Repository layout" note (code is under
+      `biasbuster/`; `config.py` stays at repo root; correct `python -m biasbuster.pipeline`
+      invocation).
+- [ ] BUG 3 ([#7](https://github.com/hherb/biasbuster/issues/7)): reconcile ensemble-overall
+      computation (majority vote) with the report text (worst-wins)
+- [ ] BUG 4 ([#8](https://github.com/hherb/biasbuster/issues/8)): make the §8 parse-failure halt
+      actually stop subsequent passes
+- [ ] BUG 5 ([#9](https://github.com/hherb/biasbuster/issues/9)): call `derive_domain_judgement`
+      instead of hardcoding `some_concerns` in `assessor.py`
+- [ ] BUG 6 ([#10](https://github.com/hherb/biasbuster/issues/10)): implement
+      `domain_judgement_is_consistent` / resolve the `algorithm.py` vs `algorithms.py` trap
+- [ ] BUG 7 ([#11](https://github.com/hherb/biasbuster/issues/11)): verify intent + NULLIF guard on
+      `upsert_cochrane_paper` domain fields
+- [ ] BUG 8 ([#12](https://github.com/hherb/biasbuster/issues/12)): group-by-PMID before
+      `_stratified_split` to stop multi-model train/test leakage
+- [ ] BUG 9 ([#13](https://github.com/hherb/biasbuster/issues/13)): retraction-paper drop with
+      `require_abstract=False`
+- [ ] BUG 10 ([#14](https://github.com/hherb/biasbuster/issues/14)): `is_retraction_notice`
+      long-notice gap
+- [ ] BUG 11 ([#15](https://github.com/hherb/biasbuster/issues/15)): cochrane `[5]`-citation JSON pick
+- [ ] BUG 12 ([#16](https://github.com/hherb/biasbuster/issues/16)): empty-DB div-by-zero in
+      `seed_database.py`
+- [ ] BUG 13 ([#17](https://github.com/hherb/biasbuster/issues/17)): `merge_eval_dbs` collision
+      warning
+- [ ] BUG 14 ([#18](https://github.com/hherb/biasbuster/issues/18)): dead/misaligned `mcnemar_test`
+- [ ] BUG 15 ([#19](https://github.com/hherb/biasbuster/issues/19)): unbatched `IN` parameter limit
+
+**Original study carry-forward:**
 - [ ] Wait for gemma4 and qwen3.6 evaluations to complete on respective hosts
 - [ ] Merge Spark shard back to canonical DB (when DGX run done)
 - [ ] Re-run `recover_parse_failures.py` against the post-merge DB (catches anything new)
