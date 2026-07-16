@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://biasbuster.local/schemas/quadas2_annotation.schema.json",
   "title": "QUADAS-2 annotation",
-  "description": "Output shape of the biasbuster quadas_2 decomposed assessor. See docs/ANNOTATION_JSON_SPEC.md for the narrative spec and audit workflow.",
+  "description": "Output shape of the biasbuster quadas_2 decomposed assessor. See docs/pipeline/ANNOTATION_JSON_SPEC.md for the narrative spec and audit workflow.",
   "type": "object",
   "additionalProperties": true,
   "required": [

@@ -243,7 +243,7 @@ We do not claim the LLMs are *better* RoB 2 raters than Cochrane reviewers in an
   * **Per-row audit TSV** (5,460 rows; supplementary file S1): `studies/eisele_metzger_replication/algorithm_conformance_audit.tsv`.
   * **Cochrane decision-algorithm module** (Python): `biasbuster.methodologies.cochrane_rob2.algorithms`.
   * **Output JSON Schemas**: `schemas/rob2_annotation.schema.json`, `schemas/quadas2_annotation.schema.json`.
-  * **Annotation JSON spec**: `docs/ANNOTATION_JSON_SPEC.md`.
+  * **Annotation JSON spec**: `docs/pipeline/ANNOTATION_JSON_SPEC.md`.
 
 ## 8. Supplementary material plan
 
