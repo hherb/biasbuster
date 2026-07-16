@@ -44,6 +44,33 @@ dataset_*/
 # Scratch / logs
 log.txt
 annotation_evaluation.md
+*.log
+logs/
+
+# Local experiment outputs (model-comparison runs, calibration sweeps, scratch
+# verification reports). Regenerable — never committed. See docs/sample_reports/
+# for the curated, tracked example reports.
+experiments/
+
+# Claude Code local working directory (personal settings, skills, worktrees)
+.claude/
+
+# Generated comparison / eval reports (compare stage output) and pipeline state
+dataset/annotation_comparison/
+dataset/backfill_cochrane_checkpoint.json
+dataset/rob_curation_queue.json
+dataset/rob_review_queue.json
+dataset/*.localbackup
+
+# Eisele-Metzger study artifacts derived from the restricted EM-100 dataset
+# (per-RCT citations/identifiers). Keep local until redistribution rights are
+# clear — same policy as DATA/ above.
+studies/eisele_metzger_replication/acquisition_report.md
+studies/eisele_metzger_replication/missing_fulltext.csv
+studies/eisele_metzger_replication/.sonnet_batch_state.json
+
+# Large binary RoB fixtures not consumed by the (JATS-XML-only) extractor tests
+tests/fixtures/cochrane_reviews/*.pdf
 
 # Git worktrees
 worktrees/
