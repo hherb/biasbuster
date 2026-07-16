@@ -135,6 +135,44 @@ posting either preprint.
     `annotators/`, `database.py`, `pipeline.py`) that no longer exists — all code is under the
     `biasbuster/` package now. This actively misdirects (it cost this review a detour). Worth a refresh.
 
+### Manuscript regeneration gate — do NOT gate on fixing all 15 issues
+
+We deliberately do **not** need every issue fixed before regenerating the κ tables. Most of the
+open findings do not touch the Eisele-Metzger study numbers at all:
+
+- **Flow into the reported κ tables:** the two already-fixed bugs (1, 2), plus
+  **#7** (ensemble-overall is a direct majority vote but the report text says "worst-wins" — that
+  is a *reported figure*, so fix it before regenerating). **#8** (parse-failure halt) matters only
+  if you *re-run* evaluation; the existing gpt-oss/Sonnet runs stand as-is.
+- **Independent of the study numbers** (fix on their own timeline, not blocking the paper):
+  #9/#10/#11 are the production `assessor.py` RoB path — the study uses `eval_ollama` +
+  `algorithms.py`, not that path. #12 is training-data export. #13/#14 are the dataset-builder
+  collectors. #16–#19 are low-severity util/scaling issues.
+
+**Regeneration sequence (the actual gate):**
+
+1. `uv run python studies/eisele_metzger_replication/retro_tag_live_fallback.py --dry-run`
+   then `--apply` against the canonical DB (and any merged shard) — back-tags rows written by the
+   *old* untagged live path before the Bug-1 fix. Without this, gemma/qwen rows already written by
+   the old path stay mislabeled as model-emitted even though the code is now fixed.
+2. Fix **#7** so the ensemble-overall number matches its description.
+3. Regenerate in **both** modes and report the strict (pre-registered primary) numbers:
+   ```bash
+   uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py                     # inclusive
+   uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --exclude-fallback  # strict → *.strict.{md,csv}
+   ```
+4. Update both preprint drafts' §3 tables + abstract with the strict primary κ (and note the
+   inclusive numbers as a sensitivity analysis).
+
+### Housekeeping note (unrelated to this work)
+
+- GitHub flagged **33 Dependabot vulnerabilities** on the default branch during the push
+  (12 high, 13 moderate, 8 low): https://github.com/hherb/biasbuster/security/dependabot .
+  Not caused by this branch — worth a triage pass when convenient.
+- Review fixes + issues live on PR [#20](https://github.com/hherb/biasbuster/pull/20)
+  (branch `claude/project-review-bugs-aad20e`). Remaining findings tracked as issues
+  [#7–#19](https://github.com/hherb/biasbuster/issues) labeled `audit-2026-07`.
+
 ---
 
 ## State at end of last session
