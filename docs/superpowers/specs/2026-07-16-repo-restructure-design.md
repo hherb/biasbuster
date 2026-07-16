@@ -72,8 +72,13 @@ Moves to `attic/` (dead / completed one-offs, each with a reason in
 - `fix_v7_parsing_bug_output.py` — completed V7 scorer re-parse fix
 - `flag_review_candidates.py` — orphaned one-off analysis (no references)
 - `diagnose_v5a_disagreements.py` — orphaned one-off analysis (no references)
-- `biasbuster/collectors/rob_table_extractor.py` — 420 lines, imported by
-  nothing (verified by repo-wide grep); superseded by `collectors/cochrane_rob.py`
+
+**Amendment (re-verification result):** `biasbuster/collectors/rob_table_extractor.py`
+was slated for attic as unreferenced, but re-verification showed it is Phase 2
+of the still-current medRxiv-V5 Cochrane corpus rebuild (commit d464155,
+2026-04-17; planned in `docs/papers/drafts/medrxiv_V5/REBUILD_DESIGN.md` §9.1,
+with test fixtures in `tests/fixtures/cochrane_reviews/`). It is unfinished
+work-in-progress, not dead code — it stays in the package.
 
 ### 2. docs/ reorganized by objective
 
