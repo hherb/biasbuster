@@ -10,8 +10,11 @@ Single coherent results table combining:
    Cochrane. This is a deterministic transformation, not an extra
    model run; it directly addresses the run-to-run-instability
    finding from the gpt-oss audit.
-4. McNemar's test, each (model × protocol × pass) vs EM Claude 2 pass 1,
-   on per-RCT correctness collapsed to match-Cochrane / not-match.
+A ``mcnemar_test`` helper (per-RCT correctness collapsed to
+match-Cochrane / not-match) is provided for pairwise significance testing,
+but is not emitted in the report: EM Claude 2's per-RCT labels are not in
+the DB (only its published aggregate κ ≈ 0.22 is), so there is nothing to
+pair against here.
 
 Designed to run on partial data: any model with no rows in
 benchmark_judgment is silently skipped. The manuscript table fills in
@@ -52,6 +55,13 @@ RESULTS_CSV = STUDY_DIR / "phase6_results.csv"
 FOREST_CSV = STUDY_DIR / "phase6_forest_data.csv"
 
 DOMAINS = ("d1", "d2", "d3", "d4", "d5", "overall")
+SIGNALLING_DOMAINS = ("d1", "d2", "d3", "d4", "d5")
+
+# RoB 2 three-level severity ordering. `overall` is the worst domain
+# ("high" if any domain is high, "low" only if all are low, else
+# "some_concerns") — the same worst-wins rule the per-paper algorithm uses.
+SEVERITY_RANK = {"low": 0, "some_concerns": 1, "high": 2}
+_RANK_TO_LABEL = {v: k for k, v in SEVERITY_RANK.items()}
 
 # Models we expect; rows missing from the DB are silently skipped.
 MODEL_LABELS = {
@@ -72,6 +82,30 @@ MINOZZI_2021_HUMAN_WITH_ID_KAPPA = 0.42
 
 # --- Data access -------------------------------------------------------
 
+# When True, algorithm-derived judgements (raw_label='FALLBACK', written by the
+# live-path fallback in eval_ollama.parse_response and by recover_parse_failures.py)
+# are excluded from every κ computation. That reproduces the pre-registered
+# "model-emitted judgement" primary metric; the default (False) reports the
+# inclusive numbers. Toggled by the --exclude-fallback CLI flag. Rows with a
+# NULL raw_label (e.g. Cochrane ground truth) are always kept.
+EXCLUDE_FALLBACK = False
+
+
+def _fallback_filter(*aliases: str) -> str:
+    """SQL fragment excluding FALLBACK-tagged rows, or '' when disabled.
+
+    Pass the table alias used for each ``benchmark_judgment`` reference in the
+    query (e.g. ``"a"``, ``"b"``); pass ``""`` for an unaliased table.
+    """
+    if not EXCLUDE_FALLBACK:
+        return ""
+    parts = []
+    for alias in aliases:
+        col = f"{alias}.raw_label" if alias else "raw_label"
+        parts.append(f"({col} IS NULL OR {col} != 'FALLBACK')")
+    return " AND " + " AND ".join(parts)
+
+
 def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
                domain: str) -> list[tuple[str, str]]:
     return conn.execute(
@@ -81,7 +115,8 @@ def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
              ON a.rct_id = b.rct_id AND a.domain = b.domain
            WHERE a.source = ? AND b.source = ? AND a.domain = ?
              AND a.judgment IS NOT NULL AND b.judgment IS NOT NULL
-             AND a.valid = 1 AND b.valid = 1""",
+             AND a.valid = 1 AND b.valid = 1"""
+        + _fallback_filter("a", "b"),
         (source_a, source_b, domain),
     ).fetchall()
 
@@ -92,7 +127,8 @@ def load_judgments(conn: sqlite3.Connection, source: str, domain: str
     return dict(conn.execute(
         """SELECT rct_id, judgment FROM benchmark_judgment
            WHERE source = ? AND domain = ? AND valid = 1
-             AND judgment IS NOT NULL""",
+             AND judgment IS NOT NULL"""
+        + _fallback_filter(""),
         (source, domain),
     ).fetchall())
 
@@ -110,27 +146,33 @@ def source_exists(conn: sqlite3.Connection, source: str) -> bool:
 
 def ensemble_majority_vote(conn: sqlite3.Connection, model: str,
                             protocol: str) -> dict[str, dict[str, str]]:
-    """Per-RCT × per-domain majority-vote across the 3 passes.
+    """Per-RCT ensemble judgments across the 3 passes.
 
-    Returns {rct_id: {domain: judgment}}. Only RCTs with at least 2
-    matching passes on a given domain get a winning judgment for that
-    domain; ties (3 distinct labels across 3 passes) are dropped.
+    Returns {rct_id: {domain: judgment}}. The five signalling domains
+    (d1–d5) are set by strict majority vote across the passes (≥2 of the
+    available passes agree; ties or <2 passes are dropped). The ``overall``
+    judgment is then derived from those ensemble domains by the RoB 2
+    worst-wins rule — NOT a direct majority vote of the passes' own overall
+    labels — so the reported ensemble ``overall`` is consistent with the
+    reported ensemble d1–d5. ``overall`` is only emitted when all five
+    signalling domains have a majority winner for that RCT.
     """
     pass_judgments = {
         p: {
             d: load_judgments(conn, f"{model}_{protocol}_pass{p}", d)
-            for d in DOMAINS
+            for d in SIGNALLING_DOMAINS
         }
         for p in PASSES
     }
-    out: dict[str, dict[str, str]] = defaultdict(dict)
+    out: dict[str, dict[str, str]] = {}
     # Find RCTs that have at least one judgment in any pass × any domain.
     rct_ids: set[str] = set()
     for p in PASSES:
-        for d in DOMAINS:
+        for d in SIGNALLING_DOMAINS:
             rct_ids.update(pass_judgments[p][d])
     for rct_id in rct_ids:
-        for d in DOMAINS:
+        ensemble_domains: dict[str, str] = {}
+        for d in SIGNALLING_DOMAINS:
             votes = [pass_judgments[p][d].get(rct_id) for p in PASSES]
             votes = [v for v in votes if v is not None]
             if len(votes) < 2:
@@ -139,8 +181,18 @@ def ensemble_majority_vote(conn: sqlite3.Connection, model: str,
             top, top_n = counter.most_common(1)[0]
             # Require strict majority (≥ 2 out of however many we got).
             if top_n >= 2:
-                out[rct_id][d] = top
-    return dict(out)
+                ensemble_domains[d] = top
+        if not ensemble_domains:
+            continue
+        # Overall = worst of the five ensemble domains (RoB 2 worst-wins),
+        # only when every signalling domain has an ensemble winner.
+        if all(d in ensemble_domains for d in SIGNALLING_DOMAINS):
+            worst_rank = max(
+                SEVERITY_RANK[ensemble_domains[d]] for d in SIGNALLING_DOMAINS
+            )
+            ensemble_domains["overall"] = _RANK_TO_LABEL[worst_rank]
+        out[rct_id] = ensemble_domains
+    return out
 
 
 def insert_ensemble_into_db(conn: sqlite3.Connection, model: str,
@@ -169,24 +221,29 @@ def insert_ensemble_into_db(conn: sqlite3.Connection, model: str,
 
 # --- McNemar's test ----------------------------------------------------
 
-def mcnemar_test(pairs_a: list[tuple[str, str]],
-                 pairs_b: list[tuple[str, str]]) -> tuple[int, int, float]:
+def mcnemar_test(preds_a: dict[str, tuple[str, str]],
+                 preds_b: dict[str, tuple[str, str]]) -> tuple[int, int, float]:
     """McNemar's test on per-RCT correctness collapsed to match/no-match.
 
-    pairs_a and pairs_b are lists of (cochrane, model) tuples for the
-    same RCTs in the same order. Returns (b_only, c_only, p_value)
-    where b_only = (a correct, b wrong), c_only = (a wrong, b correct).
-    Continuity-corrected chi-squared with df=1.
+    ``preds_a`` and ``preds_b`` map ``rct_id -> (cochrane, model)`` for the
+    two systems being compared. Alignment is by ``rct_id`` key — NOT by row
+    order — because the callers build these from independent SQLite queries
+    whose row order is unspecified; only RCTs present in both are used.
+    Returns (b_only, c_only, p_value) where b_only = (a correct, b wrong),
+    c_only = (a wrong, b correct). Continuity-corrected chi-squared, df=1.
 
-    Returns (0, 0, 1.0) if either input is empty or if the discordant
-    pairs sum to <25 (in which case McNemar's chi-squared is unreliable
-    and an exact binomial would be more appropriate; we surface the
-    raw counts so the reader can compute exact-test p-values).
+    Returns (0, 0, 1.0) if the shared set is empty, or (b_only, c_only, NaN)
+    if the discordant pairs sum to <25 (McNemar's chi-squared is unreliable
+    there and an exact binomial is more appropriate; we surface the raw
+    counts so the reader can compute exact-test p-values).
     """
-    if len(pairs_a) != len(pairs_b) or not pairs_a:
+    shared = preds_a.keys() & preds_b.keys()
+    if not shared:
         return (0, 0, 1.0)
     b_only = c_only = 0
-    for (coch_a, model_a), (coch_b, model_b) in zip(pairs_a, pairs_b):
+    for rct_id in shared:
+        coch_a, model_a = preds_a[rct_id]
+        coch_b, model_b = preds_b[rct_id]
         a_correct = (coch_a == model_a)
         b_correct = (coch_b == model_b)
         if a_correct and not b_correct:
@@ -265,7 +322,11 @@ def run_to_run_kappa(conn: sqlite3.Connection, model: str, protocol: str,
 
 # --- Reporting ---------------------------------------------------------
 
-def write_results(conn: sqlite3.Connection, run_ensembles: bool) -> None:
+def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
+                  results_md: Path = RESULTS_MD,
+                  results_csv: Path = RESULTS_CSV,
+                  forest_csv: Path = FOREST_CSV,
+                  exclude_fallback: bool = False) -> None:
     rows: list[dict] = []
     forest_rows: list[dict] = []
 
@@ -390,20 +451,21 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool) -> None:
     # CSV outputs
     fieldnames = ["source", "model", "protocol", "pass", "kind", "domain",
                   "n", "raw_agr", "k_unw", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi"]
-    with open(RESULTS_CSV, "w", newline="", encoding="utf-8") as fh:
+    with open(results_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=fieldnames)
         w.writeheader()
         for r in rows:
             w.writerow(r)
     forest_fields = ["label", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi", "n", "kind"]
-    with open(FOREST_CSV, "w", newline="", encoding="utf-8") as fh:
+    with open(forest_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=forest_fields)
         w.writeheader()
         for r in forest_rows:
             w.writerow(r)
 
     # Markdown report
-    write_markdown_report(rows, forest_rows)
+    write_markdown_report(rows, forest_rows, results_md=results_md,
+                          exclude_fallback=exclude_fallback)
 
 
 def fmt(value, fmt_str=".3f"):
@@ -412,7 +474,9 @@ def fmt(value, fmt_str=".3f"):
     return format(value, fmt_str)
 
 
-def write_markdown_report(rows: list[dict], forest_rows: list[dict]) -> None:
+def write_markdown_report(rows: list[dict], forest_rows: list[dict], *,
+                          results_md: Path = RESULTS_MD,
+                          exclude_fallback: bool = False) -> None:
     lines: list[str] = []
     lines.append("# Phase 6 Cross-Model Comparison")
     lines.append("")
@@ -420,6 +484,19 @@ def write_markdown_report(rows: list[dict], forest_rows: list[dict]) -> None:
     lines.append("**Output companions:** `phase6_results.csv` (raw rows) and `phase6_forest_data.csv` (forest-plot input).")
     lines.append("")
     lines.append("Coverage of the table fills in as Phase 5 evaluation runs complete. Empty model rows = data not yet in the DB.")
+    lines.append("")
+    if exclude_fallback:
+        lines.append(
+            "> **STRICT MODE (`--exclude-fallback`):** algorithm-derived "
+            "(`raw_label='FALLBACK'`) judgements are excluded — these numbers "
+            "reproduce the pre-registered *model-emitted* primary metric."
+        )
+    else:
+        lines.append(
+            "> **INCLUSIVE MODE (default):** algorithm-derived "
+            "(`raw_label='FALLBACK'`) judgements are included. Re-run with "
+            "`--exclude-fallback` for the pre-registered model-emitted primary metric."
+        )
     lines.append("")
 
     # Section 1: overall κ vs Cochrane per single pass
@@ -461,7 +538,9 @@ def write_markdown_report(rows: list[dict], forest_rows: list[dict]) -> None:
     if ensemble_rows:
         lines.append("## 3. Ensemble-of-3 majority vote vs Cochrane (overall judgment)")
         lines.append("")
-        lines.append("Per-domain majority vote across the three passes, then worst-wins synthesis.")
+        lines.append("Each signalling domain (d1–d5) is a strict majority vote across the three "
+                     "passes; `overall` is then the worst of those five ensemble domains (RoB 2 "
+                     "worst-wins), not a direct majority vote of the passes' overall labels.")
         lines.append("")
         lines.append("| Source | n | raw agr | κ_unw | κ_lin (95% CI) | κ_quad |")
         lines.append("|---|---:|---:|---:|---|---:|")
@@ -503,31 +582,51 @@ def write_markdown_report(rows: list[dict], forest_rows: list[dict]) -> None:
         lines.append(f"| {r['label']} | {fmt(r['k_quad'])} | {ci} | {n_str} |")
     lines.append("")
 
-    RESULTS_MD.write_text("\n".join(lines), encoding="utf-8")
+    results_md.write_text("\n".join(lines), encoding="utf-8")
 
 
 # --- main ---------------------------------------------------------------
 
 def main() -> int:
+    global EXCLUDE_FALLBACK
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument(
         "--no-ensembles", action="store_true",
         help="Skip the 3-pass majority-vote ensemble computation.",
     )
+    parser.add_argument(
+        "--exclude-fallback", action="store_true",
+        help="Exclude algorithm-derived (raw_label='FALLBACK') judgements from "
+             "all κ computations, reproducing the pre-registered model-emitted "
+             "primary metric. Writes to *.strict.{md,csv} so the inclusive "
+             "results are not overwritten.",
+    )
     args = parser.parse_args()
     if not args.db_path.exists():
         print(f"[error] DB not found at {args.db_path}", file=sys.stderr)
         return 2
 
+    EXCLUDE_FALLBACK = args.exclude_fallback
+    if args.exclude_fallback:
+        results_md = STUDY_DIR / "phase6_results.strict.md"
+        results_csv = STUDY_DIR / "phase6_results.strict.csv"
+        forest_csv = STUDY_DIR / "phase6_forest_data.strict.csv"
+        print("[mode] STRICT — excluding raw_label='FALLBACK' rows")
+    else:
+        results_md, results_csv, forest_csv = RESULTS_MD, RESULTS_CSV, FOREST_CSV
+        print("[mode] INCLUSIVE — FALLBACK rows included (use --exclude-fallback for primary metric)")
+
     conn = sqlite3.connect(args.db_path)
     try:
-        write_results(conn, run_ensembles=not args.no_ensembles)
+        write_results(conn, run_ensembles=not args.no_ensembles,
+                      results_md=results_md, results_csv=results_csv,
+                      forest_csv=forest_csv, exclude_fallback=args.exclude_fallback)
     finally:
         conn.close()
-    print(f"[write] {RESULTS_MD}")
-    print(f"[write] {RESULTS_CSV}")
-    print(f"[write] {FOREST_CSV}")
+    print(f"[write] {results_md}")
+    print(f"[write] {results_csv}")
+    print(f"[write] {forest_csv}")
     return 0
 
 

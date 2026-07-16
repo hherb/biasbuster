@@ -48,6 +48,44 @@ def is_eval_source(source_label: str) -> bool:
     return any(source_label.startswith(f"{p}_") for p in EVAL_SOURCE_PREFIXES)
 
 
+def _warn_divergent_rows(cur: sqlite3.Cursor, table: str,
+                         data_cols: list[str], params: list[str],
+                         replace: bool) -> int:
+    """Warn about rows present in BOTH dest and src with differing data.
+
+    Each host is meant to write non-overlapping ``source`` labels, so a
+    shared ``(rct_id, source, domain)`` key that carries different data is a
+    workflow error (e.g. the same pass re-run on two machines with different
+    outputs). Neither INSERT OR IGNORE (dest wins) nor INSERT OR REPLACE
+    (src wins) surfaces it — this makes the divergence visible before it is
+    silently resolved. Returns the number of divergent rows.
+    """
+    src_filter = " OR ".join("s.source LIKE ?" for _ in EVAL_SOURCE_PREFIXES)
+    diff = " OR ".join(f"d.{c} IS NOT s.{c}" for c in data_cols)
+    rows = cur.execute(
+        f"""SELECT s.rct_id, s.source, s.domain
+            FROM main.{table} d
+            JOIN src.{table} s
+              ON d.rct_id = s.rct_id AND d.source = s.source
+                 AND d.domain = s.domain
+            WHERE ({src_filter}) AND ({diff})""",
+        params,
+    ).fetchall()
+    if rows:
+        winner = "shard (src)" if replace else "destination"
+        print(f"[warn] {table}: {len(rows)} row(s) exist in both destination "
+              f"and shard with DIFFERING data on {data_cols}; the {winner} "
+              f"value is kept ({'--replace' if replace else 'INSERT OR IGNORE'}). "
+              "Shards should write non-overlapping source labels — investigate.",
+              file=sys.stderr)
+        for rct_id, source, domain in rows[:5]:
+            print(f"         diverging: {source} / {rct_id} / {domain}",
+                  file=sys.stderr)
+        if len(rows) > 5:
+            print(f"         ... and {len(rows) - 5} more", file=sys.stderr)
+    return len(rows)
+
+
 def merge_one_source(dest: sqlite3.Connection, source_db_path: Path,
                      replace: bool = False) -> tuple[int, int]:
     """Copy evaluation_run + benchmark_judgment rows from src into dest.
@@ -65,6 +103,16 @@ def merge_one_source(dest: sqlite3.Connection, source_db_path: Path,
         # is one of our evaluation outputs.
         prefixes = " OR ".join(["source LIKE ?" for _ in EVAL_SOURCE_PREFIXES])
         params = [f"{p}_%" for p in EVAL_SOURCE_PREFIXES]
+
+        # Surface silent shard divergence before the insert resolves it.
+        _warn_divergent_rows(
+            cur, "benchmark_judgment",
+            ["judgment", "valid", "raw_label"], params, replace,
+        )
+        _warn_divergent_rows(
+            cur, "evaluation_run",
+            ["parse_status", "error", "model_id"], params, replace,
+        )
 
         # benchmark_judgment
         before_j = cur.execute("SELECT COUNT(*) FROM benchmark_judgment").fetchone()[0]

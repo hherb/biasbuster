@@ -107,11 +107,14 @@ def is_retraction_notice(
     if not abstract_stripped:
         return True
 
-    # Very short abstract starting with retraction language
-    if len(abstract_stripped) < _MIN_ABSTRACT_LENGTH_FOR_RETRACTED:
-        for pat in _RETRACTION_NOTICE_PATTERNS:
-            if pat.search(abstract_stripped):
-                return True
+    # Abstract begins with retraction/withdrawal language. The patterns are
+    # all ^-anchored, so this fires on a bare notice regardless of length —
+    # e.g. a long abstract that opens "This article has been retracted at the
+    # request of…" under an ordinary-looking title, which previously slipped
+    # through because the length gate only checked abstracts < 200 chars.
+    for pat in _RETRACTION_NOTICE_PATTERNS:
+        if pat.search(abstract_stripped):
+            return True
 
     return False
 

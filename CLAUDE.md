@@ -45,15 +45,21 @@ Always implement retry logic and incremental saves/commits when building data pi
 
 ## Commands
 
+> **NOTE (invocation paths):** the dataset-builder pipeline module moved into the package.
+> The `uv run python pipeline.py …` lines below are historical — use
+> `uv run python -m biasbuster.pipeline --stage <name>` (or `uv run python main.py --stage <name>`).
+> `config.py` stays at the repo root (imported as a top-level module). See "Repository layout"
+> under Architecture.
+
 ```bash
 # Set up environment and install dependencies
 uv sync
 
-# Configure (edit config.py with API keys)
+# Configure (copy the example to the repo root, then edit config.py with API keys)
 cp config.example.py config.py
 
 # Run full pipeline (stages 1-5)
-uv run python pipeline.py --stage all
+uv run python -m biasbuster.pipeline --stage all
 
 # Run individual stages
 uv run python pipeline.py --stage collect
@@ -135,11 +141,40 @@ There is no formal test suite — modules have `if __name__ == "__main__":` demo
 
 ## Architecture
 
+### Repository layout (READ FIRST — the module paths below are relative to `biasbuster/`)
+
+All package code lives under the **`biasbuster/`** package: `biasbuster/collectors/`,
+`biasbuster/annotators/`, `biasbuster/enrichers/`, `biasbuster/schemas/`,
+`biasbuster/evaluation/`, `biasbuster/training/`, `biasbuster/utils/`, `biasbuster/gui/`,
+`biasbuster/methodologies/`, `biasbuster/cli/`, plus `biasbuster/database.py`,
+`biasbuster/pipeline.py`, `biasbuster/prompts.py`. **There is no
+flat top-level `collectors/`, `annotators/`, `database.py`, or `pipeline.py`** — earlier
+revisions of this file described such a layout and it no longer exists. Throughout the
+"Module Pattern" and "Key Design Decisions" sections below, a bare path like `collectors/`
+or `pipeline.py` means `biasbuster/collectors/` or `biasbuster/pipeline.py`.
+
+Repo-root `.py` files are thin scripts/tools that import from the package:
+`annotate_single_paper.py`, `seed_database.py`, `export.py`, `compare_vs_cochrane.py`,
+`migrate_jsonl_to_sqlite.py`, `backfill_cochrane_domains.py`, `main.py`, and various
+one-off analysis scripts. Both `config.example.py` and the real `config.py` (gitignored)
+live at the **repo root** — `biasbuster/pipeline.py` imports it as a top-level module
+(`from config import Config`), so it must be on `sys.path` at the root. The `studies/` and
+`scripts/` trees sit at the repo root and import from the `biasbuster` package.
+
+**Two entry surfaces:**
+- **`biasbuster` CLI** (console script → `biasbuster.cli.main:main`): the per-paper
+  risk-of-bias analyzer — `biasbuster <pmid|doi|file> --model <backend>:<model>` (the V5A
+  decomposed methodology; see README). This is the current recommended analysis path.
+- **Dataset-builder pipeline** (`biasbuster/pipeline.py`, async, `--stage`): the multi-stage
+  dataset-construction workflow described below. Invoke as `uv run python -m biasbuster.pipeline
+  --stage <name>` or via `main.py`. (The old `uv run python pipeline.py …` invocations no
+  longer resolve — there is no root `pipeline.py`.)
+
 ### Pipeline Stages
 
 7-stage workflow with two orchestrators:
 
-**Data pipeline** (`pipeline.py` — async):
+**Data pipeline** (`biasbuster/pipeline.py` — async):
 1. **Collect** — Fetch abstracts from external APIs (Crossref/Retraction Watch, PubMed RCTs by MeSH domain, Cochrane RoB assessments via Europe PMC)
 1b. **Seed** (`seed_database.py`) — Post-collection cleanup: enrich retraction reasons from Retraction Watch CSV (structured ~111-category vocabulary), fetch missing abstracts from PubMed (Cochrane papers), remove bare retraction notices. Idempotent and reproducible.
 2. **Enrich** — Run heuristic analysis (effect size auditing, outcome switching via ClinicalTrials.gov) to bucket abstracts into high/low suspicion

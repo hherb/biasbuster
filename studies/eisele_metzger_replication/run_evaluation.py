@@ -46,7 +46,12 @@ from eval_input import (  # noqa: E402
     build_synthesis_user_message,
     load_rct_input,
 )
-from eval_ollama import DOMAIN_TO_STAGE, OllamaCallResult, OllamaRunner  # noqa: E402
+from eval_ollama import (  # noqa: E402
+    DOMAIN_TO_STAGE,
+    FALLBACK_RAW_LABEL,
+    OllamaCallResult,
+    OllamaRunner,
+)
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 
@@ -143,6 +148,10 @@ def record_result(conn: sqlite3.Connection, ctx: CallContext,
     )
 
     valid = 1 if result.judgment is not None else 0
+    # Tag algorithm-derived judgements (model omitted the field, we applied the
+    # Cochrane rule) so they can be excluded to reproduce the pre-registered
+    # model-emitted primary metric. Matches recover_parse_failures.py.
+    raw_label = FALLBACK_RAW_LABEL if result.is_fallback else result.judgment
     cur.execute(
         """INSERT OR REPLACE INTO benchmark_judgment
            (rct_id, source, domain, judgment, rationale, valid, raw_label)
@@ -150,7 +159,7 @@ def record_result(conn: sqlite3.Connection, ctx: CallContext,
         (
             ctx.rct_id, ctx.source_label, ctx.domain,
             result.judgment, result.rationale, valid,
-            result.judgment,  # raw_label = canonical for our own outputs
+            raw_label,
         ),
     )
     conn.commit()
@@ -286,6 +295,7 @@ def run_one_pass(conn: sqlite3.Connection, runner: OllamaRunner,
             if n_attempted >= 30 and failure_rate > PARSE_FAILURE_HALT_FRACTION:
                 print(f"  [HALT] parse-failure rate {failure_rate:.1%} > "
                       f"{PARSE_FAILURE_HALT_FRACTION:.0%} — pre-reg §8 halt rule.")
+                counts["halted"] = 1
                 return counts
 
     return counts
@@ -361,6 +371,15 @@ def main() -> int:
                 pass_n=pass_n, rct_limit=args.rct_limit,
             )
             print(f"\n[pass {pass_n}] final counts: {counts}")
+            if counts.get("halted"):
+                # Pre-reg §8: a parse-failure halt means the prompt needs
+                # revision — abort the whole run, not just this pass, so
+                # later passes don't burn a full model run at the same
+                # broken failure rate.
+                print(f"[HALT] stopping before remaining passes "
+                      f"{[p for p in pass_ns if p > pass_n]} — revise prompts "
+                      "per pre-reg §8 and re-run.", file=sys.stderr)
+                return 1
     finally:
         runner.close()
         conn.close()

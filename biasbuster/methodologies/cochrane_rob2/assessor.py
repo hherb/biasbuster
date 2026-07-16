@@ -25,7 +25,12 @@ from typing import TYPE_CHECKING, Optional
 
 from biasbuster.annotators import parse_llm_json
 
-from .algorithm import aggregate_outcome, worst_case_across_outcomes
+from .algorithm import (
+    aggregate_outcome,
+    domain_judgement_is_consistent,
+    worst_case_across_outcomes,
+)
+from .algorithms import derive_domain_judgement
 from .prompts import build_system_prompt, domain_stage_name
 from .schema import (
     EvidenceQuote,
@@ -188,11 +193,14 @@ def _parse_domain_response(
         judgement = _coerce_judgement(blob.get("judgment"))
 
     # Distinguish two failure modes:
-    #   (a) judgement field MISSING entirely ⇒ model hedged. Per the
-    #       Cochrane RoB 2 algorithm the documented default for
-    #       ambiguity is "some_concerns" ("otherwise" / "everything
-    #       else" in every per-domain prompt's algorithm block).
-    #       Fall back to that rather than aborting the whole paper.
+    #   (a) judgement field MISSING entirely ⇒ model hedged, but it did
+    #       supply signalling answers. Derive the judgement in code via
+    #       the Cochrane per-domain truth table (the same rule the LLM
+    #       was told to apply) rather than blindly stamping
+    #       "some_concerns" — the answers may map to a definite low/high
+    #       (e.g. D1 1.3=Y ⇒ high, D4 4.1=Y ⇒ high). The truth table
+    #       itself returns "some_concerns" for the genuine "otherwise"
+    #       bucket, so ambiguous inputs still land there.
     #       Observed: PMID 36101416 / deviations_from_interventions
     #       persistently omitted the field across 3 retries.
     #   (b) judgement field PRESENT but invalid (e.g. "maybe") ⇒
@@ -211,14 +219,15 @@ def _parse_domain_response(
             )
             return None
         if isinstance(answers, dict) and answers:
+            derived = derive_domain_judgement(domain_slug, answers)
+            judgement = derived if derived is not None else "some_concerns"
             logger.warning(
                 "PMID %s: RoB 2 domain %s: judgement field missing "
                 "(blob keys=%s) but %d signalling answers are present; "
-                "defaulting to 'some_concerns' per Cochrane's "
-                "ambiguity rule.",
+                "derived '%s' from the Cochrane per-domain algorithm.",
                 pmid, domain_slug, sorted(blob.keys()), len(answers),
+                judgement,
             )
-            judgement = "some_concerns"  # type: ignore[assignment]
         else:
             logger.warning(
                 "PMID %s: RoB 2 domain %s: no judgement AND no "
@@ -231,13 +240,26 @@ def _parse_domain_response(
     if not isinstance(justification, str):
         justification = str(justification)
 
-    return RoB2DomainJudgement(
+    domain_judgement = RoB2DomainJudgement(
         domain=domain_slug,
         signalling_answers=answers,
         judgement=judgement,
         justification=justification.strip(),
         evidence_quotes=_parse_evidence_quotes(blob.get("evidence_quotes")),
     )
+    # The RoB 2 domain judgement must be reproducible from the signalling
+    # answers alone (see schema). Surface — but do not silently rewrite —
+    # any case where the LLM's emitted judgement contradicts the Cochrane
+    # per-domain truth table, so drift is visible in the logs.
+    if not domain_judgement_is_consistent(domain_judgement):
+        derived = derive_domain_judgement(domain_slug, answers)
+        logger.warning(
+            "PMID %s: RoB 2 domain %s: emitted judgement %r is inconsistent "
+            "with the Cochrane per-domain algorithm (derived %r from the "
+            "signalling answers); keeping the emitted value.",
+            pmid, domain_slug, judgement, derived,
+        )
+    return domain_judgement
 
 
 def _loose_parse_json(raw: str) -> Optional[dict]:

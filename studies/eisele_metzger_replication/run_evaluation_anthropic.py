@@ -65,7 +65,12 @@ from eval_input import (  # noqa: E402
     build_synthesis_user_message,
     load_rct_input,
 )
-from eval_ollama import DOMAIN_TO_STAGE, parse_response  # noqa: E402
+from eval_ollama import (  # noqa: E402
+    DOMAIN_TO_STAGE,
+    FALLBACK_ERROR_MSG,
+    FALLBACK_RAW_LABEL,
+    parse_response,
+)
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 STATE_PATH = (
@@ -416,6 +421,7 @@ def ingest_results(conn: sqlite3.Connection, runner: AnthropicBatchRunner,
         protocol = source_label.split("_")[3]  # sonnet_4_6_<protocol>_passN
         pass_n = int(source_label.rsplit("pass", 1)[1])
 
+        is_fallback = False
         if not r.succeeded:
             judgment = None
             rationale = None
@@ -428,7 +434,7 @@ def ingest_results(conn: sqlite3.Connection, runner: AnthropicBatchRunner,
             # the algorithmic fallback if the model omits the explicit
             # judgement field. Synthesis calls (output_kind="synthesis")
             # have domain_code=None internally.
-            judgment, rationale = parse_response(
+            judgment, rationale, is_fallback = parse_response(
                 r.text_response, output_kind,
                 domain_code=domain if output_kind == "domain" else None,
             )
@@ -440,7 +446,13 @@ def ingest_results(conn: sqlite3.Connection, runner: AnthropicBatchRunner,
                 valid = 1
                 parse_status = "ok"
                 counts["ok"] += 1
-            error_str = None
+            # Mark algorithm-derived judgements so downstream κ can exclude them
+            # (reproduces the pre-registered model-emitted primary metric).
+            error_str = FALLBACK_ERROR_MSG if is_fallback else None
+
+        # raw_label carries the canonical judgement, EXCEPT for algorithm-derived
+        # rows which are tagged FALLBACK — same convention as recover_parse_failures.py.
+        raw_label = FALLBACK_RAW_LABEL if is_fallback else judgment
 
         cur.execute(
             """INSERT OR REPLACE INTO evaluation_run
@@ -464,7 +476,7 @@ def ingest_results(conn: sqlite3.Connection, runner: AnthropicBatchRunner,
             """INSERT OR REPLACE INTO benchmark_judgment
                (rct_id, source, domain, judgment, rationale, valid, raw_label)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (rct_id, source_label, domain, judgment, rationale, valid, judgment),
+            (rct_id, source_label, domain, judgment, rationale, valid, raw_label),
         )
     conn.commit()
     return counts

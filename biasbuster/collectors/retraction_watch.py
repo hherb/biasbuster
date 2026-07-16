@@ -382,13 +382,16 @@ class RetractionWatchCollector:
 
         merged = []
         for paper in papers:
-            if paper.pmid in abstract_data:
-                article = abstract_data[paper.pmid]
+            article = abstract_data.get(paper.pmid) if paper.pmid else None
+            if article:
                 paper.abstract = article.get("abstract", "")
                 paper.title = article.get("title", "") or paper.title
-                if require_abstract and not paper.abstract:
-                    continue
-                merged.append(paper)
+            # Drop only when an abstract is required and still missing. Papers
+            # with no PMID or no PubMed hit are kept when require_abstract is
+            # False (previously they were dropped unconditionally).
+            if require_abstract and not paper.abstract:
+                continue
+            merged.append(paper)
         return merged
 
 async def main():

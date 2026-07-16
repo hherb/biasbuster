@@ -871,36 +871,76 @@ def _apply_retraction_floors(annotations: list[dict]) -> list[dict]:
     return result
 
 
+# Ordinal ranking of severities for worst-case group representation.
+_SEVERITY_ORDER: dict[str, int] = {
+    "unknown": -1, "none": 0, "low": 1, "moderate": 2, "high": 3, "critical": 4,
+}
+
+
 def _stratified_split(
     examples: list[dict],
     train_frac: float,
     val_frac: float,
     seed: int,
+    pmids: list[str] | None = None,
 ) -> tuple[list[dict], list[dict], list[dict]]:
     """Split examples into train/val/test with stratification by severity.
 
     Ensures each severity class is represented proportionally in all splits,
     rather than relying on random shuffle which can skew small classes.
+
+    When ``pmids`` (parallel to ``examples``) is supplied, all examples
+    sharing a PMID are assigned to the SAME split. This prevents the same
+    abstract from leaking across train/val/test when a paper is annotated
+    by more than one model (multi-model export emits one example per model
+    for a PMID, all with identical abstract text). The split is then
+    stratified by each group's worst-case severity. Rows with an empty
+    PMID are treated as their own singleton groups. When ``pmids`` is None
+    each example is its own group (unchanged single-example behaviour).
     """
     from collections import defaultdict
 
-    # Group by severity
-    by_severity: dict[str, list[dict]] = defaultdict(list)
-    for ex in examples:
-        sev = _extract_overall_severity(ex)
-        by_severity[sev].append(ex)
+    # Build groups that must stay together in one split.
+    if pmids is not None:
+        if len(pmids) != len(examples):
+            raise ValueError(
+                f"pmids length {len(pmids)} != examples length {len(examples)}"
+            )
+        groups_by_key: dict[str, list[dict]] = defaultdict(list)
+        for i, (pmid, ex) in enumerate(zip(pmids, examples)):
+            # Empty PMID → unique key so unlabeled rows aren't all merged.
+            key = pmid or f"__nopmid_{i}"
+            groups_by_key[key].append(ex)
+        groups = list(groups_by_key.values())
+    else:
+        groups = [[ex] for ex in examples]
+
+    def _group_severity(group: list[dict]) -> str:
+        # Worst-case severity across the group's examples (models may differ).
+        return max(
+            (_extract_overall_severity(ex) for ex in group),
+            key=lambda s: _SEVERITY_ORDER.get(s, -1),
+        )
+
+    # Group (of examples) by representative severity
+    by_severity: dict[str, list[list[dict]]] = defaultdict(list)
+    for group in groups:
+        by_severity[_group_severity(group)].append(group)
 
     rng = random.Random(seed)
     train, val, test = [], [], []
 
-    for sev, items in sorted(by_severity.items()):
-        rng.shuffle(items)
-        n = len(items)
+    for sev, sev_groups in sorted(by_severity.items()):
+        rng.shuffle(sev_groups)
+        n = len(sev_groups)
         n_train = max(1, int(n * train_frac)) if n >= 3 else n
         n_val = max(1, int(n * val_frac)) if n - n_train >= 2 else 0
-        train.extend(items[:n_train])
-        val.extend(items[n_train : n_train + n_val])
-        test.extend(items[n_train + n_val :])
+        for group in sev_groups[:n_train]:
+            train.extend(group)
+        for group in sev_groups[n_train : n_train + n_val]:
+            val.extend(group)
+        for group in sev_groups[n_train + n_val :]:
+            test.extend(group)
 
     # Shuffle within each split so severity classes aren't grouped
     rng.shuffle(train)
@@ -987,15 +1027,21 @@ def export_dataset(
     }[fmt]
 
     converted = []
+    converted_pmids: list[str] = []
     for ann in annotations:
         try:
-            converted.append(converter(ann, include_thinking=include_thinking))
+            example = converter(ann, include_thinking=include_thinking)
         except Exception as e:
             logger.warning(f"Failed to convert PMID {ann.get('pmid', '?')}: {e}")
+            continue
+        converted.append(example)
+        converted_pmids.append(str(ann.get("pmid", "")))
 
-    # Stratified split (no oversampling — natural distribution preserved)
+    # Stratified split (no oversampling — natural distribution preserved).
+    # Pass PMIDs so multi-model annotations of the same abstract never
+    # straddle train/val/test (leakage guard).
     train_data, val_data, test_data = _stratified_split(
-        converted, train_split, val_split, seed,
+        converted, train_split, val_split, seed, pmids=converted_pmids,
     )
 
     # Log severity distribution

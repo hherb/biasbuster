@@ -31,6 +31,23 @@ from sanity_check_kappa import cohen_kappa, raw_agreement  # noqa: E402
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 DOMAINS = ("d1", "d2", "d3", "d4", "d5", "overall")
 
+# Toggled by --exclude-fallback: drop algorithm-derived (raw_label='FALLBACK')
+# judgements so κ reflects only model-emitted labels (pre-registered primary).
+# NULL raw_label rows (e.g. Cochrane ground truth) are always kept.
+EXCLUDE_FALLBACK = False
+
+
+def _fallback_filter(*aliases: str) -> str:
+    """SQL fragment excluding FALLBACK rows for each alias, or '' when disabled."""
+    if not EXCLUDE_FALLBACK:
+        return ""
+    parts = [
+        f"({alias}.raw_label IS NULL OR {alias}.raw_label != 'FALLBACK')"
+        if alias else "(raw_label IS NULL OR raw_label != 'FALLBACK')"
+        for alias in aliases
+    ]
+    return " AND " + " AND ".join(parts)
+
 
 def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
                domain: str) -> list[tuple[str, str]]:
@@ -42,7 +59,8 @@ def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
              ON a.rct_id = b.rct_id AND a.domain = b.domain
            WHERE a.source = ? AND b.source = ? AND a.domain = ?
              AND a.judgment IS NOT NULL AND b.judgment IS NOT NULL
-             AND a.valid = 1 AND b.valid = 1""",
+             AND a.valid = 1 AND b.valid = 1"""
+        + _fallback_filter("a", "b"),
         (source_a, source_b, domain),
     ).fetchall()
 
@@ -141,6 +159,7 @@ def run_to_run_kappa(conn: sqlite3.Connection, model_short: str,
 
 
 def main() -> int:
+    global EXCLUDE_FALLBACK
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model", required=True)
     p.add_argument("--protocol", required=True, choices=("abstract", "fulltext"))
@@ -153,7 +172,15 @@ def main() -> int:
             "peek at results before merging."
         ),
     )
+    p.add_argument(
+        "--exclude-fallback", action="store_true",
+        help="Exclude algorithm-derived (raw_label='FALLBACK') judgements, "
+             "reproducing the pre-registered model-emitted primary metric.",
+    )
     args = p.parse_args()
+    EXCLUDE_FALLBACK = args.exclude_fallback
+    if args.exclude_fallback:
+        print("[mode] STRICT — excluding raw_label='FALLBACK' rows\n")
 
     conn = sqlite3.connect(f"file:{args.db_path}?mode=ro", uri=True)
     try:
