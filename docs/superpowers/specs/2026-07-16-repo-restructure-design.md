@@ -42,7 +42,9 @@ prompt modules (`prompts.py`, `prompts_v3.py`, `prompts_v4.py`, `prompts_v5a.py`
   imported as a module by `biasbuster/agent/model_client.py` and
   `biasbuster/evaluation/harness.py`.
 - **`biasbuster_next_session.md` stays at the repo root** while the
-  Eisele-Metzger study is running (owner's decision).
+  Eisele-Metzger study is running (owner's decision). _(Superseded by PR #25 on
+  2026-07-16: archived to `docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`,
+  replaced by the living `HANDOVER.md`.)_
 - **Locked study artifacts do not move**: `docs/papers/eisele_metzger_replication/`
   (pre-registered analysis plan), active preprint drafts, `docs/literature/`.
 - All moves use `git mv` so history follows. Nothing is deleted; suspected-dead

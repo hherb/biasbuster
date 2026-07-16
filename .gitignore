@@ -52,8 +52,12 @@ logs/
 # for the curated, tracked example reports.
 experiments/
 
-# Claude Code local working directory (personal settings, skills, worktrees)
-.claude/
+# Claude Code local working directory (personal settings and worktrees stay
+# local; project skills under .claude/skills/ are tracked and shared)
+.claude/*
+!.claude/skills/
+# ...except personal skills that duplicate user-level (~/.claude/skills/) ones
+.claude/skills/commit-push/
 
 # Generated comparison / eval reports (compare stage output) and pipeline state
 dataset/annotation_comparison/
