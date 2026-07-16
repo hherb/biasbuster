@@ -346,7 +346,7 @@ than a documented gap.
 
 ## 4. How this relates to BiasBuster annotations
 
-The BiasBuster annotation schema (see [ANNOTATED_DATA_SET.md](ANNOTATED_DATA_SET.md))
+The BiasBuster annotation schema (see [ANNOTATED_DATA_SET.md](../pipeline/ANNOTATED_DATA_SET.md))
 rates each abstract across **five bias domains**: statistical reporting,
 spin, outcome reporting, conflict of interest, and methodology.  These
 domains are **not** identical to any single RoB tool's domains — they
@@ -372,7 +372,7 @@ full-text RoB assessment would conclude.  Annotators should:
      this is a deliberate BiasBuster extension grounded in the
      evidence that industry sponsorship independently predicts
      favourable conclusions (see
-     [feedback_risk_not_proof](../../.claude/projects/-Users-hherb-src-biasbuster/memory/feedback_risk_not_proof.md)).
+     [feedback_risk_not_proof](../../../../.claude/projects/-Users-hherb-src-biasbuster/memory/feedback_risk_not_proof.md)).
 3. **Consult the Cochrane RoB 2 domain ratings** when the paper is a
    Cochrane-reviewed RCT, since these are stored in the database
    (`cochrane_*` fields — see `database.py`) and represent expert

@@ -160,7 +160,7 @@ For manual control over individual steps, see sections [8](08_training.md),
 After evaluation, test the fine-tuned model with the verification agent demo to see it execute recommended verification steps against real APIs:
 
 ```bash
-uv run python -m utils.agent_demo --model qwen3.5-27b-biasbuster --port 8082
+uv run python -m biasbuster.utils.agent_demo --model qwen3.5-27b-biasbuster --port 8082
 ```
 
 The agent wrapper (`agent/` package) parses verification steps from the model's output and dispatches them to real APIs:
@@ -177,7 +177,7 @@ The agent then feeds verification results back to the model for a refined assess
 For comparing multiple annotator models (not fine-tuned vs baseline, but e.g., Anthropic vs DeepSeek annotations):
 
 ```bash
-uv run python pipeline.py --stage compare
+uv run python -m biasbuster.pipeline --stage compare
 ```
 
 This computes inter-model agreement using the same metrics framework, generating a report in `dataset/annotation_comparison/`.

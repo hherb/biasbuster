@@ -5,7 +5,7 @@
 ## Run Enrichment
 
 ```bash
-uv run python pipeline.py --stage enrich
+uv run python -m biasbuster.pipeline --stage enrich
 ```
 
 ## What Enrichment Does

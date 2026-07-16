@@ -17,13 +17,13 @@ bias assessment prompt.
 
 ```bash
 # Annotate with the default model (Anthropic Claude)
-uv run python pipeline.py --stage annotate
+uv run python -m biasbuster.pipeline --stage annotate
 
 # Annotate with DeepSeek reasoner
-uv run python pipeline.py --stage annotate --models deepseek
+uv run python -m biasbuster.pipeline --stage annotate --models deepseek
 
 # Annotate with multiple models (results stored side by side)
-uv run python pipeline.py --stage annotate --models anthropic,deepseek
+uv run python -m biasbuster.pipeline --stage annotate --models anthropic,deepseek
 ```
 
 Each annotation is saved to the database **incrementally** via an
@@ -183,7 +183,7 @@ abstract-level detection.
 ### Quick check
 
 ```bash
-uv run python expert_rob_alignment_of_annotations.py
+uv run python scripts/expert_rob_alignment_of_annotations.py
 ```
 
 This compares annotations against Cochrane RoB 2 expert assessments
@@ -191,7 +191,7 @@ This compares annotations against Cochrane RoB 2 expert assessments
 report to stdout.  Redirect to a file if desired:
 
 ```bash
-uv run python expert_rob_alignment_of_annotations.py > alignment_report.md
+uv run python scripts/expert_rob_alignment_of_annotations.py > alignment_report.md
 ```
 
 ### What the report shows
@@ -258,16 +258,16 @@ uv run python expert_rob_alignment_of_annotations.py > alignment_report.md
 
 ```bash
 # 1. Start from seed data (or re-collect)
-uv run python seed_export.py import
+uv run python scripts/seed_export.py import
 
 # 2. Run annotation (takes several hours depending on model/API speed)
-uv run python pipeline.py --stage annotate --models deepseek
+uv run python -m biasbuster.pipeline --stage annotate --models deepseek
 
 # 3. Check alignment
-uv run python expert_rob_alignment_of_annotations.py
+uv run python scripts/expert_rob_alignment_of_annotations.py
 
 # 4. (Optional) Human review via NiceGUI web tool, then export
-uv run python pipeline.py --stage export
+uv run python -m biasbuster.pipeline --stage export
 ```
 
 The annotation stage is idempotent — running it again skips
@@ -276,7 +276,7 @@ already-annotated papers and picks up any new or previously failed ones.
 ## Export to training format
 
 ```bash
-uv run python pipeline.py --stage export
+uv run python -m biasbuster.pipeline --stage export
 ```
 
 Produces fine-tuning data in two formats with 80/10/10 train/val/test

@@ -10,9 +10,9 @@ The final assessment JSON is then assembled in Python from the
 mechanical draft + the per-domain decisions. Hard-rule enforcement
 still runs (via ``enforce_hard_rules``) as a belt-and-braces check.
 
-Design rationale: see ``docs/three_step_approach/V5A_DECOMPOSED.md``.
+Design rationale: see ``docs/harness/three_step_approach/V5A_DECOMPOSED.md``.
 The empirical motivation (small models ignoring the v4 REVIEW
-scaffold) is in ``docs/three_step_approach/OVERVIEW.md``.
+scaffold) is in ``docs/harness/three_step_approach/OVERVIEW.md``.
 
 Supports two provider backends, identical to AssessmentAgent:
   - ``provider="anthropic"``: direct ``anthropic.AsyncAnthropic`` SDK.

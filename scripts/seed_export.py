@@ -14,22 +14,22 @@ Import reads from ``dataset/cleanseed/`` and populates a fresh database.
 
 Usage:
     # Export current seed data
-    uv run python seed_export.py export
+    uv run python scripts/seed_export.py export
 
     # Export to a custom directory
-    uv run python seed_export.py export --dir dataset/cleanseed_v2
+    uv run python scripts/seed_export.py export --dir dataset/cleanseed_v2
 
     # Import into a fresh database (backs up existing DB first)
-    uv run python seed_export.py import
+    uv run python scripts/seed_export.py import
 
     # Import from a custom directory into a specific DB
-    uv run python seed_export.py import --dir dataset/cleanseed_v2 --db dataset/fresh.db
+    uv run python scripts/seed_export.py import --dir dataset/cleanseed_v2 --db dataset/fresh.db
 
     # Export full annotated dataset (papers + enrichments + annotations)
-    uv run python seed_export.py export-annotated
+    uv run python scripts/seed_export.py export-annotated
 
     # Import annotated dataset
-    uv run python seed_export.py import-annotated
+    uv run python scripts/seed_export.py import-annotated
 """
 
 import argparse

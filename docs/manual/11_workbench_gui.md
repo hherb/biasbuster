@@ -7,8 +7,8 @@ The Fine-Tuning Workbench wraps the command-line training, evaluation, and expor
 ## Launch
 
 ```bash
-uv run python -m gui
-uv run python -m gui --port 9090   # custom port
+uv run python -m biasbuster.gui
+uv run python -m biasbuster.gui --port 9090   # custom port
 ```
 
 Open `http://localhost:8080` (or your custom port) in a browser. The header badge shows your detected platform and available backends (e.g., "Linux (trl)" or "Darwin (mlx)").
@@ -84,7 +84,7 @@ The Workbench automatically detects your platform and adjusts available options:
 
 ```bash
 # Use a different port
-uv run python -m gui --port 9090
+uv run python -m biasbuster.gui --port 9090
 ```
 
 ### Charts Not Updating

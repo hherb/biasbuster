@@ -35,7 +35,7 @@ METHODOLOGY = make_stub_methodology(
         "critically_low", "low", "moderate", "high",
     ),
     notes={
-        "docs": "docs/ASSESSING_RISK_OF_BIAS.md#amstar-2",
+        "docs": "docs/harness/ASSESSING_RISK_OF_BIAS.md#amstar-2",
         "reference": "Shea BJ et al. BMJ 2017;358:j4008.",
     },
 )

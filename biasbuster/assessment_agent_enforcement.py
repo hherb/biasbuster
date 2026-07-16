@@ -8,7 +8,7 @@ non-overridable severities back to their mechanical value with an
 audit note.
 
 This is where the policy from
-``docs/two_step_approach/DESIGN_RATIONALE_COI.md`` is structurally
+``docs/harness/DESIGN_RATIONALE_COI.md`` is structurally
 enforced: the LLM may attempt any override it likes, but this
 Python pass prevents it from taking effect on domains marked
 overridable=False (notably the COI domain when it rates HIGH via

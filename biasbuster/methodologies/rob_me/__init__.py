@@ -27,7 +27,7 @@ METHODOLOGY = make_stub_methodology(
     orchestration="decomposed_full_text",
     severity_rollup_levels=("low", "some_concerns", "high"),
     notes={
-        "docs": "docs/ASSESSING_RISK_OF_BIAS.md#rob-me",
+        "docs": "docs/harness/ASSESSING_RISK_OF_BIAS.md#rob-me",
     },
 )
 

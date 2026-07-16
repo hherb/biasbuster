@@ -5,7 +5,7 @@
 ## Run Collection
 
 ```bash
-uv run python pipeline.py --stage collect
+uv run python -m biasbuster.pipeline --stage collect
 ```
 
 This fetches abstracts from all three sources and stores them in the SQLite database. The process is resumable -- if interrupted, re-running the command will skip already-collected papers.
@@ -74,7 +74,7 @@ Cochrane RoB papers use `upsert_cochrane_paper()` instead of the standard `INSER
 To backfill per-domain RoB ratings (D1-D5) for papers that were collected before domain-level extraction was added:
 
 ```bash
-uv run python backfill_cochrane_domains.py
+uv run python scripts/backfill_cochrane_domains.py
 ```
 
 This long-running script (~5-6 hours due to DeepSeek API calls) supports checkpoint/resume — interrupted runs can be restarted without re-processing already completed reviews.
@@ -84,7 +84,7 @@ This long-running script (~5-6 hours due to DeepSeek API calls) supports checkpo
 After collection, run the seed step to clean and enrich the raw data:
 
 ```bash
-uv run python pipeline.py --stage seed
+uv run python -m biasbuster.pipeline --stage seed
 ```
 
 Or run it standalone with individual steps:

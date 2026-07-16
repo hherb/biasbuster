@@ -13,7 +13,7 @@ with BMLibrarian.
 **BiasBuster assesses *risk of bias*, not *proof of bias*** — and is
 intentionally more aggressive than Cochrane RoB 2 on the Conflict of
 Interest domain, which Cochrane deliberately excludes. See
-[COI Design Rationale](docs/two_step_approach/DESIGN_RATIONALE_COI.md)
+[COI Design Rationale](docs/harness/DESIGN_RATIONALE_COI.md)
 for the full justification.
 
 **Design philosophy.** BiasBuster's five bias domains are an
@@ -25,7 +25,7 @@ systematic reviews, ROB-ME for missing-evidence bias in
 meta-analyses. Each annotation is a *prediction* of what a domain
 expert applying the appropriate full-text tool would conclude from
 the abstract alone. See
-[Assessing Risk of Bias](docs/ASSESSING_RISK_OF_BIAS.md) for the
+[Assessing Risk of Bias](docs/harness/ASSESSING_RISK_OF_BIAS.md) for the
 tool-selection cheat sheet, per-tool methodology summaries, and
 primary-source citations.
 
@@ -57,7 +57,7 @@ across a 15-paper validation cohort.
 
 The raw overall κ vs Cochrane is low for all models by design —
 biasbuster's COI policy extension (see
-[DESIGN_RATIONALE_COI.md](docs/two_step_approach/DESIGN_RATIONALE_COI.md))
+[DESIGN_RATIONALE_COI.md](docs/harness/DESIGN_RATIONALE_COI.md))
 rates industry-funded trials HIGH where Cochrane rates them LOW because
 Cochrane RoB 2 does not assess COI. The per-domain methodology and
 outcome-reporting kappas are the clean signal: both Sonnet and gemma4
@@ -74,11 +74,41 @@ gpt-oss-20B is not recommended (fails methodology agreement with
 Cochrane experts). Fine-tuning is not needed.
 
 Full empirical details:
-[docs/three_step_approach/V5A_RESULTS.md](docs/three_step_approach/V5A_RESULTS.md),
-[docs/three_step_approach/OVERVIEW.md](docs/three_step_approach/OVERVIEW.md).
+[docs/harness/three_step_approach/V5A_RESULTS.md](docs/harness/three_step_approach/V5A_RESULTS.md),
+[docs/harness/three_step_approach/OVERVIEW.md](docs/harness/three_step_approach/OVERVIEW.md).
 Earlier architecture history:
-[docs/two_step_approach/INITIAL_FINDINGS_V3.md](docs/two_step_approach/INITIAL_FINDINGS_V3.md),
-[docs/two_step_approach/V4_AGENT_DESIGN.md](docs/two_step_approach/V4_AGENT_DESIGN.md).
+[docs/history/two_step_approach/INITIAL_FINDINGS_V3.md](docs/history/two_step_approach/INITIAL_FINDINGS_V3.md),
+[docs/history/two_step_approach/V4_AGENT_DESIGN.md](docs/history/two_step_approach/V4_AGENT_DESIGN.md).
+
+## The Three Objectives — Where Do I Look?
+
+BiasBuster grew from a fine-tuning experiment into three related efforts.
+Everything in this repository serves one of them (or the shared core they
+sit on):
+
+| Objective | What it is | Entry point | Code | Docs |
+|---|---|---|---|---|
+| **1. Dataset curation + fine-tuning** | Build curated bias-annotation training data from retracted papers, Cochrane RoB assessments, and heuristic-mined RCTs; LoRA-fine-tune local models on it | `uv run python -m biasbuster.pipeline --stage <name>`, `./run_training*.sh`, `./train_and_evaluate.sh`, `uv run python -m biasbuster.gui` | `biasbuster/{collectors,enrichers,annotators,pipeline,training,gui,crowd}`, root `export.py` | [docs/pipeline/](docs/pipeline/) |
+| **2. Agentic risk-of-bias assessment** | Analyse a single paper for risk of bias with the V5A decomposed methodology (LLM extraction → Python rules → per-domain LLM overrides) | `biasbuster <pmid\|doi\|file> --model <backend>:<model>` | `biasbuster/{cli,agent,assessment,methodologies}` | [docs/harness/](docs/harness/) |
+| **3. Evaluations & papers** | Studies quantifying performance against expert ground truth, feeding preprints (currently: the Eisele-Metzger 2025 replication) | `studies/eisele_metzger_replication/` phase scripts | `biasbuster/evaluation/`, `studies/` | [docs/papers/](docs/papers/), [docs/literature/](docs/literature/) |
+
+Shared core used by all three: `biasbuster/database.py` (SQLite,
+single source of truth), `biasbuster/annotators/` (LLM backends + JSON
+utilities), `biasbuster/schemas/`, `biasbuster/utils/`, and the prompt
+modules (`prompts*.py` — single source of truth for all prompt text).
+
+Other places in the repo:
+
+- `docs/manual/` — step-by-step user manual for the dataset/training pipeline
+- `docs/history/` — postmortems, fine-tuning round logs, and superseded
+  designs ([index](docs/history/README.md)); kept because they explain *why*
+  the current design looks the way it does
+- `scripts/` — occasional-use maintenance and study tools (each documents
+  its own usage)
+- `attic/` — suspected-dead material awaiting review
+  ([index](attic/README.md)); nothing imports from here
+- `dataset/`, `export/`, `training_output/`, `eval_results/` — data
+  directories (gitignored artifacts)
 
 ## Quick Start — Analyse a Publication
 
@@ -111,7 +141,7 @@ biasbuster 12345678 --model ollama:gemma4:26b-a4b-it-q8_0 --format markdown -o r
 biasbuster 12345678 --model ollama:gemma4:26b-a4b-it-q8_0 --verify --format markdown
 ```
 
-See [docs/BIASBUSTER_CLI.md](docs/BIASBUSTER_CLI.md) for full CLI
+See [docs/harness/BIASBUSTER_CLI.md](docs/harness/BIASBUSTER_CLI.md) for full CLI
 documentation.
 
 > **On the default model**: for historical reasons the CLI's built-in
@@ -191,9 +221,15 @@ biasbuster/                        # Top-level Python package
 ├── crowd/                         # Crowdsourced human annotation platform
 ├── database.py                    # SQLite backend (single source of truth)
 ├── prompts.py                     # Canonical annotation/training prompts
-├── pipeline.py                    # Orchestration pipeline (collect→export)
-└── export.py                      # Export to fine-tuning formats
+└── pipeline.py                    # Orchestration pipeline (collect→export)
 ```
+
+A handful of thin scripts live at the repo root because they are entry
+points or imported as top-level modules: `main.py`,
+`annotate_single_paper.py`, `seed_database.py`, `export.py` (fine-tuning
+format exporter — imported by the agent and evaluation harness), and
+`config.example.py` (copy to `config.py`). Occasional-use tools live in
+`scripts/`.
 
 ### Key Dependencies
 
@@ -230,7 +266,7 @@ maximum of the domain severities; the overall bias probability is a
 separately-calibrated numeric value that can sit below the
 categorical rating to express "structural risk present but
 methodology otherwise acceptable" (see
-[DESIGN_RATIONALE_COI.md](docs/two_step_approach/DESIGN_RATIONALE_COI.md)
+[DESIGN_RATIONALE_COI.md](docs/harness/DESIGN_RATIONALE_COI.md)
 for how the category+probability combination is used).
 
 1. **Statistical Reporting Bias**
@@ -257,7 +293,7 @@ for how the category+probability combination is used).
    - Structural COI: sponsor-employed/shareholder authors on
      industry-funded trials trigger a hard-HIGH rating regardless
      of methodology quality — see
-     [docs/two_step_approach/DESIGN_RATIONALE_COI.md](docs/two_step_approach/DESIGN_RATIONALE_COI.md)
+     [docs/harness/DESIGN_RATIONALE_COI.md](docs/harness/DESIGN_RATIONALE_COI.md)
      for the justification. **BiasBuster assesses *risk of bias*,
      not *proof of bias*** — and is intentionally more aggressive
      than Cochrane RoB 2 on this domain, which Cochrane
@@ -328,7 +364,7 @@ discouraged** — the full-text single-call path collapses to ~50%
 agreement with Claude across all tested model families and
 produces generic "no major red flags" moderate verdicts
 regardless of the input. See
-[INITIAL_FINDINGS_V3.md §4.1](docs/two_step_approach/INITIAL_FINDINGS_V3.md)
+[INITIAL_FINDINGS_V3.md §4.1](docs/history/two_step_approach/INITIAL_FINDINGS_V3.md)
 for empirical details.
 
 ### Model Selection
@@ -356,7 +392,7 @@ gemini. Bare model names without a prefix default to Ollama.
 
 **Which model should I use?** Based on the V5A 16-paper validation
 against Cochrane RoB 2 expert labels (see
-[V5A_RESULTS.md](docs/three_step_approach/V5A_RESULTS.md)),
+[V5A_RESULTS.md](docs/harness/three_step_approach/V5A_RESULTS.md)),
 **gemma4 26B** is the recommended local model. It achieves perfect
 weighted-kappa agreement (κ = 1.000) with Cochrane experts on the
 methodology and outcome-reporting domains. gpt-oss 20B is not
@@ -376,7 +412,7 @@ to re-fetch after a correction or retraction.
 ### Configuration
 
 Settings are read from `~/.biasbuster/config.toml` with environment variable and
-CLI flag overrides. See [docs/BIASBUSTER_CLI.md](docs/BIASBUSTER_CLI.md) for the
+CLI flag overrides. See [docs/harness/BIASBUSTER_CLI.md](docs/harness/BIASBUSTER_CLI.md) for the
 full config reference.
 
 ## Dataset Building Pipeline (optional)
@@ -403,10 +439,10 @@ uv run python -m biasbuster.pipeline --stage compare
 ### Single-Paper Import & Annotation
 
 ```bash
-uv run python -m biasbuster.annotate_single_paper --pmid 41271640
-uv run python -m biasbuster.annotate_single_paper --pmid 41271640 --model anthropic
-uv run python -m biasbuster.annotate_single_paper --doi 10.1016/j.example.2024.01.001
-uv run python -m biasbuster.annotate_single_paper --pmid 41271640 --force
+uv run python annotate_single_paper.py --pmid 41271640
+uv run python annotate_single_paper.py --pmid 41271640 --model anthropic
+uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001
+uv run python annotate_single_paper.py --pmid 41271640 --force
 ```
 
 ### Data Storage
@@ -529,7 +565,7 @@ uv run python -m biasbuster.utils.review_gui --model anthropic
 > **Do you need this?** Almost certainly not. The V5A decomposed
 > pipeline with gemma4-26B achieves expert-level accuracy on shared
 > Cochrane RoB 2 domains **without any fine-tuning** (see
-> [V5A Results](docs/three_step_approach/V5A_RESULTS.md)). The V5A
+> [V5A Results](docs/harness/three_step_approach/V5A_RESULTS.md)). The V5A
 > pipeline moves bias-assessment logic to deterministic Python rules,
 > leaving the LLM only the extraction and narrow override tasks —
 > which gemma4-26B handles reliably out of the box.
@@ -599,15 +635,17 @@ of the same full-text two-call pipeline on the same paper), see
 
 ## Documentation
 
-- [CLI Reference](docs/BIASBUSTER_CLI.md) — full `biasbuster` command documentation
+- [CLI Reference](docs/harness/BIASBUSTER_CLI.md) — full `biasbuster` command documentation
 - [User Manual](docs/manual/index.md) — step-by-step guide through the entire pipeline
-- [Training Guide](docs/TRAINING.md) — LoRA fine-tuning details
-- [MLX Training](docs/MLX_TRAINING.md) — Apple Silicon training guide
-- [Model Card](docs/MODEL_CARD.md) — fine-tuned model documentation
-- [Assessing Risk of Bias](docs/ASSESSING_RISK_OF_BIAS.md) — guideline for choosing and applying established risk-of-bias tools (RoB 2, ROBINS-I, QUADAS-2, PROBAST, ROBIS, ROB-ME, etc.) with primary-source citations
-- [COI Design Rationale](docs/two_step_approach/DESIGN_RATIONALE_COI.md) — why BiasBuster's COI domain is intentionally more aggressive than Cochrane RoB 2 (*risk of bias*, not *proof of bias*)
-- [V5A Decomposed Pipeline — Results](docs/three_step_approach/V5A_RESULTS.md) — 16-paper validation of V5A: gemma4 κ=1.000 vs Cochrane experts on methodology/outcome-reporting, disagreement diagnostic showing 86% of remaining gaps are extraction quality not judgment
-- [V5A Decomposed Pipeline — Design](docs/three_step_approach/V5A_DECOMPOSED.md) — architecture, per-domain override prompts, reused code, verification plan
-- [V5A/V5B Overview](docs/three_step_approach/OVERVIEW.md) — problem statement, decision tree, success criteria
-- [v4 Tool-Calling Agent Design](docs/two_step_approach/V4_AGENT_DESIGN.md) — v4 agentic architecture (works for Claude, not for small local models — superseded by V5A for local deployment)
-- [v3 Two-Call Findings](docs/two_step_approach/INITIAL_FINDINGS_V3.md) — empirical history of the v3 architecture: 10 rounds of prompt iteration, 3-family verification, calibration test
+- [Training Guide](docs/pipeline/TRAINING.md) — LoRA fine-tuning details
+- [MLX Training](docs/pipeline/MLX_TRAINING.md) — Apple Silicon training guide
+- [Model Card](docs/pipeline/MODEL_CARD.md) — fine-tuned model documentation
+- [Assessing Risk of Bias](docs/harness/ASSESSING_RISK_OF_BIAS.md) — guideline for choosing and applying established risk-of-bias tools (RoB 2, ROBINS-I, QUADAS-2, PROBAST, ROBIS, ROB-ME, etc.) with primary-source citations
+- [COI Design Rationale](docs/harness/DESIGN_RATIONALE_COI.md) — why BiasBuster's COI domain is intentionally more aggressive than Cochrane RoB 2 (*risk of bias*, not *proof of bias*)
+- [V5A Decomposed Pipeline — Results](docs/harness/three_step_approach/V5A_RESULTS.md) — 16-paper validation of V5A: gemma4 κ=1.000 vs Cochrane experts on methodology/outcome-reporting, disagreement diagnostic showing 86% of remaining gaps are extraction quality not judgment
+- [V5A Decomposed Pipeline — Design](docs/harness/three_step_approach/V5A_DECOMPOSED.md) — architecture, per-domain override prompts, reused code, verification plan
+- [V5A/V5B Overview](docs/harness/three_step_approach/OVERVIEW.md) — problem statement, decision tree, success criteria
+- [v4 Tool-Calling Agent Design](docs/history/two_step_approach/V4_AGENT_DESIGN.md) — v4 agentic architecture (works for Claude, not for small local models — superseded by V5A for local deployment)
+- [v3 Two-Call Findings](docs/history/two_step_approach/INITIAL_FINDINGS_V3.md) — empirical history of the v3 architecture: 10 rounds of prompt iteration, 3-family verification, calibration test
+- [Project History](docs/history/README.md) — fine-tuning round logs, postmortems, and superseded designs, indexed
+- [Papers & Studies](docs/papers/) — active preprint drafts, the pre-registered Eisele-Metzger replication plan, and supplements; study code lives in [studies/](studies/)

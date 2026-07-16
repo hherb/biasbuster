@@ -157,13 +157,13 @@ The MLX callback writes the same `metrics.jsonl` format, so the existing trainin
 
 ```bash
 # In a separate terminal
-uv run python -m utils.training_monitor \
+uv run python -m biasbuster.utils.training_monitor \
     --metrics-dir training_output/qwen3.5-9b-4bit-mlx-lora
 ```
 
 Opens a web dashboard at http://localhost:8080 with loss curves, learning rate, memory usage, and hyperparameters.
 
-See [TRAINING_INTERPRETATION.md](../../TRAINING_INTERPRETATION.md) for how to read the charts. The same healthy/warning indicators from Chapter 8 apply here.
+See [TRAINING_INTERPRETATION.md](../pipeline/TRAINING_INTERPRETATION.md) for how to read the charts. The same healthy/warning indicators from Chapter 8 apply here.
 
 ## Step 6: Resume After Interruption
 
@@ -251,7 +251,7 @@ uv run python -c "import mlx_lm; print(mlx_lm.__version__)"
 
 ```bash
 # Re-export alpaca data if corrupted
-uv run python pipeline.py --stage export
+uv run python -m biasbuster.pipeline --stage export
 
 # Force reconversion by removing cached chat data
 rm -rf dataset/export/chat/

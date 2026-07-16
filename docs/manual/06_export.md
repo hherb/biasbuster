@@ -5,7 +5,7 @@
 ## Run Export
 
 ```bash
-uv run python pipeline.py --stage export
+uv run python -m biasbuster.pipeline --stage export
 ```
 
 ## Output Structure

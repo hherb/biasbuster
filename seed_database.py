@@ -23,7 +23,7 @@ Steps (idempotent, safe to re-run):
 3. **clean** — Flag/remove bare retraction notices from the papers table
    (papers whose abstract is just "This article has been retracted…").
 
-See docs/MISTAKES_ROUND_1_AND_FIXES.md for why these steps matter.
+See docs/history/MISTAKES_ROUND_1_AND_FIXES.md for why these steps matter.
 """
 
 import argparse

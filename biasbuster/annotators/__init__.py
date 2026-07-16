@@ -532,7 +532,7 @@ def build_assessment_user_message(
 # ============================================================================
 # Extraction merge — combine partial extractions from map-reduce chunks
 # ============================================================================
-# See docs/two_step_approach/MERGE_STRATEGY.md for rationale and limitations.
+# See docs/history/two_step_approach/MERGE_STRATEGY.md for rationale and limitations.
 # ============================================================================
 
 # Section-name → priority rank (higher = more authoritative for its fields).
@@ -773,7 +773,7 @@ def merge_section_extractions(
         Merged extraction dict with the same schema as whole-paper extraction,
         plus a ``_merge_conflicts`` key listing any detected conflicts.
 
-    See docs/two_step_approach/MERGE_STRATEGY.md for the merge rules and
+    See docs/history/two_step_approach/MERGE_STRATEGY.md for the merge rules and
     the list of fields that cannot be synthesised from per-section views
     (the coherence-pass limitation).
     """
@@ -1083,7 +1083,7 @@ class BaseAnnotator(abc.ABC):
         Stage 1 (reduce): merge the partial extractions into a single
             extraction dict via field-type-specific rules. See
             ``merge_section_extractions`` and
-            ``docs/two_step_approach/MERGE_STRATEGY.md``.
+            ``docs/history/two_step_approach/MERGE_STRATEGY.md``.
         Stage 2: assess bias from the merged extraction.
 
         Args:

@@ -8,7 +8,7 @@ threshold arithmetic live in `biasbuster/assessment/rules.py`
 (Python, single source of truth) and the agent accesses them via
 the ``run_mechanical_assessment`` tool.
 
-Design rationale: see ``docs/two_step_approach/V4_AGENT_DESIGN.md``.
+Design rationale: see ``docs/history/two_step_approach/V4_AGENT_DESIGN.md``.
 The key empirical motivation is §3.13/§3.14 of INITIAL_FINDINGS_V3.md
 — every v3 calibration failure was an arithmetic or boolean-logic
 bug, not a text-reasoning failure. v4 moves the arithmetic to

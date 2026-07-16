@@ -7,7 +7,7 @@ The biasbuster project produces *risk-of-bias* assessments of clinical trials. T
 1. **Extraction** — pulling structured facts out of free-text full-text papers
 2. **Contextual judgment** — deciding whether a mechanically-fired bias rule genuinely applies to *this specific* paper
 
-The v3 architecture put both jobs in a single 240-line LLM prompt (see [`docs/two_step_approach/`](../two_step_approach/)). The v4 architecture decomposed it: extraction (LLM) → mechanical rules (Python) → "review and override" (LLM agent with tools). See [`V4_AGENT_DESIGN.md`](../two_step_approach/V4_AGENT_DESIGN.md).
+The v3 architecture put both jobs in a single 240-line LLM prompt (see [`docs/history/two_step_approach/`](../../history/two_step_approach/)). The v4 architecture decomposed it: extraction (LLM) → mechanical rules (Python) → "review and override" (LLM agent with tools). See [`V4_AGENT_DESIGN.md`](../../history/two_step_approach/V4_AGENT_DESIGN.md).
 
 ## The problem v5 addresses
 

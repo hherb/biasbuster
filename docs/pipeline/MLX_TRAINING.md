@@ -24,13 +24,13 @@ This installs `mlx-lm` and its dependencies (`mlx`, `transformers`, etc.).
 If you haven't already built the training dataset, run the full pipeline first:
 
 ```bash
-uv run python pipeline.py --stage all
+uv run python -m biasbuster.pipeline --stage all
 ```
 
 Then export to fine-tuning format:
 
 ```bash
-uv run python pipeline.py --stage export
+uv run python -m biasbuster.pipeline --stage export
 ```
 
 This creates alpaca-format JSONL files in `dataset/export/alpaca/`:
@@ -129,7 +129,7 @@ pipeline, so the existing training monitor works unchanged:
 
 ```bash
 # In a separate terminal
-uv run python -m utils.training_monitor \
+uv run python -m biasbuster.utils.training_monitor \
     --metrics-dir training_output/qwen3.5-9b-4bit-mlx-lora
 ```
 
@@ -230,7 +230,7 @@ If the automatic alpaca→chat conversion fails:
 ls -la dataset/export/alpaca/
 
 # Re-export if needed
-uv run python pipeline.py --stage export
+uv run python -m biasbuster.pipeline --stage export
 
 # Delete cached chat data to force reconversion
 rm -rf dataset/export/chat/

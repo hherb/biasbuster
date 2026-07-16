@@ -2,7 +2,7 @@
 
 Biasbuster deliberately deviates from Cochrane RoB 2 in one important
 way: biasbuster treats structural conflict-of-interest as HIGH risk
-(triggers a/b/c/d per ``docs/two_step_approach/DESIGN_RATIONALE_COI.md``),
+(triggers a/b/c/d per ``docs/harness/DESIGN_RATIONALE_COI.md``),
 while Cochrane RoB 2 does not assess COI at all. This means raw
 overall-severity agreement will understate the pipeline's agreement
 with Cochrane on the domains they actually share.
@@ -24,8 +24,8 @@ concerns" → biasbuster "moderate"; Cochrane "high" → biasbuster "high".
 Biasbuster "none" is folded into "low" for comparison, and "critical"
 into "high", so both scales reduce to a common 3-level ordinal.
 
-Usage:
-    uv run python compare_vs_cochrane.py \\
+Usage (from repo root):
+    uv run python scripts/compare_vs_cochrane.py \\
         --models anthropic_fulltext_decomposed,ollama:gemma4:26b-a4b-it-q8_0_fulltext_decomposed
 """
 from __future__ import annotations
@@ -269,7 +269,7 @@ def generate_markdown_report(
     lines.append(
         "Biasbuster's policy deliberately extends Cochrane RoB 2 by "
         "assessing structural conflict-of-interest risk (see "
-        "`docs/two_step_approach/DESIGN_RATIONALE_COI.md`). "
+        "`docs/harness/DESIGN_RATIONALE_COI.md`). "
         "Cochrane RoB 2 does not assess COI. This means the raw "
         "overall-severity agreement will be suppressed on "
         "industry-funded trials. The 'adjusted' kappa excludes papers "

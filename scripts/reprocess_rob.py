@@ -6,15 +6,15 @@ review with the improved resolution code, and saves newly resolved papers
 to the database.  Uses the LLM extraction cache to avoid re-spending
 tokens — only reviews not in the cache require LLM calls.
 
-Usage:
+Usage (from repo root):
     # Re-process specific PMCIDs:
-    uv run python reprocess_rob.py PMC12987355 PMC11152306 PMC12942296
+    uv run python scripts/reprocess_rob.py PMC12987355 PMC11152306 PMC12942296
 
     # Parse failed PMCIDs from a log file (reviews with >0 extracted, <100% resolved):
-    uv run python reprocess_rob.py --from-log log.txt
+    uv run python scripts/reprocess_rob.py --from-log log.txt
 
     # Both (explicit PMCIDs take priority, log adds more):
-    uv run python reprocess_rob.py --from-log log.txt PMC12126597
+    uv run python scripts/reprocess_rob.py --from-log log.txt PMC12126597
 """
 
 import argparse
@@ -22,6 +22,10 @@ import asyncio
 import logging
 import re
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from biasbuster.collectors.cochrane_rob import (
     CochraneRoBCollector, RoBAssessment, rob_assessment_to_paper_dict,
 )

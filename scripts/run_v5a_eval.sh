@@ -3,9 +3,11 @@
 # models, then generate the comparison report. Sequential because the
 # local Ollama models share the same GPU.
 #
-# Usage:  nohup ./run_v5a_eval.sh > v5a_eval.log 2>&1 &
+# Usage (from repo root):
+#   nohup ./scripts/run_v5a_eval.sh > v5a_eval.log 2>&1 &
 
 set -u
+cd "$(dirname "$0")/.."
 
 PMIDS="32382720 39691748 39777610 39905419 41750436"
 MODELS="anthropic ollama:gemma4:26b-a4b-it-q8_0 ollama:gpt-oss:20b"

@@ -403,7 +403,7 @@ DOMAIN CRITERIA:
    finding. Authorship by sponsor employees is a structural channel
    for bias that a reader should factor in independently of whether
    the methodology is visibly sound. See
-   docs/two_step_approach/DESIGN_RATIONALE_COI.md for the full
+   docs/harness/DESIGN_RATIONALE_COI.md for the full
    justification, empirical validation, and interpretation guidance.
 
    Using the extracted conflicts section:

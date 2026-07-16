@@ -5,7 +5,7 @@ Takes a v3 extraction, hands it to an LLM agent with access to the
 tools, and produces a final assessment with explicit overrides for
 any mechanical rule the LLM contextually overrode.
 
-See ``docs/two_step_approach/V4_AGENT_DESIGN.md`` for the design,
+See ``docs/history/two_step_approach/V4_AGENT_DESIGN.md`` for the design,
 ``biasbuster.prompts_v4`` for the system prompt, and
 ``biasbuster.assessment`` for the Python rules. Verification
 tool wrappers are reused from ``biasbuster.agent.tools``.

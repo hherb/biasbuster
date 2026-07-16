@@ -111,7 +111,7 @@ METHODOLOGY: Methodology = Methodology(
     evaluation_mapping_to_ground_truth=evaluation_mapping_to_ground_truth,
     build_training_example=None,
     notes={
-        "docs": "docs/ASSESSING_RISK_OF_BIAS.md#quadas-2",
+        "docs": "docs/harness/ASSESSING_RISK_OF_BIAS.md#quadas-2",
         "reference":
             "Whiting PF et al. QUADAS-2: a revised tool for the quality "
             "assessment of diagnostic accuracy studies. Ann Intern Med. "

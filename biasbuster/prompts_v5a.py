@@ -6,10 +6,10 @@ THIS domain, with THIS rule firing, on THIS paper — should the
 mechanical severity be downgraded? Keep it, or downgrade, with a
 paper-specific reason."
 
-Design rationale: see ``docs/three_step_approach/V5A_DECOMPOSED.md``.
+Design rationale: see ``docs/harness/three_step_approach/V5A_DECOMPOSED.md``.
 The empirical motivation is the failed v4 agentic runs on gemma4-26B
 and gpt-oss-20B (zero REVIEW blocks produced out of ten runs); see
-``docs/three_step_approach/OVERVIEW.md`` §"The problem v5 addresses".
+``docs/harness/three_step_approach/OVERVIEW.md`` §"The problem v5 addresses".
 
 Contrast with v4:
 - v4 asked ONE LLM call to review all 5 domains AND emit a 30-field JSON.

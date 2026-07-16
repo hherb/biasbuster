@@ -6,13 +6,13 @@
 
 ```bash
 # Auto-detect available models
-uv run python -m utils.review_gui
+uv run python -m biasbuster.utils.review_gui
 
 # Specify a model directly
-uv run python -m utils.review_gui --model anthropic
+uv run python -m biasbuster.utils.review_gui --model anthropic
 
 # Custom port
-uv run python -m utils.review_gui --model anthropic --port 8080
+uv run python -m biasbuster.utils.review_gui --model anthropic --port 8080
 ```
 
 Open the displayed URL (typically `http://localhost:8080`) in your browser.

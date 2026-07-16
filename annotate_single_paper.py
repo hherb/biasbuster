@@ -470,7 +470,7 @@ async def main() -> int:
              "runs the mechanical rules in Python and lets the LLM apply "
              "contextual overrides. Requires Anthropic API key (Phase 2: "
              "Claude only). Result is stored under '<model>_fulltext_agentic'. "
-             "See docs/two_step_approach/V4_AGENT_DESIGN.md for design details.",
+             "See docs/history/two_step_approach/V4_AGENT_DESIGN.md for design details.",
     )
     mode_group.add_argument(
         "--decomposed",
@@ -482,7 +482,7 @@ async def main() -> int:
              "models (gemma4-26B, gpt-oss-20B) reliably produce "
              "contextual overrides by giving each call a single narrow "
              "task. Result is stored under '<model>_fulltext_decomposed'. "
-             "See docs/three_step_approach/V5A_DECOMPOSED.md for design.",
+             "See docs/harness/three_step_approach/V5A_DECOMPOSED.md for design.",
     )
     parser.add_argument(
         "--output", "-o",

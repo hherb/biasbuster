@@ -10,7 +10,7 @@ If even the focused per-domain task is too hard for small models, the missing ca
 
 ## Architecture
 
-No architectural change to inference — fine-tuned models drop into the existing v4 agent loop (see [`V4_AGENT_DESIGN.md`](../two_step_approach/V4_AGENT_DESIGN.md)). The change is upstream: produce SFT training data from Claude's traces, run LoRA, export to Ollama, evaluate.
+No architectural change to inference — fine-tuned models drop into the existing v4 agent loop (see [`V4_AGENT_DESIGN.md`](../../history/two_step_approach/V4_AGENT_DESIGN.md)). The change is upstream: produce SFT training data from Claude's traces, run LoRA, export to Ollama, evaluate.
 
 ## Data collection
 
@@ -76,7 +76,7 @@ The model learns by example to:
 ## Training targets
 
 - `gemma4:26b-a4b-it-q8_0` — MLX 4-bit LoRA on Mac (proven path)
-- `gpt-oss:20b` — MLX 4-bit/8-bit (MoE — already handled in `configs_mlx.py` per [`CLAUDE.md`](../../CLAUDE.md))
+- `gpt-oss:20b` — MLX 4-bit/8-bit (MoE — already handled in `configs_mlx.py` per [`CLAUDE.md`](../../../CLAUDE.md))
 
 ## Verification
 

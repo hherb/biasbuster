@@ -93,7 +93,7 @@ Raw overall κ vs Cochrane is ≈ 0 for both Sonnet and gemma4. This is entirely
 - 4 papers where Sonnet rates HIGH _solely_ due to COI (gemma4: 2 papers)
 - ~6 additional industry-funded papers where both biasbuster methodology AND COI are HIGH, while Cochrane rates overall as LOW because Cochrane RoB 2 does not assess COI at all
 
-The expected result: perfect agreement on the domains Cochrane actually assesses, systematic upward divergence on industry trials where biasbuster's structural COI policy adds a signal Cochrane does not. See [`DESIGN_RATIONALE_COI.md`](../two_step_approach/DESIGN_RATIONALE_COI.md) for the policy justification.
+The expected result: perfect agreement on the domains Cochrane actually assesses, systematic upward divergence on industry trials where biasbuster's structural COI policy adds a signal Cochrane does not. See [`DESIGN_RATIONALE_COI.md`](../DESIGN_RATIONALE_COI.md) for the policy justification.
 
 ## Per-paper overall severity
 
@@ -121,7 +121,7 @@ Exact overall-severity agreement with Sonnet:
 | Outcome Reporting      | 0.375  | 0.545   |
 
 Observations:
-- **COI κ = 1.000 for both small models.** This is the hard-rule enforcement + non-overridability policy working exactly as designed. The mechanical triggers (a/b/c/d per [`DESIGN_RATIONALE_COI.md`](../two_step_approach/DESIGN_RATIONALE_COI.md)) produce identical outputs across all three models because the LLM is not permitted to touch them.
+- **COI κ = 1.000 for both small models.** This is the hard-rule enforcement + non-overridability policy working exactly as designed. The mechanical triggers (a/b/c/d per [`DESIGN_RATIONALE_COI.md`](../DESIGN_RATIONALE_COI.md)) produce identical outputs across all three models because the LLM is not permitted to touch them.
 - **gemma4 > gpt-oss on 3/5 dimensions** (spin, statistical_reporting), is tied on methodology, loses marginally on outcome_reporting. gemma4-26B is the stronger local candidate.
 - gpt-oss weakness on statistical_reporting (κ=0.231) and spin (κ=0.375) reflects extraction-gap problems (see next section), not override-reasoning problems.
 
