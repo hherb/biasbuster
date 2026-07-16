@@ -14,7 +14,13 @@ These are non-negotiable. Violations have caused real data loss and wasted resou
 
 ## Project Overview
 
-BMLibrarian Bias Detection Dataset Builder — a toolkit for building curated training datasets to fine-tune LLMs for detecting bias in biomedical abstracts. The fine-tuned model learns to assess bias across 5 domains and suggest specific verification steps citing real databases.
+BiasBuster detects risk of bias in biomedical publications. One repository, three objectives (see "Repository layout" for the code/docs map):
+
+1. **Dataset curation + fine-tuning pipeline** — build curated bias-annotation training datasets (retracted papers, Cochrane RoB expert assessments, heuristic-mined RCTs) and LoRA-fine-tune local models on them.
+2. **Agentic risk-of-bias assessment harness** — the `biasbuster` CLI: per-paper analysis via the V5A decomposed methodology (LLM extraction → Python mechanical rules → per-domain LLM override calls). The current recommended analysis path.
+3. **Evaluations & papers** — studies quantifying performance against expert ground truth (currently the Eisele-Metzger 2025 replication in `studies/`), feeding the preprint drafts in `docs/papers/drafts/`.
+
+Both false positives and false negatives are harmful here (besmirching valid work vs missing fraud) — correctness is the top priority.
 
 ## Hardware Environment
 This project runs either on a DGX Spark (ARM/Blackwell/GB10 architecture) or on an Apple M series processor. Do not suggest x86-specific solutions. Always consider ARM compatibility, GPU memory constraints, and quantization requirements when recommending ML/inference approaches.
@@ -45,12 +51,6 @@ Always implement retry logic and incremental saves/commits when building data pi
 
 ## Commands
 
-> **NOTE (invocation paths):** the dataset-builder pipeline module moved into the package.
-> The `uv run python pipeline.py …` lines below are historical — use
-> `uv run python -m biasbuster.pipeline --stage <name>` (or `uv run python main.py --stage <name>`).
-> `config.py` stays at the repo root (imported as a top-level module). See "Repository layout"
-> under Architecture.
-
 ```bash
 # Set up environment and install dependencies
 uv sync
@@ -58,31 +58,35 @@ uv sync
 # Configure (copy the example to the repo root, then edit config.py with API keys)
 cp config.example.py config.py
 
-# Run full pipeline (stages 1-5)
+# Run the test suite
+uv run pytest
+
+# Per-paper risk-of-bias analysis (objective 2 — the biasbuster CLI)
+biasbuster 12345678 --model ollama:gemma4:26b-a4b-it-q8_0
+biasbuster 10.1016/j.example.2024.01.001 --model anthropic:claude-sonnet-4-6 --format markdown
+
+# Run full dataset pipeline (stages 1-5)
 uv run python -m biasbuster.pipeline --stage all
 
 # Run individual stages
-uv run python pipeline.py --stage collect
-uv run python pipeline.py --stage collect-rob # Cochrane RoB only (+ fetch abstracts)
-uv run python pipeline.py --stage seed       # enrich RW reasons + fetch abstracts + clean notices
+uv run python -m biasbuster.pipeline --stage collect
+uv run python -m biasbuster.pipeline --stage collect-rob # Cochrane RoB only (+ fetch abstracts)
+uv run python -m biasbuster.pipeline --stage seed       # enrich RW reasons + fetch abstracts + clean notices
 uv run python seed_database.py               # standalone (same as --stage seed)
 uv run python seed_database.py --step enrich-rw   # just retraction reasons from RW CSV
 uv run python seed_database.py --step fetch-abs   # just missing abstracts from PubMed
 uv run python seed_database.py --step clean       # just retraction notice cleanup
-uv run python pipeline.py --stage enrich
-uv run python pipeline.py --stage annotate
-uv run python pipeline.py --stage annotate --models anthropic,deepseek  # multi-model
-uv run python pipeline.py --stage export                                # export all models
-uv run python pipeline.py --stage export --models anthropic             # export single model
-uv run python pipeline.py --stage compare   # compare models vs human labels
+uv run python -m biasbuster.pipeline --stage enrich
+uv run python -m biasbuster.pipeline --stage annotate
+uv run python -m biasbuster.pipeline --stage annotate --models anthropic,deepseek  # multi-model
+uv run python -m biasbuster.pipeline --stage export                                # export all models
+uv run python -m biasbuster.pipeline --stage export --models anthropic             # export single model
+uv run python -m biasbuster.pipeline --stage compare   # compare models vs human labels
 
 # Reset annotations for abstract-undetectable retracted papers (fabrication, fraud, etc.)
 # These need re-annotation without retraction context so LLM rates abstract on its merits
-uv run python pipeline.py --reset-undetectable-annotations --dry-run  # preview only
-uv run python pipeline.py --reset-undetectable-annotations              # interactive confirm
-uv run python pipeline.py --stage annotate --models anthropic,deepseek  # re-annotate both
-uv run python pipeline.py --stage compare                               # inter-model agreement
-uv run python pipeline.py --stage export --models anthropic             # training data from anthropic
+uv run python -m biasbuster.pipeline --reset-undetectable-annotations --dry-run  # preview only
+uv run python -m biasbuster.pipeline --reset-undetectable-annotations              # interactive confirm
 
 # Single-paper import & annotation (ad-hoc additions to the dataset)
 uv run python annotate_single_paper.py --pmid 41271640                 # by PMID (deepseek default)
@@ -90,11 +94,15 @@ uv run python annotate_single_paper.py --pmid 41271640 --model anthropic
 uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001
 uv run python annotate_single_paper.py --doi 10.1016/j.example.2024.01.001 --source cochrane_rob
 uv run python annotate_single_paper.py --pmid 41271640 --force         # re-annotate existing
+uv run python annotate_single_paper.py --pmid 41271640 --decomposed    # V5A decomposed methodology
+
+# Cochrane-agreement report for V5A annotations
+uv run python scripts/compare_vs_cochrane.py --models anthropic_fulltext_decomposed
 
 # Individual module demos (each has __main__ block)
-uv run python -m collectors.spin_detector
-uv run python -m enrichers.effect_size_auditor
-uv run python -m enrichers.funding_checker
+uv run python -m biasbuster.collectors.spin_detector
+uv run python -m biasbuster.enrichers.effect_size_auditor
+uv run python -m biasbuster.enrichers.funding_checker
 
 # Training (inside NGC Docker on DGX Spark)
 ./run_training.sh qwen3.5-27b              # full training run
@@ -115,7 +123,7 @@ bash training/export_to_ollama.sh training_output/gpt-oss-20b-merged gpt-oss-20b
 ./train_and_evaluate.sh qwen3.5-27b --baseline qwen3.5:27b   # explicit baseline model
 
 # Training monitor (run on host while training runs in Docker)
-uv run python -m utils.training_monitor --metrics-dir training_output/qwen3.5-27b-lora
+uv run python -m biasbuster.utils.training_monitor --metrics-dir training_output/qwen3.5-27b-lora
 
 # MLX Training (on Apple Silicon Macs — no Docker)
 uv sync --group mlx                                    # install MLX dependencies
@@ -130,36 +138,57 @@ uv sync --group mlx                                    # install MLX dependencie
 ./run_merge_mlx.sh qwen3.5-27b-4bit --quantize Q4_K_M  # with GGUF quantization
 
 # Fine-Tuning Workbench GUI (all-in-one: settings → train → evaluate → export)
-uv run python -m gui
-uv run python -m gui --port 9090
+uv run python -m biasbuster.gui
+uv run python -m biasbuster.gui --port 9090
 
 # Add a new dependency
 uv add <package>
 ```
 
-There is no formal test suite — modules have `if __name__ == "__main__":` demo blocks that serve as smoke tests.
+Tests live in `tests/` (pytest + pytest-asyncio via the `dev` group): `uv run pytest`. Many modules additionally have `if __name__ == "__main__":` demo blocks that serve as smoke tests.
 
 ## Architecture
 
-### Repository layout (READ FIRST — the module paths below are relative to `biasbuster/`)
+### Repository layout
 
-All package code lives under the **`biasbuster/`** package: `biasbuster/collectors/`,
-`biasbuster/annotators/`, `biasbuster/enrichers/`, `biasbuster/schemas/`,
-`biasbuster/evaluation/`, `biasbuster/training/`, `biasbuster/utils/`, `biasbuster/gui/`,
-`biasbuster/methodologies/`, `biasbuster/cli/`, plus `biasbuster/database.py`,
-`biasbuster/pipeline.py`, `biasbuster/prompts.py`. **There is no
-flat top-level `collectors/`, `annotators/`, `database.py`, or `pipeline.py`** — earlier
-revisions of this file described such a layout and it no longer exists. Throughout the
-"Module Pattern" and "Key Design Decisions" sections below, a bare path like `collectors/`
-or `pipeline.py` means `biasbuster/collectors/` or `biasbuster/pipeline.py`.
+The repo is organised around the three objectives from the Project Overview.
+Throughout the "Module Pattern" and "Key Design Decisions" sections below, a bare
+path like `collectors/` or `pipeline.py` means `biasbuster/collectors/` or
+`biasbuster/pipeline.py`.
 
-Repo-root `.py` files are thin scripts/tools that import from the package:
-`annotate_single_paper.py`, `seed_database.py`, `export.py`, `compare_vs_cochrane.py`,
-`migrate_jsonl_to_sqlite.py`, `backfill_cochrane_domains.py`, `main.py`, and various
-one-off analysis scripts. Both `config.example.py` and the real `config.py` (gitignored)
-live at the **repo root** — `biasbuster/pipeline.py` imports it as a top-level module
-(`from config import Config`), so it must be on `sys.path` at the root. The `studies/` and
-`scripts/` trees sit at the repo root and import from the `biasbuster` package.
+**The `biasbuster/` package** (all importable code):
+- Objective 1 (dataset + fine-tuning): `collectors/`, `enrichers/`, `annotators/`,
+  `pipeline.py`, `training/`, `gui/`, `crowd/`
+- Objective 2 (per-paper RoB harness): `cli/`, `agent/`, `assessment/`,
+  `methodologies/`, `assessment_decomposed.py`, `assessment_agent*.py`
+- Objective 3 (evaluation): `evaluation/`
+- Shared core: `database.py`, `schemas/`, `utils/`, and the prompt modules
+  `prompts.py` / `prompts_v3.py` / `prompts_v4.py` / `prompts_v5a.py`
+
+**Repo root** holds only entry points and modules imported top-level:
+`main.py`, `annotate_single_paper.py`, `seed_database.py`, `export.py`
+(imported by `biasbuster/agent/model_client.py` and
+`biasbuster/evaluation/harness.py` — do not move it), the training
+orchestrator shell scripts (`run_training*.sh`, `run_merge*.sh`,
+`lora2ollama.sh`, `train_and_evaluate.sh` — invoked by path from the GUI), and
+`biasbuster_next_session.md` (the active Eisele-Metzger study runbook). Both
+`config.example.py` and the real `config.py` (gitignored) live at the repo
+root — `biasbuster/pipeline.py` imports it as a top-level module
+(`from config import Config`).
+
+**Other top-level directories:**
+- `scripts/` — occasional-use tools (data backfills, batch runners, study
+  helpers); run from the repo root as `uv run python scripts/<name>.py`
+- `studies/` — study code (currently `eisele_metzger_replication/`, active);
+  imports from the `biasbuster` package
+- `tests/` — pytest suite; `schemas/` — JSON Schemas for annotation validation
+- `docs/pipeline/`, `docs/harness/`, `docs/papers/` + `docs/literature/` —
+  current docs per objective; `docs/manual/` — the user manual;
+  `docs/history/` — postmortems and superseded designs (do not update
+  commands inside; they are period records)
+- `attic/` — retired code awaiting manual review (see `attic/README.md`);
+  nothing may import from here
+- `dataset/`, `export/`, `training_output/`, `eval_results/` — data artifacts
 
 **Two entry surfaces:**
 - **`biasbuster` CLI** (console script → `biasbuster.cli.main:main`): the per-paper
@@ -167,8 +196,7 @@ live at the **repo root** — `biasbuster/pipeline.py` imports it as a top-level
   decomposed methodology; see README). This is the current recommended analysis path.
 - **Dataset-builder pipeline** (`biasbuster/pipeline.py`, async, `--stage`): the multi-stage
   dataset-construction workflow described below. Invoke as `uv run python -m biasbuster.pipeline
-  --stage <name>` or via `main.py`. (The old `uv run python pipeline.py …` invocations no
-  longer resolve — there is no root `pipeline.py`.)
+  --stage <name>` or via `main.py`.
 
 ### Pipeline Stages
 
@@ -194,7 +222,7 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
 ### Module Pattern
 
 - **Collectors** (`collectors/`): Async classes using `httpx.AsyncClient` with rate limiting. Each fetches from a specific source (Crossref, PubMed, ClinicalTrials.gov, Europe PMC). Return typed dataclasses. PubMed XML parsing functions (`parse_pubmed_xml`, `parse_pubmed_xml_batch`) are standalone module-level functions in `retraction_watch.py`. `cochrane_rob.py` exports `rob_assessment_to_paper_dict()` (shared pure function) and `collect_rob_dataset()` supports `skip_pmids`/`skip_pmcids` for efficient re-runs. Full-text documents exceeding `MAX_FULLTEXT_BYTES` (2.4 MB) are skipped to avoid wasting LLM tokens on non-review content (e.g. entire books indexed in PMC).
-- **Enrichers** (`enrichers/`): Mostly synchronous regex/heuristic processors. `effect_size_auditor` scores reporting bias 0-1. `funding_checker` classifies funding sources. `author_coi` is async (queries ORCID, Europe PMC, CMS Open Payments). `retraction_classifier` classifies retraction reasons, assigns severity floors, and determines abstract detectability — whether the retraction reason could produce visible bias signals in the abstract text (see `docs/ANNOTATED_DATA_SET.md`).
+- **Enrichers** (`enrichers/`): Mostly synchronous regex/heuristic processors. `effect_size_auditor` scores reporting bias 0-1. `funding_checker` classifies funding sources. `author_coi` is async (queries ORCID, Europe PMC, CMS Open Payments). `retraction_classifier` classifies retraction reasons, assigns severity floors, and determines abstract detectability — whether the retraction reason could produce visible bias signals in the abstract text (see `docs/pipeline/ANNOTATED_DATA_SET.md`).
 - **Annotators** (`annotators/`): Two backends sharing prompt, user-message construction, and output utilities via `annotators/__init__.py`:
   - `LLMAnnotator` (`llm_prelabel.py`) — Anthropic Claude via the `anthropic` async SDK
   - `OpenAICompatAnnotator` (`openai_compat.py`) — any OpenAI-compatible API (DeepSeek, vLLM, SGLang, etc.) via `httpx`
@@ -207,9 +235,9 @@ Human review (using the NiceGUI web tool) is a manual step between Annotate and 
   - **PyTorch/TRL** (DGX Spark): `train_lora.py` using TRL's `SFTTrainer`, `configs.py` for hyperparameters (with `_MOE_OVERRIDES` for GPT-OSS: MXFP4 dequantize, eager attn, conservative LR), `callbacks.py` for metrics, `merge_adapter.py` for adapter fusion.
   - **MLX** (Apple Silicon): `train_lora_mlx.py` using `mlx_lm.tuner`, `configs_mlx.py` for MLX-specific presets (Qwen 9B/27B in 4-bit/8-bit, GPT-OSS-20B in 4-bit/8-bit MoE), `callbacks_mlx.py` bridging to the same `metrics.jsonl` format, `merge_adapter_mlx.py` for adapter fusion via `mlx_lm.fuse`.
   - Shared: `data_utils.py` handles alpaca JSONL loading, chat template formatting, and alpaca→chat format conversion for MLX-lm.
-- **Training Monitor** (`utils/training_monitor.py`): NiceGUI web dashboard that reads `metrics.jsonl` and displays live loss curves, learning rate schedule, GPU memory, gradient norms, and hyperparameters. Run with `uv run python -m utils.training_monitor`.
+- **Training Monitor** (`utils/training_monitor.py`): NiceGUI web dashboard that reads `metrics.jsonl` and displays live loss curves, learning rate schedule, GPU memory, gradient norms, and hyperparameters. Run with `uv run python -m biasbuster.utils.training_monitor`.
 - **Single-Paper Tool** (`annotate_single_paper.py`): CLI for ad-hoc dataset additions. Accepts `--pmid` or `--doi` (mutually exclusive), resolves DOI→PMID via NCBI, fetches from PubMed if absent, enriches, validates (rejects bare retraction notices and missing abstracts), and annotates with the chosen `--model` backend (default: deepseek). `--force` deletes existing annotation before re-running. `--source` tags newly imported papers (default: `manual_import`). Reuses `pipeline.create_annotator()` for annotator instantiation and `Database.has_annotation()`/`delete_annotation()` for idempotent re-annotation.
-- **Fine-Tuning Workbench** (`gui/`): NiceGUI 4-tab GUI (`uv run python -m gui`) wrapping the entire fine-tuning workflow. `state.py` handles platform detection and settings persistence (`~/.biasbuster/gui_settings.json`). `process_runner.py` provides an async subprocess wrapper. Tab modules (`settings_tab.py`, `training_tab.py`, `evaluation_tab.py`, `export_tab.py`) each build their UI and launch operations as subprocesses. The training tab reuses `MetricsReader` from `utils/training_monitor.py` for live chart updates. Both training scripts (`train_lora.py`, `train_lora_mlx.py`) accept optional `--lr`, `--epochs`, `--lora-rank`, `--batch-size`, `--grad-accum`, `--max-seq-len` CLI args for GUI-driven hyperparameter overrides.
+- **Fine-Tuning Workbench** (`gui/`): NiceGUI 4-tab GUI (`uv run python -m biasbuster.gui`) wrapping the entire fine-tuning workflow. `state.py` handles platform detection and settings persistence (`~/.biasbuster/gui_settings.json`). `process_runner.py` provides an async subprocess wrapper. Tab modules (`settings_tab.py`, `training_tab.py`, `evaluation_tab.py`, `export_tab.py`) each build their UI and launch operations as subprocesses. The training tab reuses `MetricsReader` from `utils/training_monitor.py` for live chart updates. Both training scripts (`train_lora.py`, `train_lora_mlx.py`) accept optional `--lr`, `--epochs`, `--lora-rank`, `--batch-size`, `--grad-accum`, `--max-seq-len` CLI args for GUI-driven hyperparameter overrides.
 - **Train & Evaluate Orchestrator** (`train_and_evaluate.sh`): End-to-end bash script that chains LoRA training → adapter merge → Ollama export → evaluation in a single command. Auto-versions each run by querying the SQLite database for existing `{model}-biasbusterV{n}` entries and incrementing the version number. Accepts both preset keys (`gpt-oss-20b`) and Ollama names (`gpt-oss:20b`). Supports `--datadir` for custom training data and passes extra args (e.g. `--max-steps 5`) through to `train_lora.py`. Evaluation runs the fine-tuned model against the unmodified baseline via Ollama with `--sequential` mode (single GPU). Versioned output directories: `training_output/{model}-lora-V{n}/`, `training_output/{model}-merged-V{n}/`, `eval_results/{model}-biasbusterV{n}/`.
 
 ### Data Flow
@@ -224,7 +252,7 @@ Export stage reads from the DB and writes training files:
 DB → export/{alpaca,sharegpt}/{train,val,test}.jsonl
 ```
 
-Legacy JSONL data can be imported with `migrate_jsonl_to_sqlite.py` (idempotent, uses INSERT OR IGNORE).
+(Legacy JSONL→SQLite migration is complete; the one-off migration script is retired in `attic/scripts/`.)
 
 Training pipeline reads exported JSONL and writes to its own directory:
 ```
@@ -242,7 +270,7 @@ export/alpaca/{train,val,test}.jsonl → training/ → training_output/<model>-l
 - **Boutron spin classification**: Spin detection uses the established Boutron taxonomy (none/low/moderate/high).
 - **Config is a dataclass** (`config.py`): Contains all API endpoints, collection limits, MeSH focus domains, and `db_path`. `config.py` is gitignored — copy `config.example.py` to get started.
 - **SQLite as single source of truth**: `database.py` provides the `Database` class with schema-enforced PMID uniqueness, atomic upserts, WAL mode for concurrent reads, and foreign key constraints. All pipeline stages read/write via `Database` methods instead of file I/O.
-- **Single source of truth for prompts**: `prompts.py` contains all severity boundary definitions, domain criteria, and verification database recommendations. Both `ANNOTATION_SYSTEM_PROMPT` (used by annotators) and `TRAINING_SYSTEM_PROMPT` (used by export) share identical severity boundaries. `annotators/llm_prelabel.py` and `export.py` both import from `prompts.py`. See `docs/MISTAKES_ROUND_1_AND_FIXES.md` for why this unification matters.
+- **Single source of truth for prompts**: `prompts.py` contains all severity boundary definitions, domain criteria, and verification database recommendations. Both `ANNOTATION_SYSTEM_PROMPT` (used by annotators) and `TRAINING_SYSTEM_PROMPT` (used by export) share identical severity boundaries. `annotators/llm_prelabel.py` and `export.py` both import from `prompts.py`. See `docs/history/MISTAKES_ROUND_1_AND_FIXES.md` for why this unification matters.
 - **Shared annotator utilities**: `annotators/__init__.py` contains `build_user_message()`, `_ensure_parsed()`, `is_retraction_notice()`, `parse_llm_json()`, and `strip_markdown_fences()` — shared across all backends to eliminate duplication and ensure consistent behaviour.
 - **Shared Cochrane persistence**: `collectors/cochrane_rob.py` exports `rob_assessment_to_paper_dict()` (pure function for `RoBAssessment` → paper dict conversion) used by all Cochrane save paths. `database.py` provides `upsert_cochrane_paper()` with `INSERT ON CONFLICT DO UPDATE` that always updates Cochrane-authoritative fields (domain ratings, review metadata) while preserving PubMed-fetched data (title, abstract) via CASE/COALESCE guards. Empty strings cannot blank existing review metadata.
 - **Incremental annotation persistence**: `annotate_batch()` accepts an `on_result` callback; the pipeline passes a function that calls `db.insert_annotation()` per result, so annotations survive mid-batch crashes.
