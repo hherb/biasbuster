@@ -24,10 +24,16 @@ You are continuing the **Eisele-Metzger 2025 RoB 2 replication study**. Read the
 ## ⚠️ KNOWN BUGS — found in 2026-07-16 code review (READ BEFORE FINALIZING MANUSCRIPT)
 
 A logical/flow-and-bug review on 2026-07-16 (four parallel reviewers + spot-verification)
-found the following. Nothing here is fixed yet — the review was scoped to *find*, not fix.
-The first two are **paper-critical**: they affect the headline κ numbers and the pre-registered
-"model-emitted vs algorithm-derived" distinction the whole study rests on. Address these before
-posting either preprint.
+found the following. **STATUS: all 16 findings below are now FIXED (2026-07-16), plus one
+follow-up bug (B0) found while fixing #7's file.** The list is kept as a record of what was
+found and why; see the "Open todo list" checkboxes for the per-item fix summary. The first two
+were **paper-critical**: they affect the headline κ numbers and the pre-registered
+"model-emitted vs algorithm-derived" distinction the whole study rests on.
+
+> **B0 (regression found during this fix pass):** the Bug-2 refactor of `compute_phase6_kappa.py`
+> left `write_markdown_report` referencing `exclude_fallback`/`results_md`, which are not in its
+> scope — so the κ-report generator raised `NameError` on *every* run, including the default
+> inclusive mode. Fixed by threading those through. Regenerating the κ tables now works.
 
 ### Paper-critical (evaluation / statistics)
 
@@ -135,33 +141,32 @@ posting either preprint.
     `annotators/`, `database.py`, `pipeline.py`) that no longer exists — all code is under the
     `biasbuster/` package now. This actively misdirects (it cost this review a detour). Worth a refresh.
 
-### Manuscript regeneration gate — do NOT gate on fixing all 15 issues
+### Manuscript regeneration gate
 
-We deliberately do **not** need every issue fixed before regenerating the κ tables. Most of the
-open findings do not touch the Eisele-Metzger study numbers at all:
+All 16 review findings (issues [#7–#19](https://github.com/hherb/biasbuster/issues), which cover
+findings 3–15) plus B0 are now fixed in code. What still gates the manuscript is **regenerating
+the κ tables against the data**, which needs a live DB run the user performs:
 
-- **Flow into the reported κ tables:** the two already-fixed bugs (1, 2), plus
-  **#7** (ensemble-overall is a direct majority vote but the report text says "worst-wins" — that
-  is a *reported figure*, so fix it before regenerating). **#8** (parse-failure halt) matters only
-  if you *re-run* evaluation; the existing gpt-oss/Sonnet runs stand as-is.
-- **Independent of the study numbers** (fix on their own timeline, not blocking the paper):
-  #9/#10/#11 are the production `assessor.py` RoB path — the study uses `eval_ollama` +
-  `algorithms.py`, not that path. #12 is training-data export. #13/#14 are the dataset-builder
-  collectors. #16–#19 are low-severity util/scaling issues.
+- **Flow into the reported κ tables:** Bugs 1, 2, B0, and #7 (ensemble worst-wins) all landed —
+  the reported figures change, so the tables must be regenerated. Bug #8 (parse-failure halt) only
+  affects *future* re-runs; the existing gpt-oss/Sonnet runs stand as-is.
+- **Independent of the study numbers:** #9/#10 are the production `assessor.py` RoB path (the study
+  uses `eval_ollama` + `algorithms.py`, not that path); #12 is training-data export; #13/#14 are
+  the dataset-builder collectors; #16–#19 are util/scaling fixes. None change the EM κ figures.
 
-**Regeneration sequence (the actual gate):**
+**Regeneration sequence (the actual gate — run against the live DB):**
 
 1. `uv run python studies/eisele_metzger_replication/retro_tag_live_fallback.py --dry-run`
    then `--apply` against the canonical DB (and any merged shard) — back-tags rows written by the
    *old* untagged live path before the Bug-1 fix. Without this, gemma/qwen rows already written by
    the old path stay mislabeled as model-emitted even though the code is now fixed.
-2. Fix **#7** so the ensemble-overall number matches its description.
-3. Regenerate in **both** modes and report the strict (pre-registered primary) numbers:
+2. Regenerate in **both** modes and report the strict (pre-registered primary) numbers
+   (the ensemble-overall figure now reflects worst-wins, per the #7 fix):
    ```bash
    uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py                     # inclusive
    uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --exclude-fallback  # strict → *.strict.{md,csv}
    ```
-4. Update both preprint drafts' §3 tables + abstract with the strict primary κ (and note the
+3. Update both preprint drafts' §3 tables + abstract with the strict primary κ (and note the
    inclusive numbers as a sensitivity analysis).
 
 ### Housekeeping note (unrelated to this work)
@@ -395,29 +400,48 @@ SQL
 - [x] **DOC — FIXED (2026-07-16):** CLAUDE.md now has a "Repository layout" note (code is under
       `biasbuster/`; `config.py` stays at repo root; correct `python -m biasbuster.pipeline`
       invocation).
-- [ ] BUG 3 ([#7](https://github.com/hherb/biasbuster/issues/7)): reconcile ensemble-overall
-      computation (majority vote) with the report text (worst-wins)
-- [ ] BUG 4 ([#8](https://github.com/hherb/biasbuster/issues/8)): make the §8 parse-failure halt
-      actually stop subsequent passes
-- [ ] BUG 5 ([#9](https://github.com/hherb/biasbuster/issues/9)): call `derive_domain_judgement`
-      instead of hardcoding `some_concerns` in `assessor.py`
-- [ ] BUG 6 ([#10](https://github.com/hherb/biasbuster/issues/10)): implement
-      `domain_judgement_is_consistent` / resolve the `algorithm.py` vs `algorithms.py` trap
-- [ ] BUG 7 ([#11](https://github.com/hherb/biasbuster/issues/11)): verify intent + NULLIF guard on
-      `upsert_cochrane_paper` domain fields
-- [ ] BUG 8 ([#12](https://github.com/hherb/biasbuster/issues/12)): group-by-PMID before
-      `_stratified_split` to stop multi-model train/test leakage
-- [ ] BUG 9 ([#13](https://github.com/hherb/biasbuster/issues/13)): retraction-paper drop with
-      `require_abstract=False`
-- [ ] BUG 10 ([#14](https://github.com/hherb/biasbuster/issues/14)): `is_retraction_notice`
-      long-notice gap
-- [ ] BUG 11 ([#15](https://github.com/hherb/biasbuster/issues/15)): cochrane `[5]`-citation JSON pick
-- [ ] BUG 12 ([#16](https://github.com/hherb/biasbuster/issues/16)): empty-DB div-by-zero in
-      `seed_database.py`
-- [ ] BUG 13 ([#17](https://github.com/hherb/biasbuster/issues/17)): `merge_eval_dbs` collision
-      warning
-- [ ] BUG 14 ([#18](https://github.com/hherb/biasbuster/issues/18)): dead/misaligned `mcnemar_test`
-- [ ] BUG 15 ([#19](https://github.com/hherb/biasbuster/issues/19)): unbatched `IN` parameter limit
+- [x] **BUG 3 — FIXED (2026-07-16)** ([#7](https://github.com/hherb/biasbuster/issues/7)):
+      ensemble-overall is now the RoB 2 worst-wins of the majority-voted d1–d5 (not a direct
+      majority vote of the passes' overall labels); Section 3 text updated to match.
+- [x] **BUG 4 — FIXED (2026-07-16)** ([#8](https://github.com/hherb/biasbuster/issues/8)):
+      `run_one_pass` sets `counts["halted"]`; `main` aborts the whole run (exit 1) on halt so
+      later passes no longer run at the broken failure rate.
+- [x] **BUG 5 — FIXED (2026-07-16)** ([#9](https://github.com/hherb/biasbuster/issues/9)):
+      `assessor.py` now derives the judgement via `algorithms.derive_domain_judgement` when the
+      LLM omits it (falls back to `some_concerns` only for an unrecognised domain).
+- [x] **BUG 6 — FIXED (2026-07-16)** ([#10](https://github.com/hherb/biasbuster/issues/10)):
+      `domain_judgement_is_consistent` now checks the emitted judgement against the truth table;
+      `algorithm.py` docstring corrected (no more `aggregate_domain`); both `algorithm.py` and
+      `algorithms.py` carry a cross-reference note; assessor logs any inconsistency.
+- [x] **BUG 7 — FIXED (2026-07-16)** ([#11](https://github.com/hherb/biasbuster/issues/11)):
+      `upsert_cochrane_paper` domain ratings + `overall_rob` now use `COALESCE(NULLIF(...))` so an
+      empty/NULL re-run can't blank a stored expert rating.
+- [x] **BUG 8 — FIXED (2026-07-16)** ([#12](https://github.com/hherb/biasbuster/issues/12)):
+      `_stratified_split` groups by PMID so multi-model annotations of one abstract never straddle
+      train/val/test.
+- [x] **BUG 9 — FIXED (2026-07-16)** ([#13](https://github.com/hherb/biasbuster/issues/13)):
+      `retraction_watch._fetch_and_merge_abstracts` keeps papers with no PMID / no PubMed hit when
+      `require_abstract=False`.
+- [x] **BUG 10 — FIXED (2026-07-16)** ([#14](https://github.com/hherb/biasbuster/issues/14)):
+      `is_retraction_notice` now flags a long abstract that opens with retraction language even
+      under an ordinary-looking title.
+- [x] **BUG 11 — FIXED (2026-07-16)** ([#15](https://github.com/hherb/biasbuster/issues/15)):
+      Cochrane studies-array recovery uses a balanced-bracket scan that ignores `[5]` citations and
+      nested arrays.
+- [x] **BUG 12 — FIXED (2026-07-16)** ([#16](https://github.com/hherb/biasbuster/issues/16)):
+      `seed_database.print_summary` guards the empty-table divide-by-zero.
+- [x] **BUG 13 — FIXED (2026-07-16)** ([#17](https://github.com/hherb/biasbuster/issues/17)):
+      `merge_eval_dbs` warns on rows present in both dest and shard with differing data.
+- [x] **BUG 14 — FIXED (2026-07-16)** ([#18](https://github.com/hherb/biasbuster/issues/18)):
+      `mcnemar_test` now aligns by `rct_id` key (not row order); module docstring corrected to note
+      it is a helper, not an emitted report section.
+- [x] **BUG 15 — FIXED (2026-07-16)** ([#19](https://github.com/hherb/biasbuster/issues/19)):
+      `delete_annotations_for_pmids` / new `count_annotations_for_pmids` chunk the `IN` clause under
+      SQLite's parameter limit; `pipeline.py` uses the batched count.
+- [x] **BUG B0 — FIXED (2026-07-16):** `compute_phase6_kappa.write_markdown_report` crashed with
+      `NameError` (unbound `exclude_fallback`/`results_md`) on every run, including default inclusive
+      mode — the Bug-2 refactor left the call site stale. Now threaded through; the report generator
+      runs again.
 
 **Original study carry-forward:**
 - [ ] Wait for gemma4 and qwen3.6 evaluations to complete on respective hosts

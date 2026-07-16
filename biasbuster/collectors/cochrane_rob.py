@@ -34,6 +34,67 @@ from biasbuster.utils.retry import fetch_with_retry
 logger = logging.getLogger(__name__)
 
 
+def _balanced_array_spans(text: str) -> list[str]:
+    """Return every balanced ``[...]`` substring, string/escape aware.
+
+    Scans left to right; each ``[`` outside a JSON string literal is matched
+    to its corresponding ``]`` (nested arrays produce their own entries too).
+    Used to recover the studies array from mixed reasoning+JSON model output
+    without a non-greedy regex, which both breaks on nested arrays and — when
+    searched in reverse — can latch onto a trailing ``[5]`` citation.
+    """
+    spans: list[str] = []
+    stack: list[int] = []
+    in_str = False
+    escape = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "[":
+            stack.append(i)
+        elif ch == "]" and stack:
+            start = stack.pop()
+            spans.append(text[start : i + 1])
+    return spans
+
+
+def _recover_studies_array(text: str) -> str | None:
+    """Pick the studies array out of mixed reasoning+JSON output.
+
+    Returns the JSON substring of the best array candidate, or None if none
+    qualifies. The studies array is a list of objects, so among all balanced
+    array substrings that parse as JSON lists we keep only those that are
+    empty (a legitimately empty studies list) or contain at least one object,
+    and return the one with the most elements. A non-empty array of non-objects
+    (e.g. a trailing ``[5]`` citation) never qualifies.
+    """
+    best: str | None = None
+    best_score: tuple[int, int] = (-1, -1)
+    for span in _balanced_array_spans(text):
+        try:
+            parsed = json.loads(span)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed, list):
+            continue
+        has_obj = any(isinstance(e, dict) for e in parsed)
+        if parsed and not has_obj:
+            continue  # e.g. a "[5]" citation — not the studies array
+        score = (1 if has_obj else 0, len(parsed))
+        if score > best_score:
+            best_score = score
+            best = span
+    return best
+
+
 @dataclass
 class RoBAssessment:
     """Risk of Bias assessment for a single study from a Cochrane review."""
@@ -771,18 +832,13 @@ Respond ONLY with the JSON array. No preamble, no markdown fences."""
                     text_out = text_out[:-3]
                 text_out = text_out.strip()
 
-                # If text contains mixed reasoning + JSON, extract the JSON array.
-                # Search from the end — the JSON array is typically the last
-                # bracket-enclosed block after any reasoning text.
+                # If text contains mixed reasoning + JSON, recover the studies
+                # array (a list of objects) — not a trailing "[5]" citation or
+                # a nested inner array.
                 if not text_out.startswith("["):
-                    for array_match in reversed(list(re.finditer(r'\[[\s\S]*?\]', text_out))):
-                        candidate = array_match.group(0)
-                        try:
-                            json.loads(candidate)
-                            text_out = candidate
-                            break
-                        except json.JSONDecodeError:
-                            continue
+                    recovered = _recover_studies_array(text_out)
+                    if recovered is not None:
+                        text_out = recovered
 
                 studies = json.loads(text_out)
                 if not isinstance(studies, list):

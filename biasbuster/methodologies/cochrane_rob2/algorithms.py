@@ -1,5 +1,12 @@
 """Per-domain RoB 2 decision algorithms (Cochrane Handbook chapter 8).
 
+NOTE — two similarly named modules, do not confuse them:
+  * ``algorithms.py`` (this file, plural) — the **per-domain decision
+    rules**: map one domain's signalling answers to its judgement.
+  * ``algorithm.py`` (singular) — the **rollup** direction: reduce the
+    five domain judgements to an outcome/paper overall (worst-wins) and
+    verify domain judgements against these rules.
+
 Each function takes a dict of signalling-question answers
 (``Y`` / ``PY`` / ``PN`` / ``N`` / ``NI``) and returns one of
 ``low`` | ``some_concerns`` | ``high``. These rules are the same as those

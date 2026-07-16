@@ -10,8 +10,11 @@ Single coherent results table combining:
    Cochrane. This is a deterministic transformation, not an extra
    model run; it directly addresses the run-to-run-instability
    finding from the gpt-oss audit.
-4. McNemar's test, each (model × protocol × pass) vs EM Claude 2 pass 1,
-   on per-RCT correctness collapsed to match-Cochrane / not-match.
+A ``mcnemar_test`` helper (per-RCT correctness collapsed to
+match-Cochrane / not-match) is provided for pairwise significance testing,
+but is not emitted in the report: EM Claude 2's per-RCT labels are not in
+the DB (only its published aggregate κ ≈ 0.22 is), so there is nothing to
+pair against here.
 
 Designed to run on partial data: any model with no rows in
 benchmark_judgment is silently skipped. The manuscript table fills in
@@ -52,6 +55,13 @@ RESULTS_CSV = STUDY_DIR / "phase6_results.csv"
 FOREST_CSV = STUDY_DIR / "phase6_forest_data.csv"
 
 DOMAINS = ("d1", "d2", "d3", "d4", "d5", "overall")
+SIGNALLING_DOMAINS = ("d1", "d2", "d3", "d4", "d5")
+
+# RoB 2 three-level severity ordering. `overall` is the worst domain
+# ("high" if any domain is high, "low" only if all are low, else
+# "some_concerns") — the same worst-wins rule the per-paper algorithm uses.
+SEVERITY_RANK = {"low": 0, "some_concerns": 1, "high": 2}
+_RANK_TO_LABEL = {v: k for k, v in SEVERITY_RANK.items()}
 
 # Models we expect; rows missing from the DB are silently skipped.
 MODEL_LABELS = {
@@ -136,27 +146,33 @@ def source_exists(conn: sqlite3.Connection, source: str) -> bool:
 
 def ensemble_majority_vote(conn: sqlite3.Connection, model: str,
                             protocol: str) -> dict[str, dict[str, str]]:
-    """Per-RCT × per-domain majority-vote across the 3 passes.
+    """Per-RCT ensemble judgments across the 3 passes.
 
-    Returns {rct_id: {domain: judgment}}. Only RCTs with at least 2
-    matching passes on a given domain get a winning judgment for that
-    domain; ties (3 distinct labels across 3 passes) are dropped.
+    Returns {rct_id: {domain: judgment}}. The five signalling domains
+    (d1–d5) are set by strict majority vote across the passes (≥2 of the
+    available passes agree; ties or <2 passes are dropped). The ``overall``
+    judgment is then derived from those ensemble domains by the RoB 2
+    worst-wins rule — NOT a direct majority vote of the passes' own overall
+    labels — so the reported ensemble ``overall`` is consistent with the
+    reported ensemble d1–d5. ``overall`` is only emitted when all five
+    signalling domains have a majority winner for that RCT.
     """
     pass_judgments = {
         p: {
             d: load_judgments(conn, f"{model}_{protocol}_pass{p}", d)
-            for d in DOMAINS
+            for d in SIGNALLING_DOMAINS
         }
         for p in PASSES
     }
-    out: dict[str, dict[str, str]] = defaultdict(dict)
+    out: dict[str, dict[str, str]] = {}
     # Find RCTs that have at least one judgment in any pass × any domain.
     rct_ids: set[str] = set()
     for p in PASSES:
-        for d in DOMAINS:
+        for d in SIGNALLING_DOMAINS:
             rct_ids.update(pass_judgments[p][d])
     for rct_id in rct_ids:
-        for d in DOMAINS:
+        ensemble_domains: dict[str, str] = {}
+        for d in SIGNALLING_DOMAINS:
             votes = [pass_judgments[p][d].get(rct_id) for p in PASSES]
             votes = [v for v in votes if v is not None]
             if len(votes) < 2:
@@ -165,8 +181,18 @@ def ensemble_majority_vote(conn: sqlite3.Connection, model: str,
             top, top_n = counter.most_common(1)[0]
             # Require strict majority (≥ 2 out of however many we got).
             if top_n >= 2:
-                out[rct_id][d] = top
-    return dict(out)
+                ensemble_domains[d] = top
+        if not ensemble_domains:
+            continue
+        # Overall = worst of the five ensemble domains (RoB 2 worst-wins),
+        # only when every signalling domain has an ensemble winner.
+        if all(d in ensemble_domains for d in SIGNALLING_DOMAINS):
+            worst_rank = max(
+                SEVERITY_RANK[ensemble_domains[d]] for d in SIGNALLING_DOMAINS
+            )
+            ensemble_domains["overall"] = _RANK_TO_LABEL[worst_rank]
+        out[rct_id] = ensemble_domains
+    return out
 
 
 def insert_ensemble_into_db(conn: sqlite3.Connection, model: str,
@@ -195,24 +221,29 @@ def insert_ensemble_into_db(conn: sqlite3.Connection, model: str,
 
 # --- McNemar's test ----------------------------------------------------
 
-def mcnemar_test(pairs_a: list[tuple[str, str]],
-                 pairs_b: list[tuple[str, str]]) -> tuple[int, int, float]:
+def mcnemar_test(preds_a: dict[str, tuple[str, str]],
+                 preds_b: dict[str, tuple[str, str]]) -> tuple[int, int, float]:
     """McNemar's test on per-RCT correctness collapsed to match/no-match.
 
-    pairs_a and pairs_b are lists of (cochrane, model) tuples for the
-    same RCTs in the same order. Returns (b_only, c_only, p_value)
-    where b_only = (a correct, b wrong), c_only = (a wrong, b correct).
-    Continuity-corrected chi-squared with df=1.
+    ``preds_a`` and ``preds_b`` map ``rct_id -> (cochrane, model)`` for the
+    two systems being compared. Alignment is by ``rct_id`` key — NOT by row
+    order — because the callers build these from independent SQLite queries
+    whose row order is unspecified; only RCTs present in both are used.
+    Returns (b_only, c_only, p_value) where b_only = (a correct, b wrong),
+    c_only = (a wrong, b correct). Continuity-corrected chi-squared, df=1.
 
-    Returns (0, 0, 1.0) if either input is empty or if the discordant
-    pairs sum to <25 (in which case McNemar's chi-squared is unreliable
-    and an exact binomial would be more appropriate; we surface the
-    raw counts so the reader can compute exact-test p-values).
+    Returns (0, 0, 1.0) if the shared set is empty, or (b_only, c_only, NaN)
+    if the discordant pairs sum to <25 (McNemar's chi-squared is unreliable
+    there and an exact binomial is more appropriate; we surface the raw
+    counts so the reader can compute exact-test p-values).
     """
-    if len(pairs_a) != len(pairs_b) or not pairs_a:
+    shared = preds_a.keys() & preds_b.keys()
+    if not shared:
         return (0, 0, 1.0)
     b_only = c_only = 0
-    for (coch_a, model_a), (coch_b, model_b) in zip(pairs_a, pairs_b):
+    for rct_id in shared:
+        coch_a, model_a = preds_a[rct_id]
+        coch_b, model_b = preds_b[rct_id]
         a_correct = (coch_a == model_a)
         b_correct = (coch_b == model_b)
         if a_correct and not b_correct:
@@ -433,7 +464,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
             w.writerow(r)
 
     # Markdown report
-    write_markdown_report(rows, forest_rows)
+    write_markdown_report(rows, forest_rows, results_md=results_md,
+                          exclude_fallback=exclude_fallback)
 
 
 def fmt(value, fmt_str=".3f"):
@@ -442,7 +474,9 @@ def fmt(value, fmt_str=".3f"):
     return format(value, fmt_str)
 
 
-def write_markdown_report(rows: list[dict], forest_rows: list[dict]) -> None:
+def write_markdown_report(rows: list[dict], forest_rows: list[dict], *,
+                          results_md: Path = RESULTS_MD,
+                          exclude_fallback: bool = False) -> None:
     lines: list[str] = []
     lines.append("# Phase 6 Cross-Model Comparison")
     lines.append("")
@@ -504,7 +538,9 @@ def write_markdown_report(rows: list[dict], forest_rows: list[dict]) -> None:
     if ensemble_rows:
         lines.append("## 3. Ensemble-of-3 majority vote vs Cochrane (overall judgment)")
         lines.append("")
-        lines.append("Per-domain majority vote across the three passes, then worst-wins synthesis.")
+        lines.append("Each signalling domain (d1–d5) is a strict majority vote across the three "
+                     "passes; `overall` is then the worst of those five ensemble domains (RoB 2 "
+                     "worst-wins), not a direct majority vote of the passes' overall labels.")
         lines.append("")
         lines.append("| Source | n | raw agr | κ_unw | κ_lin (95% CI) | κ_quad |")
         lines.append("|---|---:|---:|---:|---|---:|")

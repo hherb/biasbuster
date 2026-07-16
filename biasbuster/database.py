@@ -36,6 +36,20 @@ logger = logging.getLogger(__name__)
 # in by adding a schema file and an entry below.
 
 _PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+
+# Max host parameters we bind into a single statement. SQLite's default
+# SQLITE_MAX_VARIABLE_NUMBER is 999 on builds < 3.32 (32766 thereafter);
+# we chunk large ``pmid IN (...)`` lists below this so a big set can't blow
+# the limit. Headroom left for a couple of extra bound filter params.
+_MAX_SQL_PARAMS: int = 900
+
+
+def _chunked(seq: list, size: int = _MAX_SQL_PARAMS):
+    """Yield successive ``size``-length slices of ``seq``."""
+    for start in range(0, len(seq), size):
+        yield seq[start : start + size]
+
+
 _ANNOTATION_SCHEMA_PATHS: dict[str, Path] = {
     "cochrane_rob2": _PROJECT_ROOT / "schemas" / "rob2_annotation.schema.json",
     "quadas_2":      _PROJECT_ROOT / "schemas" / "quadas2_annotation.schema.json",
@@ -682,12 +696,13 @@ class Database:
         """Insert or update a Cochrane RoB paper, preserving expensive data.
 
         On conflict (paper already exists):
-        - **Always updates** (Cochrane-authoritative): RoB domain ratings,
-          overall_rob, cochrane review metadata, domain, doi.
+        - **Updates when the re-run carries a value** (Cochrane-authoritative):
+          RoB domain ratings, overall_rob, cochrane review metadata, domain,
+          doi. These use COALESCE(NULLIF(...)) so an empty/NULL value from a
+          later run cannot blank out a previously stored expert rating, but a
+          genuine new rating still overwrites the old one.
         - **Preserves if non-empty** (PubMed-authoritative): title,
           abstract, journal, year, authors, grants, mesh_terms, subjects.
-        - Review metadata uses COALESCE so an empty string from a re-run
-          cannot blank out a previously stored value.
 
         Use ``collectors.cochrane_rob.rob_assessment_to_paper_dict()`` to
         build the *paper* dict from a ``RoBAssessment`` dataclass.
@@ -710,13 +725,28 @@ class Database:
                     reporting_bias, domain)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(pmid) DO UPDATE SET
-                       -- Always update Cochrane-authoritative fields
-                       randomization_bias = excluded.randomization_bias,
-                       deviation_bias = excluded.deviation_bias,
-                       missing_outcome_bias = excluded.missing_outcome_bias,
-                       measurement_bias = excluded.measurement_bias,
-                       reporting_bias = excluded.reporting_bias,
-                       overall_rob = excluded.overall_rob,
+                       -- Cochrane domain ratings are authoritative when the
+                       -- re-run actually carries a value, but a later run that
+                       -- dropped a domain (empty/NULL extraction) must not blank
+                       -- a previously stored expert rating — hence NULLIF/COALESCE.
+                       randomization_bias = COALESCE(
+                           NULLIF(excluded.randomization_bias, ''),
+                           papers.randomization_bias),
+                       deviation_bias = COALESCE(
+                           NULLIF(excluded.deviation_bias, ''),
+                           papers.deviation_bias),
+                       missing_outcome_bias = COALESCE(
+                           NULLIF(excluded.missing_outcome_bias, ''),
+                           papers.missing_outcome_bias),
+                       measurement_bias = COALESCE(
+                           NULLIF(excluded.measurement_bias, ''),
+                           papers.measurement_bias),
+                       reporting_bias = COALESCE(
+                           NULLIF(excluded.reporting_bias, ''),
+                           papers.reporting_bias),
+                       overall_rob = COALESCE(
+                           NULLIF(excluded.overall_rob, ''),
+                           papers.overall_rob),
                        domain = COALESCE(NULLIF(excluded.domain, ''), papers.domain),
                        doi = COALESCE(NULLIF(excluded.doi, ''), papers.doi),
                        -- Update review metadata only if new value is non-empty
@@ -1286,25 +1316,62 @@ class Database:
         """
         if not pmids:
             return 0
-        placeholders = ",".join("?" * len(pmids))
-        where_parts = [f"pmid IN ({placeholders})"]
-        params: list = list(pmids)
+        # Optional non-PMID filters, shared across every chunk.
+        extra_parts: list[str] = []
+        extra_params: list = []
         if model_name is not None:
-            where_parts.append("model_name = ?")
-            params.append(model_name)
+            extra_parts.append("model_name = ?")
+            extra_params.append(model_name)
         if methodology is not None:
-            where_parts.append("methodology = ?")
-            params.append(methodology)
-        where_sql = " AND ".join(where_parts)
-        # Delete dependent human_reviews first (FK constraint)
-        self.conn.execute(
-            f"DELETE FROM human_reviews WHERE {where_sql}", params
-        )
-        cursor = self.conn.execute(
-            f"DELETE FROM annotations WHERE {where_sql}", params
-        )
+            extra_parts.append("methodology = ?")
+            extra_params.append(methodology)
+
+        # Chunk the PMID list so a large set can't exceed SQLite's bound-
+        # parameter limit (see _MAX_SQL_PARAMS).
+        total_deleted = 0
+        for chunk in _chunked(list(pmids)):
+            placeholders = ",".join("?" * len(chunk))
+            where_sql = " AND ".join(
+                [f"pmid IN ({placeholders})"] + extra_parts
+            )
+            params = list(chunk) + extra_params
+            # Delete dependent human_reviews first (FK constraint)
+            self.conn.execute(
+                f"DELETE FROM human_reviews WHERE {where_sql}", params
+            )
+            cursor = self.conn.execute(
+                f"DELETE FROM annotations WHERE {where_sql}", params
+            )
+            total_deleted += cursor.rowcount
         self.conn.commit()
-        return cursor.rowcount
+        return total_deleted
+
+    def count_annotations_for_pmids(
+        self, pmids: list[str], model_name: str | None = None,
+    ) -> int:
+        """Count annotations for a list of PMIDs, chunking the IN clause.
+
+        Chunked like :meth:`delete_annotations_for_pmids` so a large PMID
+        set cannot exceed SQLite's bound-parameter limit (_MAX_SQL_PARAMS).
+        """
+        if not pmids:
+            return 0
+        extra_parts: list[str] = []
+        extra_params: list = []
+        if model_name is not None:
+            extra_parts.append("model_name = ?")
+            extra_params.append(model_name)
+        total = 0
+        for chunk in _chunked(list(pmids)):
+            placeholders = ",".join("?" * len(chunk))
+            where_sql = " AND ".join(
+                [f"pmid IN ({placeholders})"] + extra_parts
+            )
+            params = list(chunk) + extra_params
+            total += self.conn.execute(
+                f"SELECT COUNT(*) FROM annotations WHERE {where_sql}", params
+            ).fetchone()[0]
+        return total
 
     def get_annotations(
         self,

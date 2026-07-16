@@ -1,18 +1,17 @@
-"""Deterministic RoB 2 rollup algorithms.
+"""Deterministic RoB 2 *rollup* algorithms (domains → outcome → paper).
 
-Two aggregation steps:
+NOTE — two similarly named modules, do not confuse them:
+  * ``algorithm.py`` (this file) — the **rollup** direction: reduce the
+    five per-domain judgements to an outcome overall, and outcomes to a
+    paper overall, via the worst-wins rule. Also verifies that a domain
+    judgement is consistent with its signalling answers.
+  * ``algorithms.py`` (plural) — the **per-domain decision rules**: map a
+    single domain's signalling answers (Y/PY/PN/N/NI) to its judgement
+    (:func:`.algorithms.derive_domain_judgement`).
 
-1. :func:`aggregate_domain` — given a :class:`RoB2DomainJudgement`'s
-   signalling answers, return the per-domain judgement via the Cochrane
-   algorithm. Today this function is a *verifier*: it checks that the
-   judgement the LLM supplied is consistent with the answers. A future
-   version can switch to deriving the judgement purely from the
-   signalling answers (Cochrane publishes decision trees per domain in
-   the Handbook), but the algorithm varies per domain and isn't
-   literally a one-liner, so the v1 path lets the LLM emit both and we
-   check consistency.
+Contents:
 
-2. :func:`aggregate_outcome` — given the 5 per-domain judgements, return
+1. :func:`aggregate_outcome` — given the 5 per-domain judgements, return
    the outcome-level overall using the Cochrane worst-wins rule:
 
      - ``low`` iff **all** five domains are ``low``.
@@ -24,8 +23,14 @@ Two aggregation steps:
        ``some_concerns`` if any domain is ``some_concerns``; else ``low``.
      - ``some_concerns`` otherwise.
 
-3. :func:`worst_case_across_outcomes` — trivial max-over-ordering for
+2. :func:`worst_case_across_outcomes` — trivial max-over-ordering for
    the DB ``overall_severity`` column.
+
+3. :func:`domain_judgement_is_consistent` — verifies that a domain's
+   emitted judgement matches the per-domain truth table
+   (:func:`.algorithms.derive_domain_judgement`) applied to its
+   signalling answers, per the schema contract that a domain judgement
+   "must be reproducible from the signalling inputs alone."
 
 All functions are pure and side-effect-free so they can be property-tested
 independent of prompt iteration.
@@ -35,6 +40,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from .algorithms import derive_domain_judgement
 from .schema import (
     ROB2_DOMAIN_SLUGS,
     RoB2DomainJudgement,
@@ -107,12 +113,22 @@ def worst_case_across_outcomes(
 def domain_judgement_is_consistent(
     domain: RoB2DomainJudgement,
 ) -> bool:
-    """Sanity-check that a domain's judgement is in the allowed set.
+    """Check a domain's judgement is reproducible from its signalling answers.
 
-    Returns True. This function is a placeholder for a stricter
-    signalling-question-to-judgement consistency check that will live
-    here in a later step — for v1 we trust the LLM's per-domain
-    judgement and run the MVP pipeline end-to-end before tightening
-    the rules.
+    Per the schema contract (:class:`.schema.RoB2DomainJudgement`) the
+    per-domain judgement "must be reproducible from the signalling inputs
+    alone." This recomputes the judgement from the signalling answers via
+    the Cochrane per-domain truth table
+    (:func:`.algorithms.derive_domain_judgement`) and compares.
+
+    Returns False if the judgement is outside the allowed set, or if it
+    contradicts the truth-table result. Returns True when they agree, or
+    when the truth table cannot derive a judgement for this domain (an
+    unrecognised domain slug) — there is then nothing to contradict.
     """
-    return domain.judgement in VALID_JUDGEMENTS
+    if domain.judgement not in VALID_JUDGEMENTS:
+        return False
+    derived = derive_domain_judgement(domain.domain, domain.signalling_answers)
+    if derived is None:
+        return True
+    return derived == domain.judgement

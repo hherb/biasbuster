@@ -364,7 +364,8 @@ def print_summary(db: Database) -> None:
     with_abs = conn.execute(
         "SELECT COUNT(*) FROM papers WHERE abstract IS NOT NULL AND length(abstract) > 100"
     ).fetchone()[0]
-    print(f"\nWith abstract: {with_abs} ({with_abs*100//total}%)")
+    abs_pct = (with_abs * 100 // total) if total else 0
+    print(f"\nWith abstract: {with_abs} ({abs_pct}%)")
     print(f"Without abstract: {total - with_abs}")
 
     # Retraction reasons quality

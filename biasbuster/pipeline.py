@@ -859,12 +859,9 @@ def _reset_undetectable_annotations(db: "Database", dry_run: bool = False) -> No
         logger.info("No abstract-undetectable retracted papers found.")
         return
 
-    # Count existing annotations that would be deleted
-    placeholders = ",".join("?" * len(undetectable_pmids))
-    count = db.conn.execute(
-        f"SELECT COUNT(*) FROM annotations WHERE pmid IN ({placeholders})",
-        undetectable_pmids,
-    ).fetchone()[0]
+    # Count existing annotations that would be deleted (chunked IN clause,
+    # so a large undetectable-paper set can't exceed SQLite's param limit).
+    count = db.count_annotations_for_pmids(undetectable_pmids)
 
     if count == 0:
         print(f"\n{len(undetectable_pmids)} abstract-undetectable papers found, "

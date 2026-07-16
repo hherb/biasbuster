@@ -295,6 +295,7 @@ def run_one_pass(conn: sqlite3.Connection, runner: OllamaRunner,
             if n_attempted >= 30 and failure_rate > PARSE_FAILURE_HALT_FRACTION:
                 print(f"  [HALT] parse-failure rate {failure_rate:.1%} > "
                       f"{PARSE_FAILURE_HALT_FRACTION:.0%} — pre-reg §8 halt rule.")
+                counts["halted"] = 1
                 return counts
 
     return counts
@@ -370,6 +371,15 @@ def main() -> int:
                 pass_n=pass_n, rct_limit=args.rct_limit,
             )
             print(f"\n[pass {pass_n}] final counts: {counts}")
+            if counts.get("halted"):
+                # Pre-reg §8: a parse-failure halt means the prompt needs
+                # revision — abort the whole run, not just this pass, so
+                # later passes don't burn a full model run at the same
+                # broken failure rate.
+                print(f"[HALT] stopping before remaining passes "
+                      f"{[p for p in pass_ns if p > pass_n]} — revise prompts "
+                      "per pre-reg §8 and re-run.", file=sys.stderr)
+                return 1
     finally:
         runner.close()
         conn.close()
