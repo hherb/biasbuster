@@ -6,7 +6,7 @@ criteria, and verification database recommendations.  Both the annotation
 pipeline (annotators/) and the training export pipeline (export.py) import
 from here to ensure consistency.
 
-See docs/MISTAKES_ROUND_1_AND_FIXES.md for why prompt unification matters.
+See docs/history/MISTAKES_ROUND_1_AND_FIXES.md for why prompt unification matters.
 """
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 """DB-level annotation JSON Schema validation.
 
-Covers the contract from ``docs/ANNOTATION_JSON_SPEC.md``:
+Covers the contract from ``docs/pipeline/ANNOTATION_JSON_SPEC.md``:
 
   - Methodologies with a registered schema (cochrane_rob2, quadas_2)
     must validate every annotation before it lands in the DB.

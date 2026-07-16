@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 #
 # Annotations for methodologies registered in ``_ANNOTATION_SCHEMA_PATHS``
 # are validated against their JSON Schema before INSERT / UPDATE.
-# See docs/ANNOTATION_JSON_SPEC.md for the contract and audit workflow.
+# See docs/pipeline/ANNOTATION_JSON_SPEC.md for the contract and audit workflow.
 #
 # Methodologies not in the registry (currently: ``biasbuster``, the
 # legacy single-call assessor) skip validation. New methodologies opt
@@ -1159,7 +1159,7 @@ class Database:
         Raises:
             jsonschema.exceptions.ValidationError: If *methodology* has a
                 registered annotation schema and *annotation* does not
-                conform to it. See ``docs/ANNOTATION_JSON_SPEC.md``.
+                conform to it. See ``docs/pipeline/ANNOTATION_JSON_SPEC.md``.
         """
         _validate_annotation_payload(
             methodology, annotation, pmid=pmid, model_name=model_name,

@@ -205,7 +205,7 @@ METHODOLOGY: Methodology = Methodology(
     evaluation_mapping_to_ground_truth=evaluation_mapping_to_ground_truth,
     build_training_example=build_training_example,
     notes={
-        "docs": "docs/ASSESSING_RISK_OF_BIAS.md#biasbuster",
+        "docs": "docs/harness/ASSESSING_RISK_OF_BIAS.md#biasbuster",
         "prompts": (
             "biasbuster/prompts.py (v1), prompts_v3.py (two-call), "
             "prompts_v4.py (agentic), prompts_v5a.py (decomposed)"

@@ -147,7 +147,7 @@ METHODOLOGY: Methodology = Methodology(
     # Training export is biasbuster-only in v1; RoB 2 is evaluation-only.
     build_training_example=None,
     notes={
-        "docs": "docs/ASSESSING_RISK_OF_BIAS.md#cochrane-rob-2",
+        "docs": "docs/harness/ASSESSING_RISK_OF_BIAS.md#cochrane-rob-2",
         "handbook":
             "Cochrane Handbook for Systematic Reviews of Interventions, "
             "chapter 8 (Higgins et al., 2019+)",

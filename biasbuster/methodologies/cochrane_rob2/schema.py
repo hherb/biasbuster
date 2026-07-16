@@ -1,6 +1,6 @@
 """Typed output schema for the Cochrane RoB 2 methodology.
 
-Mirrors the RoB 2 guidance from docs/ASSESSING_RISK_OF_BIAS.md:
+Mirrors the RoB 2 guidance from docs/harness/ASSESSING_RISK_OF_BIAS.md:
 
 - Five bias domains, each assessed via signalling questions answered
   Y / PY / PN / N / NI (Yes / Probably Yes / Probably No / No / No Information).

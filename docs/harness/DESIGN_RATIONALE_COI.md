@@ -313,16 +313,16 @@ This is intentional:
 
 ## Related documents
 
-- [`INITIAL_FINDINGS_V3.md`](./INITIAL_FINDINGS_V3.md) — full
+- [`INITIAL_FINDINGS_V3.md`](../history/two_step_approach/INITIAL_FINDINGS_V3.md) — full
   empirical history, including §3.11 (Round 10 prompt edits),
   §3.12 (Round 10 verification across all three local model
   families), and §6.2 (calibration paper test plan).
-- [`architecture_guide.md`](./architecture_guide.md) — the two-call
+- [`architecture_guide.md`](../history/two_step_approach/architecture_guide.md) — the two-call
   architecture that this rationale presupposes.
-- [`MERGE_STRATEGY.md`](./MERGE_STRATEGY.md) — how per-section
+- [`MERGE_STRATEGY.md`](../history/two_step_approach/MERGE_STRATEGY.md) — how per-section
   extractions are merged, including the COI fields that feed
   trigger (d).
-- [`CONTEXT_FOR_CLAUDE_CODE.md`](./CONTEXT_FOR_CLAUDE_CODE.md) —
+- [`CONTEXT_FOR_CLAUDE_CODE.md`](../history/two_step_approach/CONTEXT_FOR_CLAUDE_CODE.md) —
   the original Seed Health probiotic failure case that motivated
   the v3 rebuild and exposed the COI under-call gap.
 - `biasbuster/prompts_v3.py` — the authoritative source of the

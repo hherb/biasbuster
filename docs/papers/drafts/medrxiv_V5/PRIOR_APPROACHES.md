@@ -33,7 +33,7 @@ assessor that:
    reporting patterns (relative vs absolute effect sizes), and spin
    in the conclusions — see the companion
    [`COI_RATIONALE.md`](./COI_RATIONALE.md) (and
-   [`../../two_step_approach/DESIGN_RATIONALE_COI.md`](../../two_step_approach/DESIGN_RATIONALE_COI.md))
+   [`../../../harness/DESIGN_RATIONALE_COI.md`](../../../harness/DESIGN_RATIONALE_COI.md))
    for the normative argument.
 
 The second and third of these are the binding constraints. Cloud
@@ -65,7 +65,7 @@ from ~80% (abstracts) to ~50% (full text). The model produced an
 answer; the answer was not a function of the paper.
 
 Documented in
-[`INITIAL_FINDINGS_V3.md`](../../two_step_approach/INITIAL_FINDINGS_V3.md)
+[`INITIAL_FINDINGS_V3.md`](../../../history/two_step_approach/INITIAL_FINDINGS_V3.md)
 §4.1. v1 has since been kept in the codebase only as an explicit
 fallback for abstract-only cases.
 
@@ -120,9 +120,9 @@ own extraction output while simultaneously applying a rule stack in
 the same continuation. This diagnosis motivated v4.
 
 Full history:
-[`INITIAL_FINDINGS_V3.md`](../../two_step_approach/INITIAL_FINDINGS_V3.md)
+[`INITIAL_FINDINGS_V3.md`](../../../history/two_step_approach/INITIAL_FINDINGS_V3.md)
 §3.13 (the Round-10 calibration test),
-[`CONTEXT_FOR_CLAUDE_CODE.md`](../../two_step_approach/CONTEXT_FOR_CLAUDE_CODE.md)
+[`CONTEXT_FOR_CLAUDE_CODE.md`](../../../history/two_step_approach/CONTEXT_FOR_CLAUDE_CODE.md)
 (the Seed Health probiotic case that originally motivated the
 rebuild).
 
@@ -225,7 +225,7 @@ Three observations, in order of weight:
    considerably.
 
 The planned "V5B" fine-tuning path described in
-[`../../three_step_approach/V5B_FINE_TUNING.md`](../../three_step_approach/V5B_FINE_TUNING.md)
+[`../../../harness/three_step_approach/V5B_FINE_TUNING.md`](../../../harness/three_step_approach/V5B_FINE_TUNING.md)
 — distilling Claude's v4 agent traces into gemma4 and gpt-oss — was
 therefore not executed. Fine-tuning remains a viable path if a
 future application needs sub-10 B deployment, a domain-specific
@@ -313,9 +313,9 @@ valid contextual overrides. The failure is of instruction
 instructions within a single continuation.
 
 v4 is documented in
-[`V4_AGENT_DESIGN.md`](../../two_step_approach/V4_AGENT_DESIGN.md)
+[`V4_AGENT_DESIGN.md`](../../../history/two_step_approach/V4_AGENT_DESIGN.md)
 and the calibration numbers are in
-[`../../three_step_approach/OVERVIEW.md`](../../three_step_approach/OVERVIEW.md).
+[`../../../harness/three_step_approach/OVERVIEW.md`](../../../harness/three_step_approach/OVERVIEW.md).
 
 ## 6. V5A — decomposition as the structural fix
 
@@ -351,7 +351,7 @@ removed. Architecture details and the mapping from v3/v4 rules to
 V5A's per-domain overrides are in
 [`PIPELINE_V5A.md`](./PIPELINE_V5A.md) and the authoritative
 design document
-[`../../three_step_approach/V5A_DECOMPOSED.md`](../../three_step_approach/V5A_DECOMPOSED.md).
+[`../../../harness/three_step_approach/V5A_DECOMPOSED.md`](../../../harness/three_step_approach/V5A_DECOMPOSED.md).
 
 The empirical outcome — and the headline result of this
 manuscript — is that this decomposition restores local-model

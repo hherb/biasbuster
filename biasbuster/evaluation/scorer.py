@@ -169,7 +169,7 @@ _scorer_logger = logging.getLogger(__name__)
 
 # Fallback mapping: when the model produces a severity but no numeric
 # probability, infer a reasonable probability from the severity level.
-# See docs/ROUND_4.md for context.
+# See docs/history/ROUND_4.md for context.
 _SEVERITY_TO_PROBABILITY = {
     "none": 0.05,
     "low": 0.25,

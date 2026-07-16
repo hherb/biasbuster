@@ -28,7 +28,7 @@ METHODOLOGY = make_stub_methodology(
     orchestration="decomposed_full_text",
     severity_rollup_levels=("low", "unclear", "high"),
     notes={
-        "docs": "docs/ASSESSING_RISK_OF_BIAS.md#robis",
+        "docs": "docs/harness/ASSESSING_RISK_OF_BIAS.md#robis",
         "reference": "Whiting P et al. J Clin Epidemiol 2016;69:225-234.",
     },
 )

@@ -17,7 +17,7 @@ Note on Harmony format (GPT-OSS):
     the Harmony template renders into the ``final`` channel only.  The model
     learns ``<think>`` as a text pattern it can reproduce at inference.
 
-    See ``docs/MISTAKES_TO_ROUND_3.md`` §5 for the full analysis.
+    See ``docs/history/MISTAKES_TO_ROUND_3.md`` §5 for the full analysis.
 """
 
 import json

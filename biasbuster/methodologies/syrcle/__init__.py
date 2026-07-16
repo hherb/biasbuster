@@ -32,7 +32,7 @@ METHODOLOGY = make_stub_methodology(
     orchestration="decomposed_full_text",
     severity_rollup_levels=("low", "unclear", "high"),
     notes={
-        "docs": "docs/ASSESSING_RISK_OF_BIAS.md#syrcle",
+        "docs": "docs/harness/ASSESSING_RISK_OF_BIAS.md#syrcle",
         "reference": "Hooijmans CR et al. BMC Med Res Methodol 2014;14:43.",
     },
 )

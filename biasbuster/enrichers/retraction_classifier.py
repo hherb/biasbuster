@@ -8,7 +8,7 @@ reason codes), this module infers reason categories from:
   2. Title patterns (e.g., "RETRACTED: ...")
   3. Any structured reasons if available from the Retraction Watch database
 
-See docs/MISTAKES_ROUND_1_AND_FIXES.md (Root Cause 2) for why this matters:
+See docs/history/MISTAKES_ROUND_1_AND_FIXES.md (Root Cause 2) for why this matters:
 136/368 retracted papers in Round 1 were labelled NONE severity because the
 original abstract content showed no visible bias, even though the paper was
 retracted for data integrity issues.
@@ -27,7 +27,7 @@ Abstract detectability:
   is invisible in the text.  For training a text-based bias detector, these
   papers should be assessed on abstract merits only (no severity floor).
   They remain valuable for testing the full agent harness that checks
-  external databases (Retraction Watch, Crossref).  See docs/ANNOTATED_DATA_SET.md.
+  external databases (Retraction Watch, Crossref).  See docs/pipeline/ANNOTATED_DATA_SET.md.
 """
 
 import logging

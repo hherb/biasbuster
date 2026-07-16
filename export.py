@@ -17,7 +17,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Canonical prompt imported from the single source of truth.
-# See docs/MISTAKES_ROUND_1_AND_FIXES.md for why prompt unification matters.
+# See docs/history/MISTAKES_ROUND_1_AND_FIXES.md for why prompt unification matters.
 from biasbuster.annotators import _ensure_parsed
 from biasbuster.prompts import TRAINING_SYSTEM_PROMPT as SYSTEM_PROMPT  # noqa: E402
 
@@ -27,7 +27,7 @@ def build_thinking_chain(annotation: dict) -> str:
 
     Evidence-grounded: references specific flags, quotes, and concern counts
     to justify severity assignments per the canonical boundary definitions.
-    See docs/MISTAKES_ROUND_1_AND_FIXES.md (Phase 4) for the rationale.
+    See docs/history/MISTAKES_ROUND_1_AND_FIXES.md (Phase 4) for the rationale.
     """
     parts = ["<think>"]
     reasoning = annotation.get("reasoning", "")
@@ -1007,7 +1007,7 @@ def export_dataset(
     """
     Export annotations to training data files with train/val/test splits.
 
-    Changes from Round 1 (see docs/MISTAKES_ROUND_1_AND_FIXES.md):
+    Changes from Round 1 (see docs/history/MISTAKES_ROUND_1_AND_FIXES.md):
     - Retraction severity floors applied before conversion
     - No oversampling — natural distribution preserved
     - Stratified split by severity class

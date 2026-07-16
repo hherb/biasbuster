@@ -134,7 +134,7 @@ Each mechanical rule inspects a specific, minimal subset of the extraction dict.
 
 ## Hard-rule invariant
 
-Stage 3 MUST NOT produce decisions for non-overridable domains (COI HIGH from structural triggers a/b/c/d — see [`DESIGN_RATIONALE_COI.md`](../two_step_approach/DESIGN_RATIONALE_COI.md)). Stage 5 runs `enforce_hard_rules()` as a belt-and-braces check; Stage 3 should simply skip non-overridable domains up-front (they're marked `domain_overridable[d] == False` in the provenance).
+Stage 3 MUST NOT produce decisions for non-overridable domains (COI HIGH from structural triggers a/b/c/d — see [`DESIGN_RATIONALE_COI.md`](../DESIGN_RATIONALE_COI.md)). Stage 5 runs `enforce_hard_rules()` as a belt-and-braces check; Stage 3 should simply skip non-overridable domains up-front (they're marked `domain_overridable[d] == False` in the provenance).
 
 ## Verification
 

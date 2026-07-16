@@ -34,7 +34,7 @@ caveats that shape the rest of this document:
    pipeline — which assesses these additional dimensions as a
    policy-driven extension — will systematically diverge from Cochrane
    on industry-funded trials. See
-   [`docs/two_step_approach/DESIGN_RATIONALE_COI.md`](../../two_step_approach/DESIGN_RATIONALE_COI.md)
+   [`docs/harness/DESIGN_RATIONALE_COI.md`](../../../harness/DESIGN_RATIONALE_COI.md)
    for the full rationale. The cohort assembly is agnostic to that
    divergence — every Cochrane rating is recorded as-is and the
    downstream comparison adjusts for it explicitly.

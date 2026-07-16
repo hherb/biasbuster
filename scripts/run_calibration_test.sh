@@ -10,7 +10,7 @@
 #
 # Test matrix
 # -----------
-# Papers (see docs/two_step_approach/INITIAL_FINDINGS_V3.md §6.2):
+# Papers (see docs/history/two_step_approach/INITIAL_FINDINGS_V3.md §6.2):
 #     32382720 — LOW-RoB anchor (EClinicalMedicine rTMS, all 5 Cochrane
 #                domains = low). Must rate low or none.
 #     39777610 — Industry-funded LOW (Dermavant tapinarof phase 3).

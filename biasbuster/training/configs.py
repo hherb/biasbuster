@@ -40,7 +40,7 @@ _MOE_OVERRIDES: dict = {
     "attn_implementation": "eager",
 }
 
-# Overrides for 9B-class models.  Rationale documented in SECOND_RUN.md §6.4.
+# Overrides for 9B-class models.  Rationale documented in docs/history/training_runs/SECOND_RUN.md §6.4.
 _9B_OVERRIDES: dict = {
     "lora_r": 32,                       # more LoRA capacity for smaller model
     "lora_alpha": 64,                   # maintain alpha/r = 2

@@ -1,7 +1,7 @@
 """Cochrane RoB 2 prompts — seed text for Step 8 iteration.
 
 The prompts here implement the Cochrane RoB 2 flow described in
-docs/ASSESSING_RISK_OF_BIAS.md and the Cochrane Handbook chapter 8:
+docs/harness/ASSESSING_RISK_OF_BIAS.md and the Cochrane Handbook chapter 8:
 
 - Stage 1 is shared with biasbuster: per-section extraction via
   ``prompts_v3.SECTION_EXTRACTION_SYSTEM_PROMPT``. We reuse it because

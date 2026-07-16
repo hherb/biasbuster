@@ -2,8 +2,8 @@
 
 **Status:** active
 **Applies to:** `cochrane_rob2`, `quadas_2`
-**Schema files:** [`schemas/rob2_annotation.schema.json`](../schemas/rob2_annotation.schema.json), [`schemas/quadas2_annotation.schema.json`](../schemas/quadas2_annotation.schema.json)
-**Enforced at:** [`biasbuster/database.py`](../biasbuster/database.py) — `Database.insert_annotation()` validates every annotation against the matching schema before writing to SQLite.
+**Schema files:** [`schemas/rob2_annotation.schema.json`](../../schemas/rob2_annotation.schema.json), [`schemas/quadas2_annotation.schema.json`](../../schemas/quadas2_annotation.schema.json)
+**Enforced at:** [`biasbuster/database.py`](../../biasbuster/database.py) — `Database.insert_annotation()` validates every annotation against the matching schema before writing to SQLite.
 
 ---
 

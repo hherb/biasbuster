@@ -634,7 +634,7 @@ def conflict_of_interest_severity(
       (d) funding_type ∈ {industry, mixed} AND >= 1 author with role ∈ {employee, shareholder}
 
     This is the canonical implementation of the
-    docs/two_step_approach/DESIGN_RATIONALE_COI.md policy. Python here
+    docs/harness/DESIGN_RATIONALE_COI.md policy. Python here
     is the single source of truth — any disagreement with the prompt
     version should be resolved by updating the prompt to match this
     module.

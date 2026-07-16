@@ -7,7 +7,7 @@ ROBINS-I has seven domains (three pre-intervention, one at-intervention,
 three post-intervention) and a four-level severity vocabulary
 (low / moderate / serious / critical / no information). The assessor
 is expected to require a "target trial" specification as part of the
-user message — see docs/ASSESSING_RISK_OF_BIAS.md#robins-i.
+user message — see docs/harness/ASSESSING_RISK_OF_BIAS.md#robins-i.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ METHODOLOGY = make_stub_methodology(
     orchestration="decomposed_full_text",
     severity_rollup_levels=("low", "moderate", "serious", "critical"),
     notes={
-        "docs": "docs/ASSESSING_RISK_OF_BIAS.md#robins-i",
+        "docs": "docs/harness/ASSESSING_RISK_OF_BIAS.md#robins-i",
         "reference": "Sterne JAC et al. BMJ 2016;355:i4919.",
     },
 )

@@ -296,7 +296,7 @@ def write_s3(
     lines.append(
         "One row per (paper × domain). Reader protocol: given the "
         "*signalling* column, apply the methodology's decision rule "
-        "(see `docs/ANNOTATION_JSON_SPEC.md` §3.3 for RoB 2, §4 for "
+        "(see `docs/pipeline/ANNOTATION_JSON_SPEC.md` §3.3 for RoB 2, §4 for "
         "QUADAS-2) and decide whether the AI rating or the expert "
         "rating is consistent with the tool's algorithm.\n",
     )
