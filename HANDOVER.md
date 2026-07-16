@@ -1,10 +1,11 @@
 # HANDOVER — BiasBuster
 
-_Last updated: 2026-07-17 (stale tests #21/#22 fixed; suite green at 576 passed.
-Maintenance scaffolding introduced 2026-07-16: this file, ROADMAP.md, and the
+_Last updated: 2026-07-17 (stale tests #21/#22 fixed, suite green at 579 passed;
+κ regeneration gate completed against the live DB, both preprint drafts updated
+to the strict-primary numbers; wrong-paper recovery guard added. Maintenance
+scaffolding introduced 2026-07-16: this file, ROADMAP.md, and the
 `nextsession`/`fixall` skills, seeded from the 2026-05-01 next-session runbook,
-now archived at `docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`. DB/GitHub state
-below was re-verified 2026-07-16 against the live benchmark DB and GitHub.)_
+now archived at `docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`.)_
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -36,34 +37,26 @@ The §9 publishability gate was already cleared with gpt-oss:20b and Sonnet 4.6.
   (issues #21, #22) were realigned to the intended post-fix behaviour on
   2026-07-17: distinct PMIDs for the PMID-grouped export split, and the
   algorithm-derived judgement for the RoB 2 missing-judgement fallback.
-- **The reported κ tables are stale**: `phase6_results.{md,csv}` were generated
-  2026-05-06, before the FALLBACK/strict-mode fixes landed, and no
-  `phase6_results.strict.*` files exist yet. The regeneration gate below is the
-  main open work; the manuscript numbers will change.
+- **The κ regeneration gate is done (2026-07-17)**: retro-tag was a genuine no-op
+  (0 untagged rows in 11,592 scanned); `phase6_results.{md,csv}` and the new
+  `phase6_results.strict.{md,csv}` + forest CSVs were regenerated; both preprint
+  drafts updated to the strict-primary picture. Substantive change: under the
+  corrected worst-wins ensemble, **naive ensembling now underperforms the best
+  single pass for all four models** (the former "qwen exception" +0.012 became
+  −0.012); Sonnet strict best-pass fulltext κ_quad is 0.236 (0.264 inclusive),
+  four-model spread 0.021. Single-pass and run-to-run numbers were unchanged
+  from May except Sonnet strict (n drops to 75–81 on fulltext).
+- **Recovery guard added (2026-07-17)**: `recover_parse_failures.py` recovered 2
+  qwen fulltext d3 rows that belonged to **RCT030 — the wrong-paper acquisition**
+  (its signalling describes the parent Cochrane review, not the trial). The rows
+  were reverted from backup, `WRONG_PAPER_RCTS = {"RCT030"}` now guards the
+  script (with tests in `tests/test_recover_parse_failures.py`), and RCT030's
+  exclusion is documented in `benchmark_rct.notes`. FALLBACK total stands at 91
+  (all Sonnet); remaining 29 parse failures are all RCT030 and stay excluded.
 
 ## Open work (in priority order)
 
-### 1. Manuscript κ regeneration gate (needs the live DB)
-
-Run against the canonical DB (and any shard) — the reported figures change:
-
-1. `uv run python studies/eisele_metzger_replication/retro_tag_live_fallback.py --dry-run`
-   then `--apply` — back-tags rows written by the old untagged live path. Note:
-   gemma/qwen sources currently show **0 FALLBACK rows**; the dry run also tells you
-   whether that is genuine (no schema drift) or untagged fallback.
-2. `uv run python studies/eisele_metzger_replication/recover_parse_failures.py --dry-run`
-   (apply if anything new is recoverable).
-3. Regenerate in **both** modes — strict is the pre-registered primary:
-   ```bash
-   uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py                     # inclusive
-   uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --exclude-fallback  # strict → *.strict.{md,csv}
-   ```
-   (The ensemble-overall figure now reflects worst-wins per the #7 fix.)
-4. Update **both** preprint drafts (§3 tables, abstract, conclusion) with the strict
-   4-model picture; report inclusive numbers as a sensitivity analysis; drop the
-   "(pending: gemma4 and qwen3.6)" caveats.
-
-### 2. Papers
+### 1. Papers
 
 - Primary draft: `docs/papers/drafts/20260501_medrxiv_harness_vs_naive_rob2_v1.md`
   (thesis: harness over model).
@@ -80,7 +73,7 @@ Run against the canonical DB (and any shard) — the reported figures change:
   future-work appendix (primary use would need a pre-reg amendment); OSF mirror of
   the pre-registration.
 
-### 3. Decisions needed from the repo owner
+### 2. Decisions needed from the repo owner
 
 - Personal review of the 5 systematic-failure RCTs (RCT024, RCT025, RCT034, RCT038,
   RCT062) before publication.
@@ -91,7 +84,7 @@ Run against the canonical DB (and any shard) — the reported figures change:
   Confirm before posting either.
 - Sign-off on the medrxiv_V5 Cochrane corpus rebuild design.
 
-### 4. Housekeeping (no issue filed)
+### 3. Housekeeping (no issue filed)
 
 - **33 Dependabot vulnerabilities** (12 high, 13 moderate, 8 low) flagged on the
   default branch — worth a triage pass.
@@ -119,6 +112,9 @@ Run against the canonical DB (and any shard) — the reported figures change:
 - Two near-identical filenames in `biasbuster/methodologies/cochrane_rob2/`:
   `algorithm.py` (consistency checking) vs `algorithms.py` (per-domain truth
   tables). Both carry cross-reference notes — mind which one you touch.
+- **RCT030 is the wrong-paper acquisition** — its 29 parse-failure rows must stay
+  excluded; `recover_parse_failures.py` guards this via `WRONG_PAPER_RCTS`. Never
+  "recover" them.
 - All κ / ensemble / synthesis numbers are computed in code, never by the model.
 - Repo-wide rules (CLAUDE.md): `uv` only; prompts single-sourced in `prompts*.py`;
   processes >2 min are printed for the user to run, never run in-session; anything

@@ -60,6 +60,15 @@ from biasbuster.methodologies.cochrane_rob2.algorithms import (  # noqa: E402
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 
+# RCTs whose Phase-1 acquisition resolved the WRONG DOCUMENT (e.g. the
+# parent Cochrane review instead of the underlying primary trial). Their
+# parse-failure rows contain model output about a different paper, so
+# algorithmic recovery would inject wrong-paper judgements into the
+# benchmark. These RCTs are excluded from analysis entirely and must
+# never be recovered (see benchmark_rct.notes and the §3.1 parse-failure
+# narrative in docs/papers/drafts/20260501_medrxiv_harness_vs_naive_rob2_v1.md).
+WRONG_PAPER_RCTS = frozenset({"RCT030"})
+
 
 import re
 
@@ -334,6 +343,7 @@ def run_recovery(conn: sqlite3.Connection, dry_run: bool,
 
     counts = {
         "candidates": len(rows),
+        "excluded_wrong_paper": 0,
         "domain_recovered": 0,
         "domain_unrecoverable": 0,
         "synthesis_recovered_post_hoc": 0,
@@ -342,6 +352,11 @@ def run_recovery(conn: sqlite3.Connection, dry_run: bool,
 
     # Stage 1: per-domain recovery
     for rct_id, source, domain, raw_response, parse_attempts in rows:
+        if rct_id in WRONG_PAPER_RCTS:
+            # The model was given the wrong document; its signalling
+            # answers describe a different paper. Never recover.
+            counts["excluded_wrong_paper"] += 1
+            continue
         if domain == "overall":
             # Synthesis recovery is handled in stage 2 after domain recovery
             continue
@@ -382,6 +397,8 @@ def run_recovery(conn: sqlite3.Connection, dry_run: bool,
     )
     candidate_pairs = cur.fetchall()
     for rct_id, source in candidate_pairs:
+        if rct_id in WRONG_PAPER_RCTS:
+            continue
         overall_row = cur.execute(
             "SELECT judgment, valid FROM benchmark_judgment "
             "WHERE rct_id = ? AND source = ? AND domain = 'overall'",
@@ -452,6 +469,8 @@ def main() -> int:
         counts = run_recovery(conn, dry_run=args.dry_run,
                               source_filter=args.source_filter)
         print(f"[recovery] candidates: {counts['candidates']}")
+        print(f"[recovery] excluded (wrong-paper acquisition): "
+              f"{counts['excluded_wrong_paper']}")
         print(f"[recovery] domain rows recovered: {counts['domain_recovered']}")
         print(f"[recovery] domain rows unrecoverable: {counts['domain_unrecoverable']}")
         print(f"[recovery] synthesis rows derived post-hoc: "

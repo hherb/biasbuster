@@ -2,7 +2,7 @@
 
 **Filename note:** moved from `docs/papers/medrxiv_quadas_rob2_assessors.md` on 2026-05-01 under the new naming convention `drafts/<YYYYMMDD>_medrxiv_<short_title>_v<n>.md`. Original sketch drafted 2026-04-23; v2 (this file) repositions the paper as primary on 2026-05-06 after the algorithm-conformance audit produced 5,426 cells of evidence on the Eisele-Metzger 2025 RCT corpus.
 
-**Status:** v2 draft — load-bearing empirical sections now have final numbers; framing and intro need editorial passes.
+**Status:** v2 draft — load-bearing empirical sections now have final numbers; framing and intro need editorial passes. (2026-07-17: κ cross-references updated to the regenerated strict-mode tables; the conformance-audit numbers themselves are computed from raw responses and were unaffected by the 2026-07-16 FALLBACK/ensemble fixes.)
 **Stage:** post-audit, pre-pre-registration. The locked methodology used to generate the audit is `docs/papers/eisele_metzger_replication/preanalysis_plan.md` (committed 2026-04-29 at git hash `7854a1c`).
 **Companion draft:** `20260501_medrxiv_harness_vs_naive_rob2_v1.md` — methods-companion paper detailing how the LLM-RoB harness was built and showing that vanilla LLMs spanning ~30× parameter range and three architectures all converge on the same κ ≈ 0.22 ceiling against single-rater Cochrane on the EM 2025 dataset. **This paper explains why** that ceiling exists: it is bounded by Cochrane reviewer deviation from the algorithm, not by model capability.
 
@@ -40,7 +40,7 @@ This framing presupposes that expert ratings are correct. It is testable: every 
 
 Our research question becomes precise: **when four independent LLM raters extract per-domain signalling answers from full text and the published Cochrane RoB 2 algorithm is applied to those answers, do the published Cochrane reviewer ratings agree?**
 
-If yes, the κ ≈ 0.22 ceiling is a model limitation and the field's current benchmarking is sound. If no — if Cochrane ratings systematically violate the tool's own algorithm given the same paper text — then κ-against-experts measures agreement with expert *deviation*, and the 0.22 ceiling is a property of the reference standard, not of model capability. The companion paper documents the ceiling empirically (four diverse LLMs all cluster within 0.011 κ_quad of each other and within 0.04 of EM's published Claude 2 0.22). This paper explains it.
+If yes, the κ ≈ 0.22 ceiling is a model limitation and the field's current benchmarking is sound. If no — if Cochrane ratings systematically violate the tool's own algorithm given the same paper text — then κ-against-experts measures agreement with expert *deviation*, and the 0.22 ceiling is a property of the reference standard, not of model capability. The companion paper documents the ceiling empirically (four diverse LLMs all cluster within 0.021 κ_quad of each other on the strict pre-registered metric — 0.011 under the inclusive sensitivity analysis — and all within 0.04 of EM's published Claude 2 0.22). This paper explains it.
 
 **Contributions.**
 

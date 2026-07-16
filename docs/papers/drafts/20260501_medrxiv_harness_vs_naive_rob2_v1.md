@@ -1,7 +1,7 @@
 # A decomposed, signalling-question-driven LLM harness for Cochrane RoB 2: methods detail and four-model replication of the Eisele-Metzger 2025 dataset (methods-companion paper)
 
 **Filename:** `docs/papers/drafts/20260501_medrxiv_harness_vs_naive_rob2_v1.md`
-**Status:** v2 — repositioned as methods-companion to the algorithm-conformance paper on 2026-05-06. The empirical sections (§3.1–§3.8) describe the harness performance characteristics and four-model κ ceiling that the conformance paper mechanistically explains. Findings labelled "pending" in v1 are now resolved (all four models complete; canonical DB merged 2026-05-06).
+**Status:** v3 — κ tables regenerated 2026-07-17 after the 2026-07-16 code audit fixes (FALLBACK tagging of the live path; strict-mode κ; ensemble-overall corrected to worst-wins over ensemble domains). The pre-registered primary is now the **strict** (model-emitted, FALLBACK-excluded) metric; inclusive numbers are reported as sensitivity analysis. The corrected ensemble synthesis removes the former "qwen exception" in §3.7 — naive ensembling now underperforms the best single pass for all four models. (v2 2026-05-06 repositioned the paper as methods-companion to the algorithm-conformance paper; all four models complete.)
 **Stage:** post-Phase-6 (all four models × both protocols × three passes complete; algorithm-conformance audit run on 2026-05-06).
 **Primary paper:** `20260423_medrxiv_assessor_algorithm_conformance_v1.md` — reports the algorithm-conformance audit (5,426 cells, 7.6:1 lenient-vs-strict asymmetry, 128 unanimous-LLM-vs-Cochrane disagreements with full evidence-quote corroboration) on the same dataset, using the harness this paper describes. This methods-companion paper exists to give that audit a fully reproducible methodological foundation; the κ-vs-Cochrane numbers reported here are the empirical phenomenon the primary paper explains.
 
@@ -21,7 +21,7 @@ Alternates retained:
 - **Context.** Eisele-Metzger et al. (2025, *Research Synthesis Methods*) reported Claude 2 vs Cochrane κ = 0.22 on this corpus and concluded LLMs cannot replace humans. The primary paper's algorithm-conformance audit shows the κ ceiling is bounded by Cochrane reviewer drift from the tool's own decision algorithm (47.5% of cells, 7.6:1 lenient-vs-strict asymmetry across all four LLMs in this study) rather than by model capability. The role of this companion paper is to characterise the harness whose outputs make that audit possible.
 - **Pre-registered methodology.** Pre-analysis plan and prompt specification locked in commit `7854a1c` on 2026-04-30 prior to any model output. Decomposed harness: 5 per-domain LLM calls (each emitting signalling answers, judgement, justification, and verbatim evidence quotes under a JSON schema) plus 1 synthesis call per (RCT × pass), with overall worst-wins applied deterministically in code.
 - **Models and runs.** Four vanilla LLMs spanning ~30× parameter range and three architectures: `gpt-oss:20b` (dense open-weights), `gemma4:26b-a4b-it-q8_0` (MoE), `qwen3.6:35b-a3b-q8_0` (MoE), and `claude-sonnet-4-6` (frontier API). Three independent passes per (model × protocol).
-- **Key empirical findings.** (1) Best-pass κ_quad vs Cochrane on full-text clusters tightly across all four models — 0.257, 0.254, 0.253, 0.264 (0.011 spread) — all within rounding of EM's published Claude 2 0.22. Frontier scale does not exceed the ceiling. (2) Run-to-run reliability is where models separate: mean pairwise κ_quad of 0.797 (gemma; the highest in the comparison), 0.768 (Sonnet), 0.665 (qwen), 0.441 (gpt-oss). Three of four exceed Minozzi 2021's trained-human-with-implementation-document Fleiss κ of 0.42. (3) Empirical temperature-sensitivity sweep (n=10, gpt-oss × fulltext, T ∈ {0, 0.3, 0.6, 0.8, 1.2}) shows κ_quad varies by only 0.028 across the T=0.3–0.8 plateau — run-to-run κ is structural stability, not sampling-determinism artefact. (4) Naive ensembling worsens κ vs Cochrane for three of four models; the exception is the most label-balanced (qwen). (5) Model self-conformance (model emits a judgement consistent with its own signalling under the Cochrane algorithm) is 95.7% pooled.
+- **Key empirical findings.** (1) Best-pass κ_quad vs Cochrane on full-text clusters tightly across all four models — 0.257, 0.254, 0.253, 0.236 (0.021 spread; strict model-emitted metric) — all within 0.04 of EM's published Claude 2 0.22. Frontier scale does not exceed the ceiling. (2) Run-to-run reliability is where models separate: mean pairwise κ_quad of 0.797 (gemma; the highest in the comparison), 0.754 (Sonnet), 0.665 (qwen), 0.441 (gpt-oss). Three of four exceed Minozzi 2021's trained-human-with-implementation-document Fleiss κ of 0.42. (3) Empirical temperature-sensitivity sweep (n=10, gpt-oss × fulltext, T ∈ {0, 0.3, 0.6, 0.8, 1.2}) shows κ_quad varies by only 0.028 across the T=0.3–0.8 plateau — run-to-run κ is structural stability, not sampling-determinism artefact. (4) Naive per-domain majority-vote ensembling with worst-wins synthesis underperforms the best single pass for all four models on both protocols (Δκ_quad −0.011 to −0.066); because per-pass disagreement is dominated by systematic conservative bias rather than random noise, voting cannot recover it. (5) Model self-conformance (model emits a judgement consistent with its own signalling under the Cochrane algorithm) is 95.7% pooled.
 - **Conclusion.** The harness is faithful: under it, four diverse vanilla LLMs converge on essentially identical κ-vs-Cochrane and high model self-conformance. The κ ≈ 0.22 ceiling is invariant across model architecture, parameter scale, and decoding regime — strongly suggesting reference-standard non-conformance as the bound, which the primary paper demonstrates directly. Frontier-tier LLM access is not a prerequisite for production RoB 2 tooling.
 
 ## 1. Introduction (≤ 600 words)
@@ -114,11 +114,11 @@ API success rates were uniformly high (≥98.9%) across all (model × protocol �
 
 2. **Schema drift (Sonnet, 91 calls).** Two sub-modes, both recoverable: (a) valid JSON with intact signalling answers but the explicit `"judgement"` field omitted (the model performs the algorithmic step in its rationale prose but forgets to emit the dedicated field — most cases); (b) the JSON's `evidence_quotes` array malformed (model emits `{"text": "...", "Methods"}` — missing the `"section":` key), breaking strict `json.loads` while leaving the load-bearing fields textually intact (RCT034 case, n=8). **Recoverable**: a per-domain algorithmic fallback (running the locked Cochrane decision rules in code on the model's signalling answers) plus a lenient regex-based extractor recover every case. Synthesis-call rows that depended on those domains were re-derived via Cochrane's worst-wins rule. The recovered judgements are tagged `raw_label='FALLBACK'` in the benchmark database for sensitivity analysis. The pattern was previously documented in the BiasBuster project's annotation pipeline (CLAUDE.md note on PMID 36101416).
 
-**Sensitivity analysis (§3.2 onwards reports the post-recovery numbers as primary):** the FALLBACK tag enables filtering. With `valid=1 AND raw_label != 'FALLBACK'` (strict-parse only) the headline κ-vs-Cochrane numbers shift slightly downward for Sonnet × fulltext (n drops from 91 to ~75–81 per pass; mean κ_quad drops from 0.21 to 0.17) but the qualitative conclusions are unchanged. Both versions are reported in the supplementary table.
+**Strict vs inclusive reporting (§3.2 onwards reports the strict numbers as primary):** the FALLBACK tag enables filtering. The pre-registered primary metric is the *model-emitted* judgement, so the primary tables use `valid=1 AND raw_label != 'FALLBACK'` (strict). Including the algorithmic-fallback recoveries (inclusive mode) shifts Sonnet × fulltext upward (n rises from 75–81 to 91 per pass; mean κ_quad rises from 0.17 to 0.21) but the qualitative conclusions are unchanged; only Sonnet rows differ between modes. Inclusive numbers are reported as a sensitivity analysis in the supplementary table.
 
 ### 3.2 Cohen's κ vs Cochrane (overall) — primary metric
 
-Each model evaluated on n=91 RCTs (the 9 RCTs published in non-PubMed-indexed regional journals — see §3.1 — were unrecoverable for both protocols), three independent passes per (model × protocol). Sonnet 4.6 numbers include algorithmic-fallback judgements (§3.1); strict-parse-only Sonnet numbers are reported in supplementary S5.
+Each model evaluated on n=91 RCTs (the 9 RCTs published in non-PubMed-indexed regional journals — see §3.1 — were unrecoverable for both protocols), three independent passes per (model × protocol). All rows report the **strict** (model-emitted, FALLBACK-excluded) pre-registered primary metric; for Sonnet 4.6 this reduces n on the affected passes (fallback recoveries excluded, §3.1). Inclusive (fallback-included) Sonnet numbers are reported in supplementary S5.
 
 | Model × protocol × pass | n | raw agreement | κ_unw | κ_lin | κ_quad |
 |---|---:|---:|---:|---:|---:|
@@ -141,28 +141,28 @@ Each model evaluated on n=91 RCTs (the 9 RCTs published in non-PubMed-indexed re
 | **qwen3.6:35b × fulltext × pass 1** | 91 | 0.516 | 0.235 | 0.235 | 0.234 |
 | **qwen3.6:35b × fulltext × pass 2** | 91 | 0.473 | 0.164 | 0.202 | **0.253** |
 | **qwen3.6:35b × fulltext × pass 3** | 91 | 0.462 | 0.158 | 0.182 | 0.214 |
-| **Sonnet 4.6 × abstract × pass 1** ¹ | 91 | 0.440 | 0.058 | 0.093 | 0.156 |
-| **Sonnet 4.6 × abstract × pass 2** ¹ | 91 | 0.440 | 0.058 | 0.057 | 0.057 |
-| **Sonnet 4.6 × abstract × pass 3** ¹ | 91 | 0.462 | 0.098 | 0.119 | 0.157 |
-| **Sonnet 4.6 × fulltext × pass 1** ¹ | 91 | 0.451 | 0.090 | 0.114 | 0.154 |
-| **Sonnet 4.6 × fulltext × pass 2** ¹ | 91 | 0.462 | 0.118 | 0.175 | **0.264** |
-| **Sonnet 4.6 × fulltext × pass 3** ¹ | 91 | 0.462 | 0.124 | 0.157 | 0.207 |
+| **Sonnet 4.6 × abstract × pass 1** ¹ | 89 | 0.427 | 0.037 | 0.069 | 0.126 |
+| **Sonnet 4.6 × abstract × pass 2** ¹ | 89 | 0.427 | 0.056 | 0.056 | 0.058 |
+| **Sonnet 4.6 × abstract × pass 3** ¹ | 90 | 0.456 | 0.097 | 0.119 | 0.157 |
+| **Sonnet 4.6 × fulltext × pass 1** ¹ | 75 | 0.413 | 0.049 | 0.060 | 0.079 |
+| **Sonnet 4.6 × fulltext × pass 2** ¹ | 81 | 0.469 | 0.122 | 0.166 | **0.236** |
+| **Sonnet 4.6 × fulltext × pass 3** ¹ | 79 | 0.456 | 0.133 | 0.160 | 0.203 |
 
-¹ Includes algorithmic-fallback judgements (raw_label='FALLBACK', see §3.1); strict-parse-only Sonnet fulltext numbers reported in supplementary S5.
+¹ Strict (model-emitted) metric: algorithmic-fallback judgements (raw_label='FALLBACK', §3.1) excluded, which reduces n on the affected passes. Inclusive Sonnet numbers (n=91 throughout; fulltext κ_quad 0.154 / 0.264 / 0.207) reported in supplementary S5.
 
 **Best-pass κ_quad on full-text, all four models tightly clustered:**
 
 | Model | Best-pass κ_quad fulltext | vs EM Claude 2 published 0.22 |
 |---|---:|---|
-| Sonnet 4.6 (frontier API) | **0.264** | within 0.04 |
 | gpt-oss:20b (open-weights, dense) | **0.257** | within 0.04 |
-| qwen3.6:35b-A3B (open-weights, MoE) | **0.253** | within 0.04 |
 | gemma4:26b-A4B (open-weights, MoE) | **0.254** | within 0.04 |
-| **range across 4 models** | **0.011** | |
+| qwen3.6:35b-A3B (open-weights, MoE) | **0.253** | within 0.04 |
+| Sonnet 4.6 (frontier API) | **0.236** | within 0.02 |
+| **range across 4 models** | **0.021** | |
 
-The four models span ~25× parameter range and three architectures (dense, MoE, frontier). On their best fulltext pass against single-rater Cochrane, they cluster within a 0.011-wide band — and they also lie within rounding of EM's published Claude 2 0.22 (which used a different model, naive prompting, and predates this generation by three model releases). **The κ-vs-Cochrane ceiling is a property of the reference standard, not the model.** Frontier-scale capability buys nothing on this metric.
+The four models span ~25× parameter range and three architectures (dense, MoE, frontier). On their best fulltext pass against single-rater Cochrane, they cluster within a 0.021-wide band — and they all lie within 0.04 of EM's published Claude 2 0.22 (which used a different model, naive prompting, and predates this generation by three model releases). **The κ-vs-Cochrane ceiling is a property of the reference standard, not the model.** Frontier-scale capability buys nothing on this metric. (Under the inclusive sensitivity analysis Sonnet's best pass is 0.264 and the band width is 0.011 — the clustering is robust to either reporting mode.)
 
-**Mean κ_quad on full-text** is similarly flat across the four models (0.21 / 0.23 / 0.23 / 0.21), confirming the best-pass clustering is not a single-pass-cherry-pick artefact.
+**Mean κ_quad on full-text** is similarly flat across the three open-weights models (0.21 / 0.23 / 0.23), confirming the best-pass clustering is not a single-pass-cherry-pick artefact. Sonnet's strict mean is lower (0.17), driven by pass 1, which loses the most rows to the FALLBACK exclusion (n=75, κ_quad 0.079 vs 0.154 inclusive); its inclusive mean is 0.21, in line with the others.
 
 ### 3.3 LLM-internal run-to-run reliability — the headline result
 
@@ -187,19 +187,19 @@ This empirically dispels the "is run-to-run κ inflated by sampling determinism"
 | Source | mean run-to-run κ_quad | vs Minozzi 2021 (κ=0.42) |
 |---|---:|---|
 | **gemma4:26b-A4B × fulltext** | **0.797** | **1.90×** — highest of any model tested |
-| **Sonnet 4.6 × fulltext** | **0.768** | **1.83×** |
+| **Sonnet 4.6 × fulltext** | **0.754** | **1.80×** |
 | qwen3.6:35b-A3B × fulltext | 0.665 | 1.58× |
 | gemma4:26b-A4B × abstract | 0.623 | 1.48× |
-| Sonnet 4.6 × abstract | 0.601 | 1.43× |
+| Sonnet 4.6 × abstract | 0.594 | 1.41× |
 | gpt-oss:20b × fulltext | 0.441 | 1.05× — at the ceiling |
 | qwen3.6:35b-A3B × abstract | 0.370 | 0.88× — just below the ceiling |
 | gpt-oss:20b × abstract | 0.311 | 0.74× — between Minozzi 2020 and 2021 |
 | Minozzi 2021 — 4 trained humans, with implementation document | 0.420 | reference: published trained-human ceiling |
 | Minozzi 2020 — 4 trained humans, no implementation document | 0.160 | reference: published untrained-human floor |
 
-**On the fulltext protocol, all four LLMs under the harness match or exceed the trained-human-vs-human Fleiss κ of 0.42** (gpt-oss exactly at it, qwen at 1.6×, Sonnet at 1.8×, gemma at 1.9×). This is the central finding: under structural prompting that mirrors the RoB 2 algorithm, modern LLMs are not merely human-grade — three of the four are substantially more consistent with themselves than trained human reviewers are with each other on the same task.
+These are strict-mode values (FALLBACK rows excluded; only Sonnet is affected — inclusive: fulltext 0.768, abstract 0.601). **On the fulltext protocol, all four LLMs under the harness match or exceed the trained-human-vs-human Fleiss κ of 0.42** (gpt-oss exactly at it, qwen at 1.6×, Sonnet at 1.8×, gemma at 1.9×). This is the central finding: under structural prompting that mirrors the RoB 2 algorithm, modern LLMs are not merely human-grade — three of the four are substantially more consistent with themselves than trained human reviewers are with each other on the same task.
 
-**The frontier-vs-open-weights surprise.** Gemma 4's 26B-parameter open-weights MoE achieves the highest run-to-run κ_quad of any model in the comparison, edging the frontier API model (0.797 vs 0.768). This is a striking finding: the architectural choice (sparse-activation MoE, open weights) and consistency-vs-cost trade-off favours gemma for production RoB 2 tooling where reproducibility is the operating constraint. We do not claim gemma is *better* in any absolute sense — it under-calls "low" and over-calls "high" relative to Cochrane (§3.8) — only that on the LLM-internal-consistency dimension, frontier-scale buys nothing here either.
+**The frontier-vs-open-weights surprise.** Gemma 4's 26B-parameter open-weights MoE achieves the highest run-to-run κ_quad of any model in the comparison, edging the frontier API model (0.797 vs 0.754). This is a striking finding: the architectural choice (sparse-activation MoE, open weights) and consistency-vs-cost trade-off favours gemma for production RoB 2 tooling where reproducibility is the operating constraint. We do not claim gemma is *better* in any absolute sense — it under-calls "low" and over-calls "high" relative to Cochrane (§3.8) — only that on the LLM-internal-consistency dimension, frontier-scale buys nothing here either.
 
 Per-comparison detail for the two best-performing models on fulltext:
 
@@ -234,26 +234,28 @@ Of the 8 valid `low` overall judgements gpt-oss:20b produced across the three fu
 
 Across the 5 unique RCTs in the gpt-oss audit set (§3.5), the pattern most often disrupting agreement with Cochrane was D1 flipping between `low` and `high` across passes. D2–D5 were comparatively stable. This led us to test a per-domain majority-vote ensemble — see §3.7.
 
-### 3.7 Ensemble-of-3 majority vote is mostly *worse* than the best single pass — except for qwen
+### 3.7 Ensemble-of-3 majority vote is *worse* than the best single pass for all four models
 
-A naive prediction is that majority voting across the three passes should improve agreement with Cochrane by averaging out random noise. Across all four models the data are mixed, with three models showing the ensemble *underperforming* their best single pass and one (qwen3.6) showing a small ensemble *gain*:
+A naive prediction is that majority voting across the three passes should improve agreement with Cochrane by averaging out random noise. The ensemble here is per-domain: each signalling domain (D1–D5) is a strict majority vote across the three passes, and the ensemble overall is then the worst of those five ensemble domains (RoB 2 worst-wins), not a direct majority vote of the passes' overall labels. On both protocols and all four models, the ensemble underperforms the best single pass:
 
 | Source | best single-pass κ_quad | ensemble-of-3 κ_quad | Δ |
 |---|---:|---:|---:|
-| gpt-oss:20b × fulltext | 0.257 (pass 1) | 0.169 | −0.088 |
-| gemma4:26b × fulltext | 0.254 (pass 3) | 0.216 | −0.038 |
-| **qwen3.6:35b × fulltext** | 0.253 (pass 2) | **0.265** | **+0.012** |
-| Sonnet 4.6 × fulltext | 0.264 (pass 2) | 0.208 | −0.056 |
-| gpt-oss:20b × abstract | 0.020 (pass 2) | −0.001 | −0.021 |
-| gemma4:26b × abstract | 0.117 (pass 1) | 0.135 | +0.018 |
+| gpt-oss:20b × fulltext | 0.257 (pass 1) | 0.191 | −0.066 |
+| gemma4:26b × fulltext | 0.254 (pass 3) | 0.236 | −0.018 |
+| qwen3.6:35b × fulltext | 0.253 (pass 2) | 0.241 | −0.012 |
+| Sonnet 4.6 × fulltext | 0.236 (pass 2) | 0.208 | −0.028 |
+| gpt-oss:20b × abstract | 0.020 (pass 2) | −0.037 | −0.057 |
+| gemma4:26b × abstract | 0.117 (pass 1) | 0.106 | −0.011 |
 | qwen3.6:35b × abstract | 0.155 (pass 3) | 0.098 | −0.057 |
 | Sonnet 4.6 × abstract | 0.157 (pass 3) | 0.123 | −0.034 |
 
-**Mechanism for the most-common case (ensemble loses).** When the model's *correct* judgement is the minority across the three passes (e.g. for gpt-oss × fulltext: RCT055 D1 = low / high / high → majority is "high" → ensemble overall = high; Cochrane gold = low), the worst-wins synthesis ratchets the ensemble back toward `some_concerns`/`high`. Because the models have a *systematic* conservative bias (they under-call `low` relative to Cochrane — see §3.8), ensembling does not cancel noise; it amplifies the bias.
+(An earlier draft of this table, computed before the ensemble-overall synthesis was corrected to worst-wins over the five ensemble domains, showed qwen × fulltext as a small positive exception; under the corrected synthesis no model's ensemble beats its best single pass.)
 
-**Why qwen × fulltext is the exception.** Qwen has the most label-balanced distribution across passes (§3.8), with mean "high" count of 23 essentially matching Cochrane's 22. When the model's per-domain output is closer to evenly split rather than skewed toward conservative judgements, majority vote across passes does what we intuitively expect — averages noise and pushes toward the central tendency.
+**Mechanism.** When the model's *correct* judgement is the minority across the three passes (e.g. for gpt-oss × fulltext: RCT055 D1 = low / high / high → majority is "high" → ensemble overall = high; Cochrane gold = low), the worst-wins synthesis ratchets the ensemble back toward `some_concerns`/`high`. Because the models have a *systematic* conservative bias (they under-call `low` relative to Cochrane — see §3.8), ensembling does not cancel noise; it amplifies the bias. A single lost `low` in any one domain's majority is unrecoverable: worst-wins propagates it to the ensemble overall.
 
-**Methodological takeaway.** Naive ensembling is the wrong tool when the per-pass disagreement source is *bias* rather than *noise*. The qwen exception shows the technique is not categorically wrong — it works when bias is small enough — but it's not a reliable mitigation across models. Confidence-calibrated weighting or per-domain best-pass selection would likely outperform; we flag this as a clear avenue for future work but do not pursue it here.
+**The ensemble does sit above the per-pass *mean* for the three models with higher run-to-run reliability** (gemma 0.236 vs mean 0.227; qwen 0.241 vs 0.234; Sonnet 0.208 vs strict mean 0.173) while falling below it for the noisiest model (gpt-oss 0.191 vs 0.210). So voting does average out some per-pass noise — it just cannot recover the best pass, because the residual disagreement with Cochrane is bias, not noise.
+
+**Methodological takeaway.** Naive ensembling is the wrong tool when the per-pass disagreement source is *bias* rather than *noise*: it stabilises the estimate around the model's systematic tendency instead of improving it. Confidence-calibrated weighting or per-domain best-pass selection would likely outperform; we flag this as a clear avenue for future work but do not pursue it here.
 
 ### 3.8 Models differ in label calibration; all four under-call "low" relative to Cochrane
 
@@ -271,9 +273,9 @@ Mean label-distribution across the three fulltext passes per model, vs Cochrane'
 
 1. **All four models under-call "low" by ~5–18× relative to Cochrane** (Cochrane: 36; models: 2–6). With so few "low" judgements, the κ vs Cochrane is mathematically bounded — even perfect agreement on the `some_concerns`/`high` partition cannot recover the missing `low` mass. **This conservatism is mechanistically explicable and not a bug.** The harness applies the RoB 2 decision algorithm strictly; signalling questions where the paper text does not explicitly confirm a "yes" become NI; the algorithm collapses NI in key questions to `some_concerns`; the worst-wins synthesis ratchets the overall judgement up. Cochrane reviewers, by contrast, apply implicit leniency that allows "low" assignments where evidence is reasonable but not strict.
 
-2. **Qwen has the most balanced label distribution.** Its mean "high" count of 23 essentially matches Cochrane's 22; it also calls "low" the most frequently of any of our models (6× per pass). This calibration explains why qwen's ensemble actually *improves* on its best single pass (§3.7) — when the model's bias is smaller, voting across noisy passes does help.
+2. **Qwen has the most balanced label distribution.** Its mean "high" count of 23 essentially matches Cochrane's 22; it also calls "low" the most frequently of any of our models (6× per pass). This calibration is reflected in the ensemble analysis (§3.7): qwen shows the smallest fulltext ensemble deficit of the four models (−0.012) — when the model's bias is smaller, voting across noisy passes loses less — but even the best-calibrated model's ensemble does not beat its best single pass.
 
-3. **Sonnet is the most extreme conservative on "high"** (mean 8 per pass vs Cochrane's 22 and gemma's 37). Combined with calling "low" only twice per pass on average, this means Sonnet effectively places ~75% of its overall judgements in `some_concerns`. This calibration profile is part of why Sonnet's mean κ vs Cochrane (0.21) is identical to gpt-oss's despite having higher run-to-run reliability — Sonnet is simply more pulled toward the modal `some_concerns` category.
+3. **Sonnet is the most extreme conservative on "high"** (mean 8 per pass vs Cochrane's 22 and gemma's 37). Combined with calling "low" only twice per pass on average, this means Sonnet effectively places ~75% of its overall judgements in `some_concerns`. This calibration profile is part of why Sonnet's mean κ vs Cochrane (0.21 inclusive; 0.17 strict) does not exceed gpt-oss's (0.21) despite having much higher run-to-run reliability — Sonnet is simply more pulled toward the modal `some_concerns` category.
 
 4. **Gemma is the most aggressive on "high"** (37 per pass, exceeding Cochrane's 22 by 70%). Gemma is the only model in our comparison that errs *over*-cautious rather than under-cautious — it flags more papers as high-risk than the human reviewer did.
 
@@ -283,11 +285,11 @@ This dovetails with the central argument of our companion paper (`20260423_medrx
 
 This is a methods-companion paper, so the discussion is correspondingly bounded. The substantive interpretation of the κ ≈ 0.22 ceiling is in the primary paper; what we can usefully say from the harness side follows.
 
-- **The κ ≈ 0.22 ceiling is invariant across the model space we tested.** Four LLMs trained independently by four organisations, spanning ~30× parameter range, three architectures (dense, MoE, frontier API), and a wide spread of run-to-run reliability (0.44 → 0.80) all converge on best-pass κ_quad of 0.253–0.264 vs Cochrane on full-text — a 0.011 spread, all within 0.04 of EM's published Claude 2 0.22. This invariance is the empirical phenomenon. The mechanistic explanation (47.5% of cells show Cochrane more lenient than the algorithm applied to multi-LLM-extracted signalling, 7.6:1 asymmetry; primary paper §3.3) is what the audit produces. Together, the two papers replace EM's "LLMs cannot replace humans" framing with a more precise reading: under structural prompting that mirrors the RoB 2 algorithm, four diverse vanilla LLMs are 95.7% self-conformant with the algorithm and converge on a κ ceiling bounded by the reference-standard's own non-conformance.
+- **The κ ≈ 0.22 ceiling is invariant across the model space we tested.** Four LLMs trained independently by four organisations, spanning ~30× parameter range, three architectures (dense, MoE, frontier API), and a wide spread of run-to-run reliability (0.44 → 0.80) all converge on best-pass κ_quad of 0.236–0.257 vs Cochrane on full-text — a 0.021 spread, all within 0.04 of EM's published Claude 2 0.22. This invariance is the empirical phenomenon. The mechanistic explanation (47.5% of cells show Cochrane more lenient than the algorithm applied to multi-LLM-extracted signalling, 7.6:1 asymmetry; primary paper §3.3) is what the audit produces. Together, the two papers replace EM's "LLMs cannot replace humans" framing with a more precise reading: under structural prompting that mirrors the RoB 2 algorithm, four diverse vanilla LLMs are 95.7% self-conformant with the algorithm and converge on a κ ceiling bounded by the reference-standard's own non-conformance.
 
-- **Frontier API access is not a prerequisite for production RoB 2 tooling.** Open-weights gemma4 (26B-parameter MoE) achieves the highest run-to-run κ_quad in our comparison (0.797), edging the frontier API model (0.768). Both substantially exceed Minozzi 2021's published trained-human-with-implementation-document Fleiss κ of 0.42 — gemma at 1.9×, Sonnet at 1.8× — placing them above any human-vs-human RoB 2 reliability published. Three of the four LLMs we tested exceed the trained-human ceiling. On a task where human reviewers achieve κ = 0.42 with structured guidance, three of four LLMs achieve κ ≥ 0.66 with themselves across passes. The deployment-relevant choice between models reduces to consistency-vs-cost trade-offs, not model validity.
+- **Frontier API access is not a prerequisite for production RoB 2 tooling.** Open-weights gemma4 (26B-parameter MoE) achieves the highest run-to-run κ_quad in our comparison (0.797), edging the frontier API model (0.754). Both substantially exceed Minozzi 2021's published trained-human-with-implementation-document Fleiss κ of 0.42 — gemma at 1.9×, Sonnet at 1.8× — placing them above any human-vs-human RoB 2 reliability published. Three of the four LLMs we tested exceed the trained-human ceiling. On a task where human reviewers achieve κ = 0.42 with structured guidance, three of four LLMs achieve κ ≥ 0.66 with themselves across passes. The deployment-relevant choice between models reduces to consistency-vs-cost trade-offs, not model validity.
 
-- **Naive ensembling failures are mechanistically informative.** Ensemble-of-3 majority vote produced κ vs Cochrane *below* the best single pass for three of four models. The noise source is systematic conservative bias (the worst-wins-with-NI-collapse pattern; §3.8) rather than random error; majority vote cannot rescue a biased rater. The exception (qwen × fulltext, +0.012) is the model with the most label-balanced output distribution. This is consistent with the primary paper's framing: the LLMs do not have an error problem, they have a strict-conformance pattern that disagrees with the human reviewer's drift.
+- **Naive ensembling failures are mechanistically informative.** Ensemble-of-3 per-domain majority vote with worst-wins synthesis produced κ vs Cochrane *below* the best single pass for all four models on both protocols. The disagreement source is systematic conservative bias (the worst-wins-with-NI-collapse pattern; §3.8) rather than random error; majority vote cannot rescue a biased rater — it stabilises the estimate around the bias. The deficit is smallest for the most label-balanced model (qwen × fulltext, −0.012) and largest for the noisiest (gpt-oss × fulltext, −0.066). This is consistent with the primary paper's framing: the LLMs do not have an error problem, they have a strict-conformance pattern that disagrees with the human reviewer's drift.
 
 - **Temperature is not the explanation for high run-to-run κ.** The empirical temperature-sensitivity sweep (§3.3) shows κ_quad varies by only 0.028 across the T=0.3–0.8 plateau on gpt-oss × fulltext (κ = 0.467 → 0.495), with κ = 1.000 at T=0 (vacuous determinism) and κ = 0.306 at T=1.2 (entropy ablation). The locked methodology operates at genuinely stochastic temperatures (T = 0.8 / T = 1.0); the run-to-run κ reflects measurable structural stability, not sampling determinism. This addresses the most obvious objection to the run-to-run reliability claim.
 
@@ -312,7 +314,7 @@ This is a methods-companion paper, so the discussion is correspondingly bounded.
 
 ## 6. Conclusion
 
-This methods-companion paper documents a decomposed, signalling-question-driven LLM-RoB 2 harness and characterises its performance on the Eisele-Metzger 2025 100-RCT corpus across four diverse LLMs. Four vanilla LLMs spanning ~30× the parameter range and three architectures converge on essentially identical agreement with single Cochrane reviewer judgements (best-pass κ_quad spread of 0.011), three of four exceed the trained-human-vs-human Fleiss κ ceiling on internal consistency, and pooled model self-conformance — model emits a judgement consistent with its own signalling under the Cochrane algorithm — is 95.7%. The κ ≈ 0.22 ceiling is invariant across the model space; the harness is faithful. The mechanistic explanation for that ceiling — Cochrane reviewer drift from the tool's own decision algorithm in 47.5% of cells, 7.6:1 lenient-vs-strict asymmetry, invariant across all four LLM raters — is reported in the primary paper (`20260423_medrxiv_assessor_algorithm_conformance_v1.md`). **The harness produces algorithm-conformant raters; the primary paper's audit shows that is what makes the disagreement with Cochrane interpretable.** Frontier-tier LLM access is not a prerequisite — open-weights MoE models under the same harness exceed the frontier API model on run-to-run reliability while matching it on κ-vs-Cochrane.
+This methods-companion paper documents a decomposed, signalling-question-driven LLM-RoB 2 harness and characterises its performance on the Eisele-Metzger 2025 100-RCT corpus across four diverse LLMs. Four vanilla LLMs spanning ~30× the parameter range and three architectures converge on essentially identical agreement with single Cochrane reviewer judgements (best-pass κ_quad spread of 0.021 on the strict pre-registered metric), three of four exceed the trained-human-vs-human Fleiss κ ceiling on internal consistency, and pooled model self-conformance — model emits a judgement consistent with its own signalling under the Cochrane algorithm — is 95.7%. The κ ≈ 0.22 ceiling is invariant across the model space; the harness is faithful. The mechanistic explanation for that ceiling — Cochrane reviewer drift from the tool's own decision algorithm in 47.5% of cells, 7.6:1 lenient-vs-strict asymmetry, invariant across all four LLM raters — is reported in the primary paper (`20260423_medrxiv_assessor_algorithm_conformance_v1.md`). **The harness produces algorithm-conformant raters; the primary paper's audit shows that is what makes the disagreement with Cochrane interpretable.** Frontier-tier LLM access is not a prerequisite — open-weights MoE models under the same harness exceed the frontier API model on run-to-run reliability while matching it on κ-vs-Cochrane.
 
 ## 7. Data and code availability
 
