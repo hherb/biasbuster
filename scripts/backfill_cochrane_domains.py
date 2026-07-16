@@ -13,14 +13,17 @@ Supports checkpoint/resume: on restart, papers already backfilled are
 skipped, and Cochrane reviews fully processed in a previous run are
 skipped via a PMCID checkpoint file.
 
-Usage:
-    uv run python backfill_cochrane_domains.py
+Usage (from repo root):
+    uv run python scripts/backfill_cochrane_domains.py
 """
 
 import asyncio
 import json
 import logging
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import Config
 from biasbuster.database import Database

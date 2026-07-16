@@ -124,10 +124,10 @@ Cochrane RoB) proportionally, with configurable per-source caps in
 
 ```bash
 # Export current DB seed data (papers + enrichments)
-uv run python seed_export.py export
+uv run python scripts/seed_export.py export
 
 # Export to a custom directory
-uv run python seed_export.py export --dir dataset/cleanseed_v2
+uv run python scripts/seed_export.py export --dir dataset/cleanseed_v2
 ```
 
 This reads from the SQLite database and writes compact JSONL (one JSON
@@ -138,10 +138,10 @@ mesh_terms, etc.) are decoded into native objects for clean diffs.
 
 ```bash
 # Restore seed data into the default DB (backs up existing DB first)
-uv run python seed_export.py import
+uv run python scripts/seed_export.py import
 
 # Restore into a specific DB
-uv run python seed_export.py import --db dataset/fresh.db
+uv run python scripts/seed_export.py import --db dataset/fresh.db
 ```
 
 Import automatically:

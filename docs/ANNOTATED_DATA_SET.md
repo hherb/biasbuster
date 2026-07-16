@@ -183,7 +183,7 @@ abstract-level detection.
 ### Quick check
 
 ```bash
-uv run python expert_rob_alignment_of_annotations.py
+uv run python scripts/expert_rob_alignment_of_annotations.py
 ```
 
 This compares annotations against Cochrane RoB 2 expert assessments
@@ -191,7 +191,7 @@ This compares annotations against Cochrane RoB 2 expert assessments
 report to stdout.  Redirect to a file if desired:
 
 ```bash
-uv run python expert_rob_alignment_of_annotations.py > alignment_report.md
+uv run python scripts/expert_rob_alignment_of_annotations.py > alignment_report.md
 ```
 
 ### What the report shows
@@ -258,13 +258,13 @@ uv run python expert_rob_alignment_of_annotations.py > alignment_report.md
 
 ```bash
 # 1. Start from seed data (or re-collect)
-uv run python seed_export.py import
+uv run python scripts/seed_export.py import
 
 # 2. Run annotation (takes several hours depending on model/API speed)
 uv run python pipeline.py --stage annotate --models deepseek
 
 # 3. Check alignment
-uv run python expert_rob_alignment_of_annotations.py
+uv run python scripts/expert_rob_alignment_of_annotations.py
 
 # 4. (Optional) Human review via NiceGUI web tool, then export
 uv run python pipeline.py --stage export

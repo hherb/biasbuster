@@ -6,9 +6,11 @@
 #   - 5 control papers (re-annotate; --force ensures fresh run)
 #   - 11 new papers for the expanded validation
 #
-# Usage:  nohup ./run_v5a_validation.sh > v5a_validation.log 2>&1 &
+# Usage (from repo root):
+#   nohup ./scripts/run_v5a_validation.sh > v5a_validation.log 2>&1 &
 
 set -u
+cd "$(dirname "$0")/.."
 
 # All 16 papers with cached JATS full text, Cochrane RoB + 1 manual
 PMIDS="32318744 32382720 32841300 33033445 34435694 35409805 36110787 \
@@ -42,7 +44,7 @@ echo ""
 echo "=============================================================="
 echo "$(date) | computing Cochrane-agreement report"
 echo "=============================================================="
-uv run python compare_vs_cochrane.py --models \
+uv run python scripts/compare_vs_cochrane.py --models \
   anthropic_fulltext_decomposed,ollama:gemma4:26b-a4b-it-q8_0_fulltext_decomposed,ollama:gpt-oss:20b_fulltext_decomposed
 
 echo ""

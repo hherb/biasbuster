@@ -24,8 +24,8 @@ concerns" → biasbuster "moderate"; Cochrane "high" → biasbuster "high".
 Biasbuster "none" is folded into "low" for comparison, and "critical"
 into "high", so both scales reduce to a common 3-level ordinal.
 
-Usage:
-    uv run python compare_vs_cochrane.py \\
+Usage (from repo root):
+    uv run python scripts/compare_vs_cochrane.py \\
         --models anthropic_fulltext_decomposed,ollama:gemma4:26b-a4b-it-q8_0_fulltext_decomposed
 """
 from __future__ import annotations

@@ -5,19 +5,23 @@ Compares LLM bias annotations against expert Risk of Bias assessments
 (Cochrane RoB 2, human reviews) to measure annotation quality. Prints
 a detailed Markdown report to stdout.
 
-Usage:
-    uv run python expert_rob_alignment_of_annotations.py
-    uv run python expert_rob_alignment_of_annotations.py --db dataset/biasbuster.db
-    uv run python expert_rob_alignment_of_annotations.py > alignment_report.md
+Usage (from repo root):
+    uv run python scripts/expert_rob_alignment_of_annotations.py
+    uv run python scripts/expert_rob_alignment_of_annotations.py --db dataset/biasbuster.db
+    uv run python scripts/expert_rob_alignment_of_annotations.py > alignment_report.md
 """
 
 import argparse
 import json
 import logging
+import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from biasbuster.database import Database
 from config import Config
