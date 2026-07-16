@@ -154,7 +154,7 @@ Import automatically:
 After import, continue the pipeline from the annotation stage:
 
 ```bash
-uv run python pipeline.py --stage annotate
+uv run python -m biasbuster.pipeline --stage annotate
 ```
 
 ## Format

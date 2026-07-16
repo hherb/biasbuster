@@ -185,7 +185,7 @@ Applied automatically for `gpt-oss-20b`. The MoE architecture requires special h
 While training runs in Docker, monitor progress from the host in a separate terminal:
 
 ```bash
-uv run python -m utils.training_monitor \
+uv run python -m biasbuster.utils.training_monitor \
     --metrics-dir training_output/qwen3.5-27b-lora
 ```
 

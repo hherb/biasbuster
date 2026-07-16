@@ -5,7 +5,7 @@
 ## Run Collection
 
 ```bash
-uv run python pipeline.py --stage collect
+uv run python -m biasbuster.pipeline --stage collect
 ```
 
 This fetches abstracts from all three sources and stores them in the SQLite database. The process is resumable -- if interrupted, re-running the command will skip already-collected papers.
@@ -84,7 +84,7 @@ This long-running script (~5-6 hours due to DeepSeek API calls) supports checkpo
 After collection, run the seed step to clean and enrich the raw data:
 
 ```bash
-uv run python pipeline.py --stage seed
+uv run python -m biasbuster.pipeline --stage seed
 ```
 
 Or run it standalone with individual steps:

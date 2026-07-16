@@ -157,7 +157,7 @@ The MLX callback writes the same `metrics.jsonl` format, so the existing trainin
 
 ```bash
 # In a separate terminal
-uv run python -m utils.training_monitor \
+uv run python -m biasbuster.utils.training_monitor \
     --metrics-dir training_output/qwen3.5-9b-4bit-mlx-lora
 ```
 
@@ -251,7 +251,7 @@ uv run python -c "import mlx_lm; print(mlx_lm.__version__)"
 
 ```bash
 # Re-export alpaca data if corrupted
-uv run python pipeline.py --stage export
+uv run python -m biasbuster.pipeline --stage export
 
 # Force reconversion by removing cached chat data
 rm -rf dataset/export/chat/

@@ -6,10 +6,10 @@
 
 ```bash
 # Default: Anthropic Claude only
-uv run python pipeline.py --stage annotate
+uv run python -m biasbuster.pipeline --stage annotate
 
 # Multiple backends
-uv run python pipeline.py --stage annotate --models anthropic,deepseek
+uv run python -m biasbuster.pipeline --stage annotate --models anthropic,deepseek
 ```
 
 ## The Five Bias Domains
