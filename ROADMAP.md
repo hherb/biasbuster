@@ -48,4 +48,4 @@ current session-level detail lives in HANDOVER.md, historical records in
 | ✅ Done | Session maintenance scaffolding | HANDOVER.md, ROADMAP.md, `nextsession`/`fixall` skills (2026-07-16) |
 | ⬜ Planned | Dependabot triage | 33 alerts (12 high) on the default branch |
 | ✅ Done | pytest collection scoping | `testpaths = ["tests"]` so bare `uv run pytest` no longer collects stray `worktrees/` checkouts (2026-07-16) |
-| ⬜ Planned | Fix stale tests | #21 (export split fixture vs PMID grouping), #22 (RoB 2 missing-judgement fallback expectation) |
+| ✅ Done | Fix stale tests | #21 (export split fixture vs PMID grouping), #22 (RoB 2 missing-judgement fallback expectation) — realigned 2026-07-17 |

@@ -1,9 +1,10 @@
 # HANDOVER — BiasBuster
 
-_Last updated: 2026-07-16 (maintenance scaffolding introduced: this file, ROADMAP.md,
-and the `nextsession`/`fixall` skills. Seeded from the 2026-05-01 next-session runbook,
-now archived at `docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`. All state below was
-re-verified on 2026-07-16 against the live benchmark DB, the test suite, and GitHub.)_
+_Last updated: 2026-07-17 (stale tests #21/#22 fixed; suite green at 576 passed.
+Maintenance scaffolding introduced 2026-07-16: this file, ROADMAP.md, and the
+`nextsession`/`fixall` skills, seeded from the 2026-05-01 next-session runbook,
+now archived at `docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`. DB/GitHub state
+below was re-verified 2026-07-16 against the live benchmark DB and GitHub.)_
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -31,8 +32,10 @@ The §9 publishability gate was already cleared with gpt-oss:20b and Sonnet 4.6.
   (two were paper-critical: untagged live-path FALLBACK ingest, and κ scripts that
   could not exclude FALLBACK rows). PR #20 merged; issues #7–#19 closed. The full
   finding-by-finding record is in the archived runbook.
-- **Test suite: 574 passed, 2 failed** (`uv run pytest`). Both failures are
-  stale tests asserting pre-fix behaviour — tracked as issues #21 and #22.
+- **Test suite: 576 passed, 0 failed** (`uv run pytest`). The two stale tests
+  (issues #21, #22) were realigned to the intended post-fix behaviour on
+  2026-07-17: distinct PMIDs for the PMID-grouped export split, and the
+  algorithm-derived judgement for the RoB 2 missing-judgement fallback.
 - **The reported κ tables are stale**: `phase6_results.{md,csv}` were generated
   2026-05-06, before the FALLBACK/strict-mode fixes landed, and no
   `phase6_results.strict.*` files exist yet. The regeneration gate below is the
@@ -40,17 +43,7 @@ The §9 publishability gate was already cleared with gpt-oss:20b and Sonnet 4.6.
 
 ## Open work (in priority order)
 
-### 1. Fix the two failing tests (issues #21, #22)
-
-- **#22** `tests/test_cochrane_rob2.py::TestDomainResponseParser::test_missing_judgement_with_answers_defaults_to_some_concerns`
-  — still asserts the old hardcoded `some_concerns`; the fixed assessor now derives
-  the judgement via `algorithms.derive_domain_judgement`. Update the test to assert
-  the algorithm-derived label.
-- **#21** `tests/test_export.py::TestExportDataset::test_split_proportions` — asserts
-  80/10/10 on a fixture that collapses into too few PMID groups after the
-  PMID-grouped-split fix. Rebuild the fixture with enough distinct PMIDs.
-
-### 2. Manuscript κ regeneration gate (needs the live DB)
+### 1. Manuscript κ regeneration gate (needs the live DB)
 
 Run against the canonical DB (and any shard) — the reported figures change:
 
@@ -70,7 +63,7 @@ Run against the canonical DB (and any shard) — the reported figures change:
    4-model picture; report inclusive numbers as a sensitivity analysis; drop the
    "(pending: gemma4 and qwen3.6)" caveats.
 
-### 3. Papers
+### 2. Papers
 
 - Primary draft: `docs/papers/drafts/20260501_medrxiv_harness_vs_naive_rob2_v1.md`
   (thesis: harness over model).
@@ -87,7 +80,7 @@ Run against the canonical DB (and any shard) — the reported figures change:
   future-work appendix (primary use would need a pre-reg amendment); OSF mirror of
   the pre-registration.
 
-### 4. Decisions needed from the repo owner
+### 3. Decisions needed from the repo owner
 
 - Personal review of the 5 systematic-failure RCTs (RCT024, RCT025, RCT034, RCT038,
   RCT062) before publication.
@@ -98,7 +91,7 @@ Run against the canonical DB (and any shard) — the reported figures change:
   Confirm before posting either.
 - Sign-off on the medrxiv_V5 Cochrane corpus rebuild design.
 
-### 5. Housekeeping (no issue filed)
+### 4. Housekeeping (no issue filed)
 
 - **33 Dependabot vulnerabilities** (12 high, 13 moderate, 8 low) flagged on the
   default branch — worth a triage pass.
