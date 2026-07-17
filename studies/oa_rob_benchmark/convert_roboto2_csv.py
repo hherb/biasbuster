@@ -141,17 +141,26 @@ def _signalling_by_domain(result: list[dict]) -> dict[str, dict[str, Any]]:
 def parse_manual_row(row: dict[str, str]) -> dict[str, Any] | None:
     """Convert one CSV row into a normalized ingestion record.
 
-    Returns ``None`` (never raises) for rows without a human
-    ``manual_assessment`` — those are LLM-assisted-only or unlabeled rows
-    that are not benchmark ground truth. The returned record carries the
-    experts' recorded RoB 2 judgements as ground truth, the real identity
-    fields (title/abstract/authors) for downstream PMID resolution, and the
-    raw signalling answers for provenance.
+    Returns ``None`` (never raises) for rows that are not usable benchmark
+    ground truth: rows without a human ``manual_assessment`` (LLM-assisted-only
+    or unlabeled), and rows whose ``manual_assessment`` cell is unparseable
+    JSON (logged, then dropped — one corrupt cell must not abort the whole
+    conversion). The returned record carries the experts' recorded RoB 2
+    judgements as ground truth, the real identity fields
+    (title/abstract/authors) for downstream PMID resolution, and the raw
+    signalling answers for provenance.
     """
     manual_cell = row.get("manual_assessment")
     if manual_cell is None or _is_empty_cell(manual_cell):
         return None
-    manual = json.loads(manual_cell)
+    try:
+        manual = json.loads(manual_cell)
+    except (json.JSONDecodeError, TypeError) as exc:
+        logger.warning(
+            "convert_roboto2_csv: paper_id=%s has an unparseable "
+            "manual_assessment cell (%s); skipping", row.get("paper_id"), exc,
+        )
+        return None
     if not manual:
         return None
     assessment = manual[0]
@@ -175,7 +184,20 @@ def parse_manual_row(row: dict[str, str]) -> dict[str, Any] | None:
     title = abstract = ""
     authors: list[str] = []
     if has_fulltext and parse_cell is not None:
-        paper_parse = json.loads(parse_cell)
+        try:
+            paper_parse = json.loads(parse_cell)
+        except (json.JSONDecodeError, TypeError) as exc:
+            # A corrupt paper_parse cell only costs this row its identity, not
+            # its (already-parsed) expert labels — emit it without full text
+            # rather than dropping it; the downstream ingest rejects a
+            # titleless record and logs that separately.
+            logger.warning(
+                "convert_roboto2_csv: paper_id=%s has an unparseable "
+                "paper_parse cell (%s); emitting without identity",
+                row.get("paper_id"), exc,
+            )
+            paper_parse = {}
+            has_fulltext = False
         title = str(paper_parse.get("title") or "").strip()
         abstract = str(paper_parse.get("abstract") or "").strip()
         authors = _author_names(paper_parse)

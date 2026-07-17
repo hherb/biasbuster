@@ -1,13 +1,20 @@
-"""Tests for the ROBoto2 title→PMID resolver's pure selection core.
+"""Tests for the ROBoto2 title→PMID resolver.
 
 ``select_best_title_match`` is where the wrong-document guard lives, so it is
 unit-tested exhaustively offline. The network wrapper ``resolve_pmid_by_title``
-is covered via the stubbed ingest test (its live PubMed calls are terminal-only).
+has its happy path covered via the stubbed ingest test (its live PubMed calls
+are terminal-only); its error handling — the fail-closed contract the ingest
+loop depends on — is covered here with ``fetch_with_retry`` stubbed to raise.
 """
+import httpx
+
+import studies.oa_rob_benchmark.title_resolver as title_resolver_module
+from biasbuster.utils.retry import RetryExhaustedError
 from studies.oa_rob_benchmark.title_resolver import (
     AMBIGUITY_MARGIN,
     TITLE_MATCH_THRESHOLD,
     _title_query,
+    resolve_pmid_by_title,
     select_best_title_match,
 )
 
@@ -77,4 +84,47 @@ def test_margin_constant_is_respected_at_boundary():
     # Best clears threshold; a same-title second PMID within margin → ambiguous.
     near = {"301": _TITLE, "302": _TITLE[:-3] + "xyz"}
     res = select_best_title_match(_TITLE, near, margin=AMBIGUITY_MARGIN)
-    assert res.reason in {"ambiguous_title", "title_search"}
+    assert res.reason == "ambiguous_title"
+
+
+class _FakeJsonResponse:
+    """Minimal stand-in for an httpx response carrying an esearch id-list."""
+
+    def __init__(self, idlist: list[str]) -> None:
+        self._idlist = idlist
+
+    def json(self) -> dict:
+        return {"esearchresult": {"idlist": self._idlist}}
+
+
+async def test_esearch_retry_exhaustion_fails_closed(monkeypatch):
+    """A spent-retries ``RetryExhaustedError`` on esearch must NOT propagate —
+    it resolves to an unresolved ``esearch_failed`` so a transient PubMed
+    outage never aborts the ingest run (the loop trusts this to fail closed)."""
+    async def boom(*_a, **_kw):
+        raise RetryExhaustedError(4, httpx.ConnectError("pubmed unreachable"))
+
+    monkeypatch.setattr(title_resolver_module, "fetch_with_retry", boom)
+    async with httpx.AsyncClient() as client:
+        res = await resolve_pmid_by_title(
+            client, _TITLE, pubmed_base="https://example.invalid/eutils",
+        )
+    assert res.pmid == ""
+    assert res.reason == "esearch_failed"
+
+
+async def test_efetch_retry_exhaustion_fails_closed(monkeypatch):
+    """esearch succeeds but efetch exhausts its retries — still fail closed
+    (``efetch_failed``), never raising into the ingest loop."""
+    async def fake(client, method, url, **_kw):
+        if "esearch" in url:
+            return _FakeJsonResponse(["301"])
+        raise RetryExhaustedError(4, httpx.ReadTimeout("efetch timed out"))
+
+    monkeypatch.setattr(title_resolver_module, "fetch_with_retry", fake)
+    async with httpx.AsyncClient() as client:
+        res = await resolve_pmid_by_title(
+            client, _TITLE, pubmed_base="https://example.invalid/eutils",
+        )
+    assert res.pmid == ""
+    assert res.reason == "efetch_failed"

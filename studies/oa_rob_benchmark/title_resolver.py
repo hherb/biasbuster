@@ -33,7 +33,7 @@ import httpx
 
 from biasbuster.collectors.pubmed_xml import parse_pubmed_xml_batch
 from biasbuster.collectors.study_pmid_resolver import _similarity
-from biasbuster.utils.retry import fetch_with_retry
+from biasbuster.utils.retry import RetryExhaustedError, fetch_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -113,10 +113,11 @@ def select_best_title_match(
     best_pmid, best_sim = scored[0]
     if best_sim < threshold:
         return TitleResolution("", best_sim, "below_threshold")
-    if len(scored) > 1:
-        second_pmid, second_sim = scored[1]
-        if second_pmid != best_pmid and (best_sim - second_sim) < margin:
-            return TitleResolution("", best_sim, "ambiguous_title")
+    # ``candidates`` is keyed by PMID, so the runner-up is always a distinct
+    # paper: a near-equal second score means a duplicate/near-duplicate
+    # publication we cannot safely disambiguate on title alone → reject.
+    if len(scored) > 1 and (best_sim - scored[1][1]) < margin:
+        return TitleResolution("", best_sim, "ambiguous_title")
     return TitleResolution(best_pmid, best_sim, RESOLUTION_METHOD)
 
 
@@ -152,7 +153,11 @@ async def resolve_pmid_by_title(
             params=esearch_params, max_retries=3, base_delay=1.0,
         )
         pmids = resp.json().get("esearchresult", {}).get("idlist", [])
-    except (httpx.HTTPError, ValueError) as exc:
+    except (httpx.HTTPError, RetryExhaustedError, ValueError) as exc:
+        # ``fetch_with_retry`` raises ``RetryExhaustedError`` (not an
+        # ``httpx.HTTPError``) once retries are spent — the common transient
+        # case (NCBI 429 rate-limit / 5xx) this resolver must fail closed on,
+        # so one unreachable PubMed never aborts the whole ingest run.
         logger.warning("title esearch failed for %r: %s", title, exc)
         return TitleResolution("", 0.0, "esearch_failed")
     if not pmids:
@@ -172,7 +177,9 @@ async def resolve_pmid_by_title(
             params=efetch_params, max_retries=3, base_delay=1.0,
         )
         articles = parse_pubmed_xml_batch(resp.text)
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, RetryExhaustedError) as exc:
+        # See the esearch handler above: a spent-retries ``RetryExhaustedError``
+        # must also fail closed here rather than propagate out of the ingest.
         logger.warning("candidate efetch failed for %r: %s", title, exc)
         return TitleResolution("", 0.0, "efetch_failed")
 

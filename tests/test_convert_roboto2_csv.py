@@ -106,6 +106,30 @@ def test_row_without_manual_assessment_is_skipped():
     assert parse_manual_row({"paper_id": "3", "manual_assessment": ""}) is None
 
 
+def test_unparseable_manual_assessment_is_dropped_not_raised():
+    """A corrupt manual_assessment cell is logged and dropped, never raised —
+    one bad cell must not abort the whole conversion."""
+    row = {"paper_id": "42", "manual_assessment": "{not valid json"}
+    assert parse_manual_row(row) is None
+
+
+def test_unparseable_paper_parse_keeps_labels_without_identity():
+    """A corrupt paper_parse cell costs the row its identity but not its
+    already-parsed expert labels: emitted with empty title, has_fulltext False."""
+    row = {
+        "paper_id": "43",
+        "paper_parse": "{not valid json",
+        "manual_assessment": _manual_cell(
+            ["Low", "Low", "Low", "Low", "Low"], "Low", [],
+        ),
+    }
+    record = parse_manual_row(row)
+    assert record is not None
+    assert record["title"] == ""
+    assert record["has_fulltext"] is False
+    assert record["rob2"]["overall"] == "low"
+
+
 def test_convert_csv_keeps_only_manual_rows(tmp_path):
     csv_path = tmp_path / "roboto2.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as handle:
