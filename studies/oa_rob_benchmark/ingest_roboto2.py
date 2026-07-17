@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from biasbuster.collectors.oa_license import OAStatus
+from studies.oa_rob_benchmark.exclusions import MANUAL_EXCLUSIONS
 from studies.oa_rob_benchmark.rob2_tuple import (
     CANONICAL_LEVELS, RoB2Tuple, normalise_level,
 )
@@ -234,6 +235,14 @@ async def ingest_roboto2(
             )
             continue
         pmid = resolution.pmid
+
+        # Human-verified exclusions (e.g. a secondary analysis mis-asserted as a
+        # trial) are dropped before any further network I/O, so the operator's
+        # decision survives re-runs rather than being silently re-admitted.
+        if pmid in MANUAL_EXCLUSIONS:
+            rejected += 1
+            store.log_reject({"pmid": pmid}, "manually_excluded", MANUAL_EXCLUSIONS[pmid])
+            continue
 
         oa = await fetch_oa_status(client, pmid, base=config.europmc_base)
         if not oa.in_oa_subset:

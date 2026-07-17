@@ -56,6 +56,27 @@ def test_accept_source_asserted_pubtype(tmp_path):
     assert store.count() == 1
 
 
+def test_reingest_preserves_manual_verified(tmp_path):
+    """A human's manual_verified=1 must survive a re-ingest of the same trial;
+    every other column still refreshes from the new item."""
+    store = BenchmarkStore(str(tmp_path / "b.db"))
+    store.upsert_item(_valid_item() | {"manual_verified": True})
+    # Re-ingest the same PMID with manual_verified back to False and a changed
+    # non-curation field.
+    store.upsert_item(_valid_item() | {"manual_verified": False, "rob2_overall": "low"})
+    row = store.all_items()[0]
+    assert row["manual_verified"] == 1          # curation preserved, not clobbered
+    assert row["rob2_overall"] == "low"         # other fields refreshed
+
+
+def test_delete_item(tmp_path):
+    store = BenchmarkStore(str(tmp_path / "b.db"))
+    store.upsert_item(_valid_item())
+    assert store.delete_item("111") is True
+    assert store.count() == 0
+    assert store.delete_item("111") is False    # already gone
+
+
 def test_reject_missing_fulltext_or_provenance(tmp_path):
     store = BenchmarkStore(str(tmp_path / "b.db"))
     with pytest.raises(LitmusError):

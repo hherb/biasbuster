@@ -57,6 +57,47 @@ def test_non_dict_record_is_dropped_not_raised():
     assert parse_record("not_a_dict") is None
 
 
+async def test_manually_excluded_pmid_is_skipped(tmp_path, monkeypatch):
+    """A resolved PMID in MANUAL_EXCLUSIONS is dropped before any further
+    network I/O and never admitted — the operator's exclusion survives re-runs."""
+    dataset = [{
+        "paper_id": "x", "title": "An excluded secondary analysis",
+        "rob2": {"overall": "low", "randomization": "low", "deviations": "low",
+                 "missing_outcome": "low", "measurement": "low", "reporting": "low"},
+        "signalling": {},
+    }]
+    dataset_path = tmp_path / "roboto2.json"
+    dataset_path.write_text(json.dumps(dataset), encoding="utf-8")
+    monkeypatch.setattr(store_module, "REJECTS_PATH", str(tmp_path / "rejects.jsonl"))
+    monkeypatch.setattr(ingest_module, "MANUAL_EXCLUSIONS", {"777": "secondary analysis"})
+
+    oa_calls: list[str] = []
+
+    async def fake_resolve(client, title, *, pubmed_base, ncbi_api_key="", **_kw):
+        return TitleResolution("777", 0.99, "title_search")
+
+    async def fake_fetch_oa_status(client, pmid, *, base):
+        oa_calls.append(pmid)  # must never be reached for an excluded PMID
+        raise AssertionError("OA lookup should not run for an excluded PMID")
+
+    monkeypatch.setattr(ingest_module, "resolve_pmid_by_title", fake_resolve)
+    monkeypatch.setattr(oa_license_module, "fetch_oa_status", fake_fetch_oa_status)
+
+    store = BenchmarkStore(str(tmp_path / "bench.db"))
+    config = SimpleNamespace(
+        pubmed_base="https://example.invalid/eutils",
+        europmc_base="https://example.invalid/europmc", ncbi_api_key="",
+    )
+    async with httpx.AsyncClient() as client:
+        report = await ingest_roboto2(str(dataset_path), store, client=client, config=config)
+
+    assert report.admitted == 0
+    assert store.count() == 0
+    assert oa_calls == []  # short-circuited before the OA network call
+    rules = {json.loads(l)["rule"] for l in (tmp_path / "rejects.jsonl").read_text().splitlines()}
+    assert rules == {"manually_excluded"}
+
+
 async def test_ingest_roboto2_end_to_end_stubbed(tmp_path, monkeypatch):
     """Exercise the async ingest loop with all network I/O stubbed out.
 
