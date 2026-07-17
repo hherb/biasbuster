@@ -1,6 +1,25 @@
 """Shared fixtures for biasbuster tests."""
 
+import sys
+from pathlib import Path
+
 import pytest
+
+# Repo-root modules (`config`, `annotate_single_paper`, `main`, `seed_database`,
+# `export`) live at the repository root — they are NOT part of the installed
+# `biasbuster` package — and are imported bare, e.g. `from config import Config`.
+# They resolve only when the repo root is on `sys.path`. In a settled venv that
+# holds three ways: the editable install's `.pth`, `pyproject.toml`'s
+# `[tool.pytest.ini_options] pythonpath = ["."]`, and this pin. The pin exists so
+# the guarantee does not rely on the editable install being fully materialised
+# (it can lag a fresh `uv sync` — the likely cause of the one-off
+# `ModuleNotFoundError: No module named 'config'` at annotate_single_paper.py
+# that motivated it) or on pytest's import mode. It is idempotent — a no-op when
+# the root is already present — and makes the otherwise-implicit "bare root
+# imports work in tests" contract explicit where maintainers will look.
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 
 @pytest.fixture
