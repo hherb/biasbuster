@@ -235,3 +235,23 @@ class TestApplyRecovery:
         assert conn.execute(
             "SELECT has_fulltext FROM benchmark_rct WHERE rct_id='RCTX'"
         ).fetchone()[0] == 0
+
+    def test_removes_stale_pdf_fulltext(self, tmp_path, monkeypatch) -> None:
+        # The recovery never fetches a PDF, so a wrong-paper paper.pdf left on
+        # disk would keep eval_input's has_fulltext True and contradict the DB.
+        monkeypatch.setattr(recover, "FULLTEXT_DIR", tmp_path)
+        conn = _make_db()
+        (tmp_path / "RCTX").mkdir()
+        (tmp_path / "RCTX" / "paper.pdf").write_bytes(b"%PDF-1.4 wrong paper")
+        plan = recover.RecoveryPlan(
+            rct_id="RCTX", old_pmid="99999", new_pmid="32871238",
+            new_title="Correct trial", new_doi="",
+            has_abstract=True, has_fulltext=False, fulltext_source="",
+            model_judgment_rows=2, eval_run_rows=1,
+            abstract_text="Correct abstract", jats_xml="",
+        )
+        recover.apply_recovery(conn, plan)
+        assert not (tmp_path / "RCTX" / "paper.pdf").exists()
+        assert conn.execute(
+            "SELECT has_fulltext FROM benchmark_rct WHERE rct_id='RCTX'"
+        ).fetchone()[0] == 0

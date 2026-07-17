@@ -270,12 +270,16 @@ def assess_obtainability(row: sqlite3.Row, client: httpx.Client) -> Obtainabilit
 
     verdict = classify_verdict(best.coverage, best.pmid, oa)
     note = "" if accepted else f"best coverage {best.coverage:.2f} < {MIN_MATCH_COVERAGE} gate"
+    resolved_pmid = best.pmid if accepted else ""
     if best.pmid == (row["pmid"] or "") and accepted:
+        # The resolver re-selected the same wrong PMID: not a genuine recovery,
+        # so report no resolved paper and force exclude (needs a manual PMID).
         note = "resolver still returns the same (wrong) PMID — needs manual PMID"
         verdict = "exclude"
+        resolved_pmid = ""
     return ObtainabilityResult(
         rct_id=rct_id, tier=tier, wrong_pmid=row["pmid"] or "",
-        resolved_pmid=best.pmid if accepted else "",
+        resolved_pmid=resolved_pmid,
         resolved_title=best.title, coverage=best.coverage,
         oa_fulltext=oa, verdict=verdict, note=note,
     )
@@ -461,6 +465,13 @@ def apply_recovery(conn: sqlite3.Connection, plan: RecoveryPlan) -> None:
         jats_path.write_text(plan.jats_xml, encoding="utf-8")
     elif jats_path.exists():
         jats_path.unlink()  # remove the stale wrong-paper full text
+    # The recovery path only ever re-fetches JATS full text, so a leftover
+    # paper.pdf is always the wrong paper's full text. eval_input.py counts a
+    # stale paper.pdf toward has_fulltext, so drop it to keep the on-disk state
+    # consistent with the recovered (abstract-or-JATS) document.
+    pdf_path = rct_dir / "paper.pdf"
+    if pdf_path.exists():
+        pdf_path.unlink()
     meta_path = rct_dir / "metadata.json"
     meta = {}
     if meta_path.exists():

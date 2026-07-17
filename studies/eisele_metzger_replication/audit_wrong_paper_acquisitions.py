@@ -80,7 +80,7 @@ TITLE_STOPWORDS: frozenset[str] = frozenset({
     "controlled", "clinical", "double", "blind", "blinded", "placebo",
     "prospective", "pilot", "phase", "open", "label", "labelled", "labeled",
     "multicentre", "multicenter", "et", "al", "effect", "effects", "efficacy",
-    "safety", "patients", "using", "among", "versus",
+    "safety", "patients", "using", "among",
 })
 
 # Lowercased phrases our assessor models use when they detect that the supplied

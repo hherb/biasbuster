@@ -1,14 +1,16 @@
 # HANDOVER — BiasBuster
 
-_Last updated: 2026-07-17 (issue #29 code fix merged as PR #30 — RCT030 exclusion
-now centralised in `exclusions.py` and enforced across all κ loaders. A follow-up
-completeness audit then found RCT030 is NOT the only wrong-paper acquisition:
-≥4 more Tier-A wrong documents (RCT008/080/088/093) plus a Tier-B "wrong report"
-class — see Open work #1. Regeneration is now blocked on an OWNER DECISION about
-the full exclusion set, not just on running the script. New reproducible audit
-tool + tests committed. Suite green at 596 passed. Maintenance scaffolding
-(HANDOVER/ROADMAP + `nextsession`/`fixall` skills) seeded 2026-07-16 from the
-runbook archived at `docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`.)_
+_Last updated: 2026-07-17 (issue #29: RCT030 exclusion centralised in
+`exclusions.py` (PR #30). A follow-up completeness audit found RCT030 is NOT the
+only wrong-paper acquisition — 13 in total (Tier-A wrong documents + a Tier-B
+"wrong report" class). The owner DECISION is made and applied: the primary
+analysis excludes all 13, with a recovered-corpus sensitivity analysis still to
+run (Open work #0). `WRONG_PAPER_RCTS` expanded to 13, both κ modes + the
+algorithm-conformance audit regenerated on n=78, and both drafts updated.
+Reproducible audit + surgical recovery tools committed with tests. Suite green at
+609 passed. Maintenance scaffolding (HANDOVER/ROADMAP + `nextsession`/`fixall`
+skills) seeded 2026-07-16 from the runbook archived at
+`docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`.)_
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -36,17 +38,14 @@ The §9 publishability gate was already cleared with gpt-oss:20b and Sonnet 4.6.
   (two were paper-critical: untagged live-path FALLBACK ingest, and κ scripts that
   could not exclude FALLBACK rows). PR #20 merged; issues #7–#19 closed. The full
   finding-by-finding record is in the archived runbook.
-- **Test suite: 596 passed, 0 failed** (`uv run pytest`). Stale tests #21/#22
-  were realigned 2026-07-17; +12 from the new wrong-paper audit tests.
-- **The current `phase6_results*.{md,csv}` and both drafts are STALE and
-  polluted** and must be regenerated once the exclusion set is agreed (Open
-  work #1). They carry RCT030 *and* the newly-found wrong-paper judgements. Do
-  not submit on the current numbers. Qualitative findings likely survive but
-  every figure will shift. For the record, the current (polluted) headline:
-  under the corrected worst-wins ensemble, naive ensembling underperforms the
-  best single pass for all four models (former "qwen exception" +0.012 became
-  −0.012); Sonnet strict best-pass fulltext κ_quad 0.236 (0.264 inclusive),
-  four-model spread 0.021.
+- **Test suite: 609 passed, 0 failed** (`uv run pytest`). Stale tests #21/#22
+  were realigned 2026-07-17; the wrong-paper audit + recovery tools added audit,
+  exclusion, and surgical-recovery tests.
+- **`phase6_results*.{md,csv}` and both drafts have been regenerated on n=78**
+  (all 13 wrong papers excluded — Open work #0). The regenerated headline numbers
+  and the finding-#1 reframe are in Open work #0; the owner still needs to weave
+  them into the prose before submission. Do not submit until that prose pass is
+  done.
 - **RCT030 wrong-paper exclusion is now enforced in BOTH paths** (PR #30 merged
   2026-07-17): `studies/eisele_metzger_replication/exclusions.py` is the single
   source of truth (`WRONG_PAPER_RCTS` + `wrong_paper_filter()` SQL helper), imported
@@ -115,8 +114,9 @@ uv run python studies/eisele_metzger_replication/run_evaluation_anthropic.py --p
 The 2026-07-17 completeness audit (issue #29 step 5, full evidence in the issue
 comment) found **RCT030 is not the only wrong-paper acquisition**. Phase 1
 mis-resolved the fetched document for several more RCTs; regenerating the κ
-tables with only RCT030 excluded would still ship polluted numbers. **Do not
-regenerate or touch the drafts until the owner decides the exclusion set.**
+tables with only RCT030 excluded would still ship polluted numbers. Resolved by
+the §0 decision (exclude all 13); the drafts and κ tables were regenerated on
+n=78 accordingly.
 
 - **Tier A — wrong document entirely, recommend excluding**: RCT008 (systematic
   review, not the Jolly RCT), RCT080 (Scandinavian mortality stats, not the
