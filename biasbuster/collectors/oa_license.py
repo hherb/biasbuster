@@ -48,7 +48,7 @@ def classify_license(raw_license: str) -> LicenseInfo:
     if _CC0_TOKEN.search(low):
         return LicenseInfo(raw, "CC0-1.0", True, False, False)
     if _CC_TOKEN.search(low) and "no-cc" not in low:
-        nc = "nc" in low.replace("no-cc", "")
+        nc = "nc" in low
         nd = "nd" in low
         sa = "sa" in low
         parts = ["CC-BY"]

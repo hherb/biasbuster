@@ -95,3 +95,28 @@ def test_export_keeps_provenance_and_flags_nc_nd():
 def test_export_drops_non_redistributable_item():
     row = _valid_item() | {"license_redistributable": False}
     assert export_redistributable([row]) == []
+
+
+def test_db_round_trip_produces_real_booleans_and_clean_audit(tmp_path):
+    """Exercise the REAL SQLite path, not an in-memory dict.
+
+    ``BenchmarkStore.all_items()`` reads back boolean columns as SQLite
+    ints (0/1), not Python bools. This confirms ``export_redistributable``
+    coerces them to real JSON booleans and that ``audit_benchmark`` still
+    sees a clean (litmus-passing) row when fed those same SQLite-sourced
+    dicts — the only blind spot left by dict-only tests above.
+    """
+    store = BenchmarkStore(str(tmp_path / "roundtrip.db"))
+    store.upsert_item(_valid_item())
+
+    items = store.all_items()
+    assert audit_benchmark(items) == []
+
+    out = export_redistributable(items)
+    assert len(out) == 1
+    assert out[0]["license_redistributable"] is True
+    assert out[0]["non_commercial"] is False
+    assert out[0]["no_derivatives"] is False
+    assert out[0]["per_outcome_variant"] is False
+    assert out[0]["manual_verified"] is False
+    assert "fulltext_path" not in out[0]

@@ -231,8 +231,9 @@ async def ingest_em_candidates(
     trial-compatible (``pubtype``); fetch + cache the trial's own JATS
     (litmus §4.1's full-text-in-hand requirement); then upsert. Every
     rejection path calls ``store.log_reject`` — never a silent ``continue``
-    — and a ``LitmusError`` from the store's own final check is caught and
-    logged rather than aborting the batch.
+    — and a ``LitmusError`` (the store's own final litmus check) or
+    ``sqlite3.Error`` (a stray DB error on one row) is caught and logged
+    rather than aborting the batch.
 
     Network I/O runs once per candidate across five services (OA status,
     DOI resolution, PublicationType, and two JATS fetches) — run this from
@@ -337,9 +338,9 @@ async def ingest_em_candidates(
         try:
             store.upsert_item(item)
             admitted += 1
-        except LitmusError as exc:
+        except (LitmusError, sqlite3.Error) as exc:
             rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "litmus", str(exc))
+            store.log_reject({"trial_pmid": pmid}, "litmus_or_db", str(exc))
 
     logger.info(
         "EM candidate ingest: seen=%d admitted=%d rejected=%d", seen, admitted, rejected,

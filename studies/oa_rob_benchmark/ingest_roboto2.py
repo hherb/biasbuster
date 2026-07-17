@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -168,9 +169,10 @@ async def ingest_roboto2(
     the same on-disk cache the single-paper annotator reads from).
 
     Every rejection path calls ``store.log_reject`` — never a silent
-    ``continue``. A ``LitmusError`` from ``store.upsert_item`` (the store's
-    own final litmus check) is caught and logged rather than aborting the
-    batch, so one bad row never loses the rest of the run.
+    ``continue``. A ``LitmusError`` (the store's own final litmus check) or
+    ``sqlite3.Error`` (a stray DB error on one row) from ``store.upsert_item``
+    is caught and logged rather than aborting the batch, so one bad row
+    never loses the rest of the run.
 
     This coroutine performs network I/O over the whole dataset (OA lookup +
     PublicationType fetch + JATS download per trial) — run it from a
@@ -228,9 +230,9 @@ async def ingest_roboto2(
         try:
             store.upsert_item(_build_item(pmid, oa, rob2, fulltext_path))
             admitted += 1
-        except LitmusError as exc:
+        except (LitmusError, sqlite3.Error) as exc:
             rejected += 1
-            store.log_reject({"pmid": pmid}, "litmus", str(exc))
+            store.log_reject({"pmid": pmid}, "litmus_or_db", str(exc))
 
     logger.info(
         "ROBoto2 ingest: seen=%d admitted=%d rejected=%d", seen, admitted, rejected,

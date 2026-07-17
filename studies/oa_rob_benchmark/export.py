@@ -26,7 +26,7 @@ _LICENSE_FIELDS = ("trial_license", "license_redistributable")
 _NC_ND_FIELDS = ("non_commercial", "no_derivatives")
 _ROB2_TUPLE_FIELDS = ("rob2_overall", "rob2_d1", "rob2_d2", "rob2_d3",
                       "rob2_d4", "rob2_d5")
-_PROVENANCE_FIELDS = ("label_source", "source_review_pmid",
+_EXPORT_PROVENANCE_FIELDS = ("label_source", "source_review_pmid",
                       "source_review_pmcid", "table_index", "row_index",
                       "resolution_method", "similarity_score",
                       "pubtype_check", "extraction_method",
@@ -37,7 +37,16 @@ _PROVENANCE_FIELDS = ("label_source", "source_review_pmid",
 # license + NC/ND flags + the six-field RoB 2 tuple + provenance.
 # `fulltext_path` (local cache path) is intentionally excluded.
 EXPORT_FIELDS = (_IDENTIFIER_FIELDS + _LICENSE_FIELDS + _NC_ND_FIELDS
-                 + _ROB2_TUPLE_FIELDS + _PROVENANCE_FIELDS)
+                 + _ROB2_TUPLE_FIELDS + _EXPORT_PROVENANCE_FIELDS)
+
+#: Columns declared ``INTEGER`` in the ``benchmark_item`` schema (store.py)
+#: that are logically booleans. ``BenchmarkStore.all_items()`` reads real
+#: SQLite rows, where these come back as Python ``int`` (0/1) rather than
+#: ``bool`` — coerced here so the published export contains JSON ``true``/
+#: ``false`` rather than ``1``/``0``.
+_BOOLEAN_FIELDS = ("license_redistributable", "non_commercial",
+                    "no_derivatives", "per_outcome_variant",
+                    "manual_verified")
 
 
 def export_redistributable(items: list[dict]) -> list[dict]:
@@ -45,19 +54,28 @@ def export_redistributable(items: list[dict]) -> list[dict]:
 
     Drops any item whose ``license_redistributable`` flag is falsy
     (defensive — items reaching here should already satisfy the litmus
-    test, but the export must never depend on that being true). Each
+    test, but the export must never depend on that being true; truthiness
+    of SQLite's ``0``/``1`` and Python's ``False``/``True`` is equivalent,
+    so this filtering is unaffected by the boolean coercion below). Each
     surviving item is reduced to ``EXPORT_FIELDS`` only, so no field
     outside the whitelist (e.g. a local ``fulltext_path`` cache path, or
     any bookkeeping field carried by an ingest task) can leak into the
-    export.
+    export. Fields in ``_BOOLEAN_FIELDS`` are cast to Python ``bool`` so
+    the exported JSON uses real booleans even when ``items`` came from a
+    SQLite row (where they are ``int``).
 
     Pure function: takes data, returns data, no I/O.
     """
-    return [
-        {field: item.get(field) for field in EXPORT_FIELDS}
-        for item in items
-        if item.get("license_redistributable")
-    ]
+    out = []
+    for item in items:
+        if not item.get("license_redistributable"):
+            continue
+        row = {field: item.get(field) for field in EXPORT_FIELDS}
+        for field in _BOOLEAN_FIELDS:
+            if field in row:
+                row[field] = bool(row[field])
+        out.append(row)
+    return out
 
 
 def main() -> None:
