@@ -1,13 +1,45 @@
 [
-  {"paper_id": "PMID:111",
-   "manual_assessment": [
-     {"domain": "randomization", "signalling": {"1.1": "Y", "1.2": "N", "1.3": "N"}},
-     {"domain": "deviations", "signalling": {"2.1": "N", "2.2": "N"}},
-     {"domain": "missing_outcome", "signalling": {"3.1": "Y", "3.2": "N"}},
-     {"domain": "measurement", "signalling": {"4.1": "N", "4.2": "N"}},
-     {"domain": "reporting", "signalling": {"5.1": "N", "5.2": "N", "5.3": "N"}}],
-   "roboto2_assessment": []},
-  {"paper_id": "PMID:222",
-   "manual_assessment": [],
-   "roboto2_assessment": [{"domain": "randomization", "signalling": {"1.1": "Y"}}]}
+  {
+    "paper_id": "29838",
+    "source": "roboto2_manual",
+    "title": "Efficacy of a brief school-based program for selective prevention of childhood anxiety",
+    "abstract": "Anxiety sensitivity is an early risk factor for anxiety disorders...",
+    "authors": ["Maria Balle", "Miquel Tortella-Feliu"],
+    "has_fulltext": true,
+    "rob2": {
+      "overall": "high",
+      "randomization": "low",
+      "deviations": "low",
+      "missing_outcome": "low",
+      "measurement": "high",
+      "reporting": "low"
+    },
+    "signalling": {
+      "randomization": {"1.1": "Y", "1.2": "PY", "1.3": "N"},
+      "deviations": {"2.1": "Y", "2.2": "Y", "2.6": "Y"},
+      "missing_outcome": {"3.1": "Y"},
+      "measurement": {"4.1": "N", "4.2": "Y"},
+      "reporting": {"5.1": "Y", "5.2": "N", "5.3": "N"}
+    }
+  },
+  {
+    "paper_id": "300",
+    "source": "roboto2_manual",
+    "title": "A trial with a domain the experts did not assess",
+    "abstract": "",
+    "authors": [],
+    "has_fulltext": false,
+    "rob2": {
+      "overall": "high",
+      "randomization": "low",
+      "deviations": "none",
+      "missing_outcome": "high",
+      "measurement": "low",
+      "reporting": "low"
+    },
+    "signalling": {
+      "randomization": {}, "deviations": {}, "missing_outcome": {},
+      "measurement": {}, "reporting": {}
+    }
+  }
 ]

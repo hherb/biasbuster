@@ -26,6 +26,19 @@ _TUPLE_FIELDS = ("rob2_overall", "rob2_d1", "rob2_d2", "rob2_d3",
 _PROVENANCE_FIELDS = ("source_review_pmid", "resolution_method",
                       "extraction_method", "fulltext_path")
 
+#: Columns owned by human curation — set once on first insert, then never
+#: overwritten by a re-ingest (see ``upsert_item``).
+_CURATION_FIELDS = ("manual_verified",)
+
+#: Accepted values for the §4.3 pubtype gate. ``trial`` = PubMed confirmed a
+#: trial PublicationType. ``trial_source_asserted`` = the label source
+#: guarantees RCT status by construction (e.g. a ROBoto2 row carries an expert
+#: RoB 2 assessment) while PubMed's metadata simply lacks the tag — admitted,
+#: but recorded distinctly so it is queryable and gets manual verification by
+#: the ingesting caller. Any other value (e.g. a genuine ``non_trial``
+#: classification) still fails the litmus.
+ACCEPTED_PUBTYPE_CHECKS = frozenset({"trial", "trial_source_asserted"})
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS benchmark_item (
     trial_pmid TEXT PRIMARY KEY,
@@ -68,8 +81,11 @@ def litmus_violations(item: dict) -> list[str]:
     for f in _TUPLE_FIELDS:
         if item.get(f) not in CANONICAL_LEVELS:
             v.append(f"{f}={item.get(f)!r} not a canonical level (§4.2)")
-    if item.get("pubtype_check") != "trial":
-        v.append(f"pubtype_check={item.get('pubtype_check')!r} not 'trial' (§4.3)")
+    if item.get("pubtype_check") not in ACCEPTED_PUBTYPE_CHECKS:
+        v.append(
+            f"pubtype_check={item.get('pubtype_check')!r} not an accepted "
+            f"trial marker (§4.3)"
+        )
     for f in _PROVENANCE_FIELDS + ("trial_pmid",):
         if not str(item.get(f, "")).strip():
             v.append(f"{f} empty (§4.4)")
@@ -114,7 +130,12 @@ class BenchmarkStore:
         filtered["benchmark_version"] = BENCHMARK_VERSION
         keys = list(filtered.keys())
         placeholders = ",".join("?" * len(keys))
-        updates = ",".join(f"{k}=excluded.{k}" for k in keys if k != "trial_pmid")
+        # On re-ingest, refresh every column EXCEPT human-curation fields: an
+        # operator's manual_verified=1 must survive a re-run (the ingest sets it
+        # False only on first insert, then never clobbers it). trial_pmid is the
+        # conflict key and is never in the SET clause.
+        preserved = _CURATION_FIELDS + ("trial_pmid",)
+        updates = ",".join(f"{k}=excluded.{k}" for k in keys if k not in preserved)
         sql = (f"INSERT INTO benchmark_item ({','.join(keys)}) "
                f"VALUES ({placeholders}) "
                f"ON CONFLICT(trial_pmid) DO UPDATE SET {updates}")
@@ -122,6 +143,19 @@ class BenchmarkStore:
         self._conn.execute(sql, vals)
         self._conn.commit()
         return True
+
+    def delete_item(self, trial_pmid: str) -> bool:
+        """Delete one row by ``trial_pmid``; return True if a row was removed.
+
+        For removing a specific curated exclusion (e.g. a row later found to be
+        a secondary analysis) — a targeted delete, not the destructive whole-DB
+        rebuild the store forbids.
+        """
+        cur = self._conn.execute(
+            "DELETE FROM benchmark_item WHERE trial_pmid=?", (trial_pmid,)
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
 
     def log_reject(self, candidate: dict, rule: str, detail: str) -> None:
         """Append a rejection record to the rejects JSONL (never silent)."""
