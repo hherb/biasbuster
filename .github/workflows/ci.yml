@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: biasbuster
+    steps:
+      - name: Check out biasbuster
+        uses: actions/checkout@v5
+        with:
+          path: biasbuster
+
+      # bmlib is an editable path dependency (../bmlib in pyproject.toml),
+      # so it must be checked out as a sibling directory.
+      - name: Check out bmlib
+        uses: actions/checkout@v5
+        with:
+          repository: hherb/bmlib
+          path: bmlib
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: biasbuster/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Create config from example
+        run: cp config.example.py config.py
+
+      - name: Run tests
+        run: uv run pytest -q
