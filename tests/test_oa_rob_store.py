@@ -1,5 +1,7 @@
 import pytest
 from studies.oa_rob_benchmark.store import BenchmarkStore, LitmusError
+from scripts.audit_oa_rob_benchmark import audit_benchmark
+from studies.oa_rob_benchmark.export import export_redistributable
 
 
 def _valid_item():
@@ -71,3 +73,25 @@ def test_upsert_ignores_extra_non_schema_key(tmp_path):
     item = _valid_item() | {"debug_note": "not a real column"}
     assert store.upsert_item(item) is True
     assert store.count() == 1
+
+
+def test_audit_flags_bad_row():
+    good = _valid_item()
+    bad = _valid_item() | {"trial_pmid": "222", "pubtype_check": "non_trial"}
+    violations = audit_benchmark([good, bad])
+    assert any("222" in v for v in violations)
+    assert all("111" not in v for v in violations)
+
+
+def test_export_keeps_provenance_and_flags_nc_nd():
+    row = _valid_item() | {"non_commercial": True, "no_derivatives": True}
+    out = export_redistributable([row])
+    assert out[0]["non_commercial"] is True
+    assert "source_review_prose" not in out[0]
+    assert out[0]["rob2_overall"] == "high"
+    assert "fulltext_path" not in out[0]
+
+
+def test_export_drops_non_redistributable_item():
+    row = _valid_item() | {"license_redistributable": False}
+    assert export_redistributable([row]) == []

@@ -50,6 +50,32 @@ class LitmusError(ValueError):
     """Raised when an item fails the four-part inclusion litmus test."""
 
 
+def litmus_violations(item: dict) -> list[str]:
+    """Return every four-part inclusion litmus test violation (spec §4).
+
+    Pure function: no I/O, no side effects. Collects every violation
+    (rather than short-circuiting on the first) so callers can report the
+    complete picture for logging/triage. An empty list means ``item``
+    passes the litmus test.
+
+    Shared by ``BenchmarkStore`` (raises ``LitmusError`` on insert) and
+    ``scripts/audit_oa_rob_benchmark.py`` (re-checks persisted rows) so the
+    four rules have a single source of truth.
+    """
+    v: list[str] = []
+    if not item.get("license_redistributable"):
+        v.append("license not redistributable (litmus §4.1)")
+    for f in _TUPLE_FIELDS:
+        if item.get(f) not in CANONICAL_LEVELS:
+            v.append(f"{f}={item.get(f)!r} not a canonical level (§4.2)")
+    if item.get("pubtype_check") != "trial":
+        v.append(f"pubtype_check={item.get('pubtype_check')!r} not 'trial' (§4.3)")
+    for f in _PROVENANCE_FIELDS + ("trial_pmid",):
+        if not str(item.get(f, "")).strip():
+            v.append(f"{f} empty (§4.4)")
+    return v
+
+
 class BenchmarkStore:
     """Append/upsert store enforcing the OA-benchmark litmus invariant."""
 
@@ -65,21 +91,11 @@ class BenchmarkStore:
     def _check_litmus(self, item: dict) -> None:
         """Validate the four-part inclusion litmus test (spec §4).
 
-        Collects every violation (rather than short-circuiting on the
-        first) so a single ``LitmusError`` reports the complete picture
-        for logging/triage.
+        Delegates to the module-level ``litmus_violations`` (single source
+        of truth shared with the audit script) and raises ``LitmusError``
+        joining every violation found.
         """
-        v: list[str] = []
-        if not item.get("license_redistributable"):
-            v.append("license not redistributable (litmus §4.1)")
-        for f in _TUPLE_FIELDS:
-            if item.get(f) not in CANONICAL_LEVELS:
-                v.append(f"{f}={item.get(f)!r} not a canonical level (§4.2)")
-        if item.get("pubtype_check") != "trial":
-            v.append(f"pubtype_check={item.get('pubtype_check')!r} not 'trial' (§4.3)")
-        for f in _PROVENANCE_FIELDS + ("trial_pmid",):
-            if not str(item.get(f, "")).strip():
-                v.append(f"{f} empty (§4.4)")
+        v = litmus_violations(item)
         if v:
             raise LitmusError("; ".join(v))
 
