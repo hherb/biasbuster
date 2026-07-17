@@ -51,10 +51,12 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "studies/eisele_metzger_replication"))
 
 from biasbuster.methodologies.cochrane_rob2.algorithms import (  # noqa: E402
     derive_domain_judgement,
 )
+from exclusions import wrong_paper_filter  # noqa: E402
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 DOMAINS = ("d1", "d2", "d3", "d4", "d5")
@@ -188,7 +190,13 @@ def load_cochrane_ratings(conn: sqlite3.Connection) -> dict[tuple[str, str], str
 
 def load_audit_rows(conn: sqlite3.Connection, source_pattern: str,
                     cochrane: dict[tuple[str, str], str]) -> list[AuditRow]:
-    """Build AuditRow records for every per-domain cell of a model × pass."""
+    """Build AuditRow records for every per-domain cell of a model × pass.
+
+    Wrong-paper RCTs (``exclusions.WRONG_PAPER_RCTS``) are excluded, so the
+    conformance and Cochrane-drift numbers are computed on the same corpus as
+    the phase-6 κ tables (issue #29).
+    """
+    wp_sql, wp_params = wrong_paper_filter("er")
     rows = conn.execute(
         """
         SELECT er.rct_id, er.source, er.domain, er.raw_response, bj.judgment
@@ -200,8 +208,8 @@ def load_audit_rows(conn: sqlite3.Connection, source_pattern: str,
         WHERE er.source LIKE ?
           AND er.domain IN ('d1','d2','d3','d4','d5')
           AND er.raw_response IS NOT NULL
-        """,
-        (source_pattern,),
+        """ + wp_sql,
+        (source_pattern, *wp_params),
     ).fetchall()
     audit: list[AuditRow] = []
     for rct_id, source, domain, raw, model_j in rows:
@@ -307,6 +315,133 @@ def overall_asymmetry(stats: dict[tuple[str, str], ModelDomainStats]
     }
 
 
+def _model_base(source: str) -> str:
+    """Strip the trailing ``_pass{N}`` so the 3 passes collapse to one model."""
+    return re.sub(r"_pass\d+$", "", source)
+
+
+def _majority(labels: list[str]) -> str | None:
+    """The label appearing in a strict majority (>= 2 of up to 3), else None."""
+    if not labels:
+        return None
+    from collections import Counter
+    (top, count), = Counter(labels).most_common(1)
+    return top if count >= 2 else None
+
+
+@dataclass
+class ConsensusBucket:
+    cells: int = 0
+    cochrane_match: int = 0
+    cochrane_more_lenient: int = 0
+    cochrane_more_strict: int = 0
+
+
+@dataclass
+class ConsensusResult:
+    # keyed by number of the 4 models sharing the modal algorithmic verdict
+    buckets: dict[int, ConsensusBucket] = field(default_factory=dict)
+    # (cochrane_label, algo_label) -> count, within the unanimous (4/4) lenient set
+    unanimous_disagreement_pairs: dict[tuple[str, str], int] = field(default_factory=dict)
+    unanimous_disagreement_cells: int = 0
+    unanimous_disagreement_all_quotes: int = 0  # every model×pass cited quotes
+    unanimous_passes_total: int = 0             # model×pass rows in disagreement cells
+    unanimous_passes_quoted: int = 0            # of those, rows that cited quotes
+    # per domain within the unanimous-disagreement set: (cells, all-quote cells)
+    unanimous_by_domain: dict[str, list[int]] = field(default_factory=dict)
+
+
+def consensus_analysis(audit: list[AuditRow],
+                       cochrane: dict[tuple[str, str], str]) -> ConsensusResult:
+    """Cross-model consensus of the algorithmic verdict vs Cochrane.
+
+    Method (formalises the analysis previously computed ad hoc for the
+    conformance paper): per (rct, domain, model), take the strict-majority
+    (>= 2 of 3 passes) ``algorithmic_judgement`` as that model's consensus.
+    Per (rct, domain), count how many of the four models share the modal
+    consensus verdict (k of 4); classify that shared verdict against Cochrane
+    (match / more-lenient / more-strict). For the unanimous (k = 4) lenient
+    cells, break down the (Cochrane, algorithm) label pairs and count cells
+    where *every* model × pass cited evidence quotes.
+    """
+    # per (rct, domain, model_base) -> list of per-pass algorithmic judgements
+    per_model: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    # per (rct, domain) -> all has_evidence_quotes flags across model×pass rows
+    quotes: dict[tuple[str, str], list[bool]] = defaultdict(list)
+    for r in audit:
+        if r.algorithmic_judgement is not None:
+            per_model[(r.rct_id, r.domain, _model_base(r.source))].append(
+                r.algorithmic_judgement)
+        quotes[(r.rct_id, r.domain)].append(r.has_evidence_quotes)
+
+    # collapse to one consensus verdict per (rct, domain, model)
+    model_consensus: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for (rct, dom, _model), labels in per_model.items():
+        if (v := _majority(labels)) is not None:
+            model_consensus[(rct, dom)].append(v)
+
+    from collections import Counter
+    result = ConsensusResult(buckets={k: ConsensusBucket() for k in (2, 3, 4)})
+    for (rct, dom), verdicts in model_consensus.items():
+        coch = cochrane.get((rct, dom))
+        if coch is None or not verdicts:
+            continue
+        modal, k = Counter(verdicts).most_common(1)[0]
+        if k not in result.buckets:
+            continue
+        bucket = result.buckets[k]
+        bucket.cells += 1
+        if modal == coch:
+            bucket.cochrane_match += 1
+        elif SEVERITY[coch] < SEVERITY[modal]:
+            bucket.cochrane_more_lenient += 1
+            if k == 4:
+                result.unanimous_disagreement_cells += 1
+                result.unanimous_disagreement_pairs[(coch, modal)] = (
+                    result.unanimous_disagreement_pairs.get((coch, modal), 0) + 1)
+                cell_quotes = quotes.get((rct, dom), [])
+                result.unanimous_passes_total += len(cell_quotes)
+                result.unanimous_passes_quoted += sum(cell_quotes)
+                dom_stat = result.unanimous_by_domain.setdefault(dom, [0, 0])
+                dom_stat[0] += 1
+                if cell_quotes and all(cell_quotes):
+                    result.unanimous_disagreement_all_quotes += 1
+                    dom_stat[1] += 1
+        else:
+            bucket.cochrane_more_strict += 1
+    return result
+
+
+def format_consensus(res: ConsensusResult) -> str:
+    lines = ["Cross-model consensus (algorithmic verdict vs Cochrane):",
+             f"  {'k/4 models agree':<20} {'cells':>6} {'match':>14} "
+             f"{'lenient':>16} {'stricter':>14}"]
+    for k in (4, 3, 2):
+        b = res.buckets[k]
+        lines.append(
+            f"  {f'{k}/4 agree':<20} {b.cells:>6} "
+            f"{_pct(b.cochrane_match, b.cells):>8} ({b.cochrane_match:>3}) "
+            f"{_pct(b.cochrane_more_lenient, b.cells):>8} ({b.cochrane_more_lenient:>3}) "
+            f"{_pct(b.cochrane_more_strict, b.cells):>6} ({b.cochrane_more_strict:>3})")
+    lines.append(f"  unanimous (4/4) LLM-vs-Cochrane lenient disagreements: "
+                 f"{res.unanimous_disagreement_cells}")
+    for (coch, algo), n in sorted(res.unanimous_disagreement_pairs.items(),
+                                  key=lambda kv: -kv[1]):
+        lines.append(f"    Cochrane={coch:<14} 4-LLMs-derive={algo:<14} {n}")
+    lines.append(f"  of those, cells where every model×pass cited evidence quotes: "
+                 f"{res.unanimous_disagreement_all_quotes} "
+                 f"({_pct(res.unanimous_disagreement_all_quotes, res.unanimous_disagreement_cells).strip()})")
+    lines.append(f"  pooled model-pass quote rate in disagreement set: "
+                 f"{res.unanimous_passes_quoted}/{res.unanimous_passes_total} "
+                 f"({_pct(res.unanimous_passes_quoted, res.unanimous_passes_total).strip()})")
+    for dom in sorted(res.unanimous_by_domain):
+        cells, allq = res.unanimous_by_domain[dom]
+        lines.append(f"    {dom}: {cells} disagreement cells, "
+                     f"{allq} with full quote coverage "
+                     f"({_pct(allq, cells).strip()})")
+    return "\n".join(lines)
+
+
 def write_tsv(audit: list[AuditRow], path: Path) -> None:
     """Write one row per audit entry — supplementary appendix material."""
     with path.open("w", newline="") as f:
@@ -383,6 +518,9 @@ def main() -> int:
         print(f"  Cochrane MORE STRICT than algo:   {h['stricter_pct']:.1f}% "
               f"({h['n_cochrane_more_strict']}/{h['n_signalling_parsed']})")
         print(f"  asymmetry ratio (lenient:strict): {h['asymmetry_ratio']:.1f}:1")
+
+        print()
+        print(format_consensus(consensus_analysis(all_audit, cochrane)))
 
         if args.out_tsv:
             args.out_tsv.parent.mkdir(parents=True, exist_ok=True)

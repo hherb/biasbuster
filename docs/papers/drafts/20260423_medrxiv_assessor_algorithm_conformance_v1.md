@@ -1,6 +1,6 @@
 # medRxiv preprint draft — Expert risk-of-bias ratings systematically deviate from the Cochrane RoB 2 algorithm: an algorithm-conformance audit (v2 — 4-model EM 2025 replication, post-audit rewrite)
 
-**Filename note:** moved from `docs/papers/medrxiv_quadas_rob2_assessors.md` on 2026-05-01 under the new naming convention `drafts/<YYYYMMDD>_medrxiv_<short_title>_v<n>.md`. Original sketch drafted 2026-04-23; v2 (this file) repositions the paper as primary on 2026-05-06 after the algorithm-conformance audit produced 5,426 cells of evidence on the Eisele-Metzger 2025 RCT corpus.
+**Filename note:** moved from `docs/papers/medrxiv_quadas_rob2_assessors.md` on 2026-05-01 under the new naming convention `drafts/<YYYYMMDD>_medrxiv_<short_title>_v<n>.md`. Original sketch drafted 2026-04-23; v2 (this file) repositions the paper as primary on 2026-05-06 after the algorithm-conformance audit produced 4,676 cells of evidence on the Eisele-Metzger 2025 RCT corpus. **v3 (2026-07-17):** regenerated after excluding the 13 wrong-paper acquisitions (issue #29) — corpus n = 78, audit 4,676 cells; the lenient-asymmetry finding is unchanged and slightly sharper (8.5:1 pooled).
 
 **Status:** v2 draft — load-bearing empirical sections now have final numbers; framing and intro need editorial passes. (2026-07-17: κ cross-references updated to the regenerated strict-mode tables; the conformance-audit numbers themselves are computed from raw responses and were unaffected by the 2026-07-16 FALLBACK/ensemble fixes.)
 **Stage:** post-audit, pre-pre-registration. The locked methodology used to generate the audit is `docs/papers/eisele_metzger_replication/preanalysis_plan.md` (committed 2026-04-29 at git hash `7854a1c`).
@@ -10,7 +10,7 @@
 
 ## Working title (final candidate)
 
-> **"Expert risk-of-bias ratings systematically deviate from the Cochrane RoB 2 algorithm: a 5,426-cell algorithm-conformance audit on 91 RCTs across four diverse LLM raters"**
+> **"Expert risk-of-bias ratings systematically deviate from the Cochrane RoB 2 algorithm: a 4,676-cell algorithm-conformance audit on 78 RCTs across four diverse LLM raters"**
 
 Alternates retained:
 - "When the algorithm is the truth: published Cochrane RoB 2 ratings are more lenient than the tool's own decision rules"
@@ -20,9 +20,9 @@ Alternates retained:
 
 **Background.** Risk-of-bias (RoB) assessment is the rate-limiting step of evidence synthesis. Recent LLM-RoB benchmarks (Eisele-Metzger 2025, Lai 2024, Chen 2024) report agreement against expert ratings as the success metric, implicitly treating expert ratings as ground truth. We test that assumption directly.
 
-**Methods.** We applied a decomposed, full-text RoB 2 harness (one LLM call per domain; signalling answers → judgement → verbatim evidence quotes; deterministic worst-wins synthesis) to the 91 published RCTs in the Eisele-Metzger 2025 supplementary dataset, using four architecturally diverse LLMs (open-weights `gpt-oss:20b`, MoE `gemma4:26b-A4B` and `qwen3.6:35b-A3B`, frontier `claude-sonnet-4-6`), three independent passes each. For every (RCT × domain × model × pass) cell we recovered the model's signalling extraction from the raw response and applied the published Cochrane RoB 2 per-domain decision algorithm in code, producing an algorithmic verdict directly comparable to Cochrane's published per-domain rating. The methodology was locked in a pre-analysis plan committed before any LLM was run (git `7854a1c`).
+**Methods.** We applied a decomposed, full-text RoB 2 harness (one LLM call per domain; signalling answers → judgement → verbatim evidence quotes; deterministic worst-wins synthesis) to the 78 analysed RCTs in the Eisele-Metzger 2025 supplementary dataset, using four architecturally diverse LLMs (open-weights `gpt-oss:20b`, MoE `gemma4:26b-A4B` and `qwen3.6:35b-A3B`, frontier `claude-sonnet-4-6`), three independent passes each. For every (RCT × domain × model × pass) cell we recovered the model's signalling extraction from the raw response and applied the published Cochrane RoB 2 per-domain decision algorithm in code, producing an algorithmic verdict directly comparable to Cochrane's published per-domain rating. The methodology was locked in a pre-analysis plan committed before any LLM was run (git `7854a1c`).
 
-**Results.** Across 5,426 audited cells, model self-conformance — the rate at which a model's emitted judgement matches the algorithm applied to its own signalling answers — was **95.7%**: the harness produces faithful algorithm executors. Cochrane's published per-domain rating matched the algorithmic verdict in only **46.2%** of cells. **Cochrane was more lenient than the algorithm in 47.5% of cells; more strict in only 6.2% — a 7.6:1 asymmetry**. Restricting to the 278 cells where all four LLMs unanimously derived the same algorithmic verdict (the strongest empirical claim), Cochrane disagreed in 140 (50.4%), of which **128 (91.4%)** were the lenient direction. **125 of those 128 unanimous-disagreement cells** are exactly the same pattern: Cochrane = `low` while four independent LLMs all algorithmically derive `some_concerns`. **75.8%** of these unanimous-disagreement cells are corroborated by full evidence-quote coverage (every model × every pass cited verbatim quotes from the paper), ruling out hallucinated signalling as an explanation. Domain D1 (randomization) shows 100% full quote coverage on its 43 disagreement cells.
+**Results.** Across 4,676 audited cells, model self-conformance — the rate at which a model's emitted judgement matches the algorithm applied to its own signalling answers — was **95.9%**: the harness produces faithful algorithm executors. Cochrane's published per-domain rating matched the algorithmic verdict in only **47.9%** of cells. **Cochrane was more lenient than the algorithm in 46.6% of cells; more strict in only 5.5% — a 8.5:1 asymmetry**. Restricting to the 236 cells where all four LLMs unanimously derived the same algorithmic verdict (the strongest empirical claim), Cochrane disagreed in 114 (48.3%), of which **105 (92.1%)** were the lenient direction. **102 of those 105 unanimous-disagreement cells** are exactly the same pattern: Cochrane = `low` while four independent LLMs all algorithmically derive `some_concerns`. **81.9%** of these unanimous-disagreement cells are corroborated by full evidence-quote coverage (every model × every pass cited verbatim quotes from the paper), ruling out hallucinated signalling as an explanation. Domain D1 (randomization) shows 100% full quote coverage on its 38 disagreement cells.
 
 **Conclusion.** Published expert RoB 2 ratings systematically violate the tool's own algorithm in the lenient direction. Benchmarking LLM-RoB assessors against expert ratings — the field's current default — measures convergence with expert *deviation*, not algorithm conformance. The κ ≈ 0.22 ceiling reported by Eisele-Metzger 2025 (and replicated under our harness across four diverse LLMs in the companion paper) is mechanistically explained: it is bounded by Cochrane reviewer drift, not model capability. We recommend that systematic reviews publish per-domain signalling answers (not just rolled-up traffic lights) and that AI-RoB tools be benchmarked on algorithm conformance, not expert agreement.
 
@@ -36,7 +36,7 @@ In practice, inter-rater reliability of RoB 2 between trained human reviewers is
 
 A wave of recent papers benchmarks LLM-based RoB assessors against published expert ratings as ground truth. Eisele-Metzger 2025 reports Cohen's κ = 0.22 for Claude 2 vs Cochrane on 100 RCTs (quadratic-weighted, overall) and concludes "LLMs cannot replace humans" for RoB 2 assessment. Lai 2024, Chen 2024 and others adopt the same κ-against-experts framing.
 
-This framing presupposes that expert ratings are correct. It is testable: every published Cochrane RoB 2 rating can be checked for conformance with the tool's own algorithm — *if* per-domain signalling answers are extractable and *if* an auditable rater is available to extract them. We had the second condition (a decomposed full-text LLM harness producing structured signalling answers + verbatim evidence quotes; pre-registered in git hash `7854a1c`). We had the first condition by deploying that harness on the 91 published RCTs in the EM 2025 supplementary dataset, using four architecturally diverse LLMs spanning ~30× parameter range to corroborate per-cell signalling extraction across raters.
+This framing presupposes that expert ratings are correct. It is testable: every published Cochrane RoB 2 rating can be checked for conformance with the tool's own algorithm — *if* per-domain signalling answers are extractable and *if* an auditable rater is available to extract them. We had the second condition (a decomposed full-text LLM harness producing structured signalling answers + verbatim evidence quotes; pre-registered in git hash `7854a1c`). We had the first condition by deploying that harness on the 78 published RCTs in the EM 2025 supplementary dataset, using four architecturally diverse LLMs spanning ~30× parameter range to corroborate per-cell signalling extraction across raters.
 
 Our research question becomes precise: **when four independent LLM raters extract per-domain signalling answers from full text and the published Cochrane RoB 2 algorithm is applied to those answers, do the published Cochrane reviewer ratings agree?**
 
@@ -44,19 +44,19 @@ If yes, the κ ≈ 0.22 ceiling is a model limitation and the field's current be
 
 **Contributions.**
 
-  1. **Algorithm-conformance audit at scale** — 5,426 (RCT × domain × model × pass) cells with the model's signalling answers, evidence quotes, model-emitted judgement, and Cochrane's published rating, all in one auditable benchmark. The audit pipeline runs deterministically in code (`studies/eisele_metzger_replication/algorithm_conformance_audit.py`).
+  1. **Algorithm-conformance audit at scale** — 4,676 (RCT × domain × model × pass) cells with the model's signalling answers, evidence quotes, model-emitted judgement, and Cochrane's published rating, all in one auditable benchmark. The audit pipeline runs deterministically in code (`studies/eisele_metzger_replication/algorithm_conformance_audit.py`).
 
-  2. **Multi-rater corroboration** — four LLMs spanning open-weights dense (`gpt-oss:20b`), open-weights MoE (`gemma4:26b-A4B`, `qwen3.6:35b-A3B`), and frontier API (`claude-sonnet-4-6`). 95.7% pooled model self-conformance and 63.3% 4/4 cross-model consensus on per-cell algorithmic verdict establishes the multi-LLM signalling extraction as a stable corroborated proxy.
+  2. **Multi-rater corroboration** — four LLMs spanning open-weights dense (`gpt-oss:20b`), open-weights MoE (`gemma4:26b-A4B`, `qwen3.6:35b-A3B`), and frontier API (`claude-sonnet-4-6`). 95.9% pooled model self-conformance and 63.3% 4/4 cross-model consensus on per-cell algorithmic verdict establishes the multi-LLM signalling extraction as a stable corroborated proxy.
 
-  3. **Field-wide implication** — the 7.6:1 lenient-vs-strict asymmetry is invariant across all four models. The pattern is structural; benchmarking against expert ratings systematically miscalibrates LLM-RoB assessors.
+  3. **Field-wide implication** — the 8.5:1 lenient-vs-strict asymmetry is invariant across all four models. The pattern is structural; benchmarking against expert ratings systematically miscalibrates LLM-RoB assessors.
 
-  4. **Open infrastructure** — pre-registered methodology (git `7854a1c`), per-row audit TSV (5,460 rows), JSON Schema spec for the assessor's output, and a deterministic Cochrane decision-algorithm module (`biasbuster.methodologies.cochrane_rob2.algorithms`) for any reader to re-audit any review.
+  4. **Open infrastructure** — pre-registered methodology (git `7854a1c`), per-row audit TSV (4,680 rows), JSON Schema spec for the assessor's output, and a deterministic Cochrane decision-algorithm module (`biasbuster.methodologies.cochrane_rob2.algorithms`) for any reader to re-audit any review.
 
 ## 2. Methods (≤ 1000 words)
 
 ### 2.1 Benchmark dataset
 
-**Primary corpus** — the supplementary dataset accompanying Eisele-Metzger 2025 (*Research Synthesis Methods*, doi:10.1017/rsm.2025.12), consisting of 100 RCTs drawn from 78 Cochrane reviews with full per-domain Cochrane judgements (D1-D5 and overall) and three independent Claude 2 evaluation passes from the published study. The full text of 91 / 100 RCTs was successfully acquired via PubMed Central + Crossref (Phase 1; 9 RCTs in non-PubMed-indexed regional journals were unrecoverable). One additional RCT (RCT030) was excluded after Phase 1 mistakenly resolved a parent Cochrane review; analyses are reported on the resulting n = 91.
+**Primary corpus** — the supplementary dataset accompanying Eisele-Metzger 2025 (*Research Synthesis Methods*, doi:10.1017/rsm.2025.12), consisting of 100 RCTs drawn from 78 Cochrane reviews with full per-domain Cochrane judgements (D1-D5 and overall) and three independent Claude 2 evaluation passes from the published study. The full text of 91 / 100 RCTs was successfully acquired via PubMed Central + Crossref (Phase 1; 9 RCTs in non-PubMed-indexed regional journals were unrecoverable). A subsequent audit (issue #29) found 13 **wrong-paper acquisitions** where Phase 1 resolved a different document than the trial EM cited — a parent Cochrane review (RCT030), systematic reviews, study protocols, sub-analyses, or the wrong platform arm; all 13 are excluded (their model judgements describe a different document than the Cochrane ground truth), so analyses are reported on the resulting **n = 78**. Eleven of the 13 are recoverable (the correct paper is obtainable) and re-assessed in a recovered-corpus sensitivity analysis; 2 are in non-PubMed-indexed journals.
 
 **Case-study reviews** (n = 10) — two systematic reviews used in the original v1 sketch are retained as illustrative deep-dives in §3.7. The QUADAS-2 source (Jcm-15-01829, salivary glucose for diabetes diagnosis, n = 7) and the RoB 2 source (Deng 2024, plyometric training meta-analysis, n = 3) are used to demonstrate two distinct expert failure modes (blanket-`low` and engaged-but-algorithmically-inconsistent) at the per-paper level.
 
@@ -102,13 +102,13 @@ For the strongest claim (cross-model consensus disagreement with Cochrane), per-
 
 ### 3.1 Coverage and parse stability
 
-API success rates were uniformly high (≥ 98.9%) across all (model × protocol × pass) combinations, well below the pre-reg §8 halt threshold of 20% parse failures. The companion paper §3.1 reports the full table; in short, every remaining parse failure (33 rows total across gpt-oss + qwen) is concentrated on RCT030 (the wrong-paper acquisition) and is excluded from the audit. After exclusion, the audit base is 4 models × 91 RCTs × 5 domains × 3 passes = 5,460 cells, of which 5,426 (99.4%) yielded a parseable signalling-answer dictionary.
+API success rates were uniformly high (≥ 98.9%) across all (model × protocol × pass) combinations, well below the pre-reg §8 halt threshold of 20% parse failures. The companion paper §3.1 reports the full table; in short, every remaining parse failure (33 rows total across gpt-oss + qwen) is concentrated on RCT030, one of the 13 wrong-paper acquisitions excluded from the audit (§3.1 companion). After exclusion, the audit base is 4 models × 78 RCTs × 5 domains × 3 passes = 4,680 cells, of which 4,676 (99.9%) yielded a parseable signalling-answer dictionary.
 
 ### 3.2 Model self-conformance — the harness produces faithful algorithm executors
 
 The first audit metric tests whether each model's emitted `judgement` matches the verdict the Cochrane algorithm produces when applied to that model's own `signalling_answers`. High self-conformance is a precondition for the harness to be useful — a model that emits arbitrary judgements unconnected to its own signalling extraction would be uninterpretable.
 
-Pooled self-conformance was **95.7%** (5191 / 5426). Per-model:
+Pooled self-conformance was **95.9%** (4485 / 4676). Per-model:
 
 | Model | Self-conformance |
 |---|---:|
@@ -121,24 +121,24 @@ Sonnet's lower D4/D5 self-conformance reflects a holistic-reasoning pattern in w
 
 ### 3.3 Cochrane vs algorithm-on-model-evidence — the headline result
 
-The second audit metric compares Cochrane's published per-domain rating against the algorithm's verdict on each model's signalling extraction. Pooled across 5,426 cells:
+The second audit metric compares Cochrane's published per-domain rating against the algorithm's verdict on each model's signalling extraction. Pooled across 4,676 cells:
 
 | Comparison | Count | Rate |
 |---|---:|---:|
-| Cochrane matches algorithmic verdict | 2,509 | 46.2% |
-| **Cochrane more lenient than algorithm** | **2,579** | **47.5%** |
-| Cochrane more strict than algorithm | 338 | 6.2% |
-| **Asymmetry (lenient : strict)** | | **7.6 : 1** |
+| Cochrane matches algorithmic verdict | 2,241 | 47.9% |
+| **Cochrane more lenient than algorithm** | **2,179** | **46.6%** |
+| Cochrane more strict than algorithm | 256 | 5.5% |
+| **Asymmetry (lenient : strict)** | | **8.5 : 1** |
 
 Per-domain breakdown of the lenient rate, by model:
 
 | Domain | gpt-oss:20b | gemma4:26b | qwen3.6:35b | Sonnet 4.6 |
 |---|---:|---:|---:|---:|
-| D1 randomization | 61.1% | 59.3% | 53.0% | 58.1% |
-| D2 deviations | 56.7% | 53.8% | 54.1% | 48.4% |
-| D3 missing data | 47.8% | 46.2% | 37.4% | 40.4% |
-| D4 measurement | 48.1% | 48.0% | 32.6% | 39.6% |
-| D5 reporting | 50.7% | 29.3% | 45.2% | 41.0% |
+| D1 randomization | 60.3% | 59.4% | 52.1% | 60.1% |
+| D2 deviations | 56.4% | 52.1% | 54.3% | 47.4% |
+| D3 missing data | 45.3% | 43.2% | 33.3% | 35.5% |
+| D4 measurement | 47.9% | 46.6% | 32.5% | 37.2% |
+| D5 reporting | 52.1% | 29.5% | 45.3% | 41.5% |
 
 **The pattern is invariant across model architecture.** Four models — open-weights dense, two open-weights MoE designs, frontier API — spanning ~30× parameter range and trained by different teams on different data report essentially identical Cochrane-lenient asymmetries. D1 (randomization) is the most-violated domain across all four; the median lenient rate on D1 is 58%.
 
@@ -148,25 +148,25 @@ When ≥ 2 of 3 passes per model agree on an algorithmic verdict (per-model cons
 
 | Cross-model agreement | Cells | Cochrane match | Cochrane more lenient | Cochrane more strict |
 |---|---:|---:|---:|---:|
-| **4/4 unanimous** | **278** | 138 (49.6%) | **128 (46.0%)** | 12 (4.3%) |
-| 3/4 majority | 119 | 54 (45.4%) | 55 (46.2%) | 10 (8.4%) |
-| 2/4 split | 42 | 10 (23.8%) | 28 (66.7%) | 4 (9.5%) |
+| **4/4 unanimous** | **236** | 122 (51.7%) | **105 (44.5%)** | 9 (3.8%) |
+| 3/4 majority | 111 | 53 (47.7%) | 50 (45.0%) | 8 (7.2%) |
+| 2/4 split | 40 | 12 (30.0%) | 26 (65.0%) | 2 (5.0%) |
 
-Of the **128 unanimous-LLM-vs-Cochrane disagreement cells**:
+Of the **105 unanimous-LLM-vs-Cochrane disagreement cells**:
 
-  * **125 (97.7%)** are exactly the pattern: Cochrane = `low`, all 4 LLMs algorithmically derive `some_concerns`.
+  * **102 (97.1%)** are exactly the pattern: Cochrane = `low`, all 4 LLMs algorithmically derive `some_concerns`.
   * 2 are: Cochrane = `low`, all 4 LLMs derive `high`.
   * 1 is: Cochrane = `some_concerns`, all 4 LLMs derive `high`.
 
-Cochrane is more strict than the unanimous LLM consensus in 12 / 290 directional cells; the asymmetry at the strongest-evidence level is **10.7 : 1**.
+Cochrane is more strict than the unanimous LLM consensus in 9 / 114 directional cells; the asymmetry at the strongest-evidence level is **11.7 : 1**.
 
 ### 3.5 Evidence-quote corroboration — rules out hallucinated signalling
 
-A potential confounder is that all four LLMs systematically hallucinate the same wrong signalling answer on the same papers. This is empirically ruled out: in the 128 unanimous-disagreement cells:
+A potential confounder is that all four LLMs systematically hallucinate the same wrong signalling answer on the same papers. This is empirically ruled out: in the 105 unanimous-disagreement cells:
 
-  * **97 (75.8%)** have *every* model × every pass citing verbatim evidence quotes from the paper supporting the signalling answer (12 / 12 quoted extractions).
-  * Pooled evidence-quote rate within the disagreement set: **93.6%** (1,438 / 1,536 model-passes).
-  * D1 (randomization): **100% full quote coverage** across all 43 disagreement cells.
+  * **86 (81.9%)** have *every* model × every pass citing verbatim evidence quotes from the paper supporting the signalling answer (12 / 12 quoted extractions).
+  * Pooled evidence-quote rate within the disagreement set: **96.5%** (1,216 / 1,260 model-passes).
+  * D1 (randomization): **100% full quote coverage** across all 38 disagreement cells.
 
 In three quarters of the unanimous-disagreement cells, the model has not just guessed — every one of 12 independent rater-passes has lifted text from the paper supporting its signalling answer, and the algorithm applied to that supported signalling produces a verdict different from Cochrane's published rating.
 
@@ -180,19 +180,19 @@ In three quarters of the unanimous-disagreement cells, the model has not just gu
 
 ### 3.7 Two distinct expert failure modes (n = 10 case-study reviews)
 
-The original v1 sketch documented two distinct failure modes in published reviews outside the EM 2025 corpus, which we retain as smaller-n illustrative material complementing the 91-RCT main result.
+The original v1 sketch documented two distinct failure modes in published reviews outside the EM 2025 corpus, which we retain as smaller-n illustrative material complementing the 78-RCT main result.
 
 **Mode A — *blanket rubber-stamp* (Jcm-15-01829, QUADAS-2, n = 7).** Every domain × every paper rated `low`. No engagement with the tool. Per-domain quadratic-weighted κ vs the LLM rater = 0.000.
 
-**Mode B — *engaged but algorithmically inconsistent* (Deng 2024, RoB 2, n = 3).** Per-domain ratings vary across papers and domains (the reviewer engaged), but specific per-domain `low` assignments still violate the published decision rules: D2 0/3 exact (all expert `low`, all model `some_concerns`); D4 0/3 (blinding of outcome assessors not reported in any of the three papers); D5 0/3 (no pre-registered analysis plan in any of the three). Mode B is the more concerning finding because it survives the obvious "lazy reviewer" critique. Mode B is also the dominant pattern in the 91-RCT main audit: Cochrane reviewers are engaged but consistently lenient on D1 and D5.
+**Mode B — *engaged but algorithmically inconsistent* (Deng 2024, RoB 2, n = 3).** Per-domain ratings vary across papers and domains (the reviewer engaged), but specific per-domain `low` assignments still violate the published decision rules: D2 0/3 exact (all expert `low`, all model `some_concerns`); D4 0/3 (blinding of outcome assessors not reported in any of the three papers); D5 0/3 (no pre-registered analysis plan in any of the three). Mode B is the more concerning finding because it survives the obvious "lazy reviewer" critique. Mode B is also the dominant pattern in the 78-RCT main audit: Cochrane reviewers are engaged but consistently lenient on D1 and D5.
 
 ## 4. Discussion (≤ 800 words)
 
 ### 4.1 What the algorithm says vs what reviewers say
 
-Across 5,426 audited cells, four architecturally diverse LLMs each independently extracting per-domain signalling answers from full text and corroborating them with verbatim quotes, the published Cochrane RoB 2 ratings agree with the tool's own decision algorithm 46% of the time. They are more lenient than the algorithm 48% of the time; more strict 6% of the time. The 7.6:1 asymmetry sharpens to 10.7:1 when we restrict to cells where all four LLMs independently converge on the same algorithmic verdict (n = 278; Cochrane lenient in 128, strict in 12). The 128 unanimous-disagreement cells are dominated (97.7%) by a single pattern: Cochrane assigns `low` while four LLMs all algorithmically derive `some_concerns` from the paper's content. In 76% of these cells, every one of 12 independent rater-passes (4 models × 3 passes) cited verbatim evidence quotes supporting the LLM signalling extraction.
+Across 4,676 audited cells, four architecturally diverse LLMs each independently extracting per-domain signalling answers from full text and corroborating them with verbatim quotes, the published Cochrane RoB 2 ratings agree with the tool's own decision algorithm 48% of the time. They are more lenient than the algorithm 47% of the time; more strict 6% of the time. The 8.5:1 asymmetry sharpens to 11.7:1 when we restrict to cells where all four LLMs independently converge on the same algorithmic verdict (n = 236; Cochrane lenient in 105, strict in 9). The 105 unanimous-disagreement cells are dominated (97.1%) by a single pattern: Cochrane assigns `low` while four LLMs all algorithmically derive `some_concerns` from the paper's content. In 82% of these cells, every one of 12 independent rater-passes (4 models × 3 passes) cited verbatim evidence quotes supporting the LLM signalling extraction.
 
-The pattern is structural, not stochastic. It is invariant across open-weights dense (`gpt-oss:20b`), open-weights MoE (`gemma4`, `qwen3.6`), and frontier API (`Sonnet 4.6`) raters. It is most pronounced on D1 (randomization, ~58% lenient) and on the `low`-vs-`some_concerns` boundary (97.7% of unanimous disagreements). The D5 example (RCT002) — where all four LLMs cite "PROTOCOL: NOT AVAILABLE" verbatim from the trial registry yet Cochrane published `low` — is unambiguous: there is no signalling extraction under which the algorithm produces Cochrane's rating from the paper text.
+The pattern is structural, not stochastic. It is invariant across open-weights dense (`gpt-oss:20b`), open-weights MoE (`gemma4`, `qwen3.6`), and frontier API (`Sonnet 4.6`) raters. It is most pronounced on D1 (randomization, ~58% lenient) and on the `low`-vs-`some_concerns` boundary (97.1% of unanimous disagreements). The D5 example (RCT002) — where all four LLMs cite "PROTOCOL: NOT AVAILABLE" verbatim from the trial registry yet Cochrane published `low` — is unambiguous: there is no signalling extraction under which the algorithm produces Cochrane's rating from the paper text.
 
 ### 4.2 Why this hasn't been noticed
 
@@ -206,7 +206,7 @@ The audit becomes feasible because the LLM rater (under our harness) emits struc
 
 The companion paper documents an empirical phenomenon: four LLMs spanning ~30× parameter range and three architectures all converge on κ ≈ 0.22 - 0.26 against single-rater Cochrane on the EM 2025 dataset under the harness, well within rounding of EM's published Claude 2 κ = 0.22. The κ ceiling is a property of the reference standard, not the model. This paper explains why: the reference standard violates its own algorithm in the lenient direction in approximately half of all cells. Any algorithm-conformant rater (LLM or human) will systematically disagree with the reference standard on those cells. The asymmetry sets a hard upper bound on κ-against-experts that is independent of model capability.
 
-EM 2025 conclude "LLMs cannot replace humans" for RoB 2 from the κ = 0.22 finding. Our audit suggests the conclusion is over-reached: a measurement of κ between an algorithm-conformant rater and a non-conformant reference does not bound the conformance of the conformant rater — it bounds their similarity to the non-conformant reference. Re-anchoring on algorithm conformance, the situation is reversed: under the harness, four LLMs achieve 95.7% self-conformance and 63% 4/4 cross-model agreement on per-cell algorithmic verdict.
+EM 2025 conclude "LLMs cannot replace humans" for RoB 2 from the κ = 0.22 finding. Our audit suggests the conclusion is over-reached: a measurement of κ between an algorithm-conformant rater and a non-conformant reference does not bound the conformance of the conformant rater — it bounds their similarity to the non-conformant reference. Re-anchoring on algorithm conformance, the situation is reversed: under the harness, four LLMs achieve 95.9% self-conformance and 61% 4/4 cross-model agreement on per-cell algorithmic verdict.
 
 ### 4.4 Implications for systematic-review practice
 
@@ -217,12 +217,12 @@ EM 2025 conclude "LLMs cannot replace humans" for RoB 2 from the κ = 0.22 findi
 
 ### 4.5 What this paper does not claim
 
-We do not claim the LLMs are *better* RoB 2 raters than Cochrane reviewers in any holistic sense. The signalling extraction is sometimes wrong (1.5% of model-passes failed signalling parse; some quote attributions are imprecise; D2 in particular can produce contradictory signalling between models on the same paper). What we claim is narrower and more precise: the published Cochrane reviewer ratings on the EM 2025 corpus systematically deviate from the tool's own algorithm in the lenient direction, the deviation is corroborated across four diverse independent raters, and the magnitude (47.5% pooled, 7.6:1 asymmetry) is large enough to be the dominant source of κ-against-experts noise.
+We do not claim the LLMs are *better* RoB 2 raters than Cochrane reviewers in any holistic sense. The signalling extraction is sometimes wrong (1.5% of model-passes failed signalling parse; some quote attributions are imprecise; D2 in particular can produce contradictory signalling between models on the same paper). What we claim is narrower and more precise: the published Cochrane reviewer ratings on the EM 2025 corpus systematically deviate from the tool's own algorithm in the lenient direction, the deviation is corroborated across four diverse independent raters, and the magnitude (46.6% pooled, 8.5:1 asymmetry) is large enough to be the dominant source of κ-against-experts noise.
 
 ## 5. Limitations
 
-  * **Single benchmark corpus** — the headline numbers come from one dataset (EM 2025, n = 91, drawn from 78 Cochrane reviews). The pattern is consistent across four diverse LLM raters within that corpus; replication on independent Cochrane-rated corpora is the natural follow-up.
-  * **Asymmetric comparison** — Cochrane reviewer signalling worksheets are not published. We use multi-LLM signalling extraction as the auditable proxy; the proxy is corroborated by ≥3/4 cross-model agreement on 91% of cells (397 of 439 stable cells) and by full evidence-quote coverage on 76% of unanimous-disagreement cells. Direct comparison against Cochrane reviewer signalling answers would be tighter, and we encourage Cochrane to publish them prospectively.
+  * **Single benchmark corpus** — the headline numbers come from one dataset (EM 2025, n = 78, drawn from 78 Cochrane reviews). The pattern is consistent across four diverse LLM raters within that corpus; replication on independent Cochrane-rated corpora is the natural follow-up.
+  * **Asymmetric comparison** — Cochrane reviewer signalling worksheets are not published. We use multi-LLM signalling extraction as the auditable proxy; the proxy is corroborated by ≥3/4 cross-model agreement on 90% of cells (347 of 387 stable cells) and by full evidence-quote coverage on 82% of unanimous-disagreement cells. Direct comparison against Cochrane reviewer signalling answers would be tighter, and we encourage Cochrane to publish them prospectively.
   * **Signalling extraction is not error-free.** Per-model self-conformance ranges from 78% (Sonnet D5) to 100% across model × domain cells. We use the algorithm-on-signalling verdict (not the emitted judgement) for Cochrane comparison, so emitted-judgement noise does not bias the headline; signalling-extraction noise does. Multi-model agreement (3/4 or 4/4) controls for this — single-model signalling errors should not produce convergent disagreement with Cochrane.
   * **D2 is the noisiest domain.** Three of four models produce contradictory signalling on D2 in some cells (e.g. RCT001 D2: gpt-oss `Y` for 2.1, sonnet `PY`, qwen `Y` but with 2.5 = `N` not `NI`). The lenient asymmetry is therefore most reliably reported on D1, D3, D4, D5; D2 is reported separately.
   * **The audit cannot distinguish reviewer error from publication compression.** Some Cochrane "low" calls may reflect a reviewer who internally derived `some_concerns` but recorded `low` due to figure-table compression. Either way, the *published* rating that downstream meta-analysts use is in algorithmic tension with the paper text.
@@ -230,7 +230,7 @@ We do not claim the LLMs are *better* RoB 2 raters than Cochrane reviewers in an
 
 ## 6. Conclusion
 
-  * Published Cochrane RoB 2 ratings systematically violate the tool's own algorithm in the lenient direction. Across 5,426 audited cells, Cochrane was more lenient than the algorithm-on-model-evidence in 47.5% of cells and more strict in 6.2% — a 7.6 : 1 structural asymmetry, invariant across four LLM raters spanning open-weights dense, two MoE architectures, and frontier API.
+  * Published Cochrane RoB 2 ratings systematically violate the tool's own algorithm in the lenient direction. Across 4,676 audited cells, Cochrane was more lenient than the algorithm-on-model-evidence in 46.6% of cells and more strict in 5.5% — a 8.5 : 1 structural asymmetry, invariant across four LLM raters spanning open-weights dense, two MoE architectures, and frontier API.
   * The κ ≈ 0.22 ceiling reported by Eisele-Metzger 2025 (and replicated under our harness across four diverse LLMs in the companion paper) is mechanistically explained: it is bounded by Cochrane reviewer drift from the algorithm, not by model capability.
   * **The right success metric for LLM-RoB assessors is algorithm conformance, not expert agreement.** Per-domain signalling answers should be published; AI-RoB tools should be benchmarked on conformance.
 
@@ -240,14 +240,14 @@ We do not claim the LLMs are *better* RoB 2 raters than Cochrane reviewers in an
   * **Pre-analysis plan** (locked before any LLM was run): `docs/papers/eisele_metzger_replication/preanalysis_plan.md`, git `7854a1c`.
   * **Locked prompt specification**: `docs/papers/eisele_metzger_replication/prompt_v1.md`.
   * **Audit script**: `studies/eisele_metzger_replication/algorithm_conformance_audit.py`.
-  * **Per-row audit TSV** (5,460 rows; supplementary file S1): `studies/eisele_metzger_replication/algorithm_conformance_audit.tsv`.
+  * **Per-row audit TSV** (4,680 rows; supplementary file S1): `studies/eisele_metzger_replication/algorithm_conformance_audit.tsv`.
   * **Cochrane decision-algorithm module** (Python): `biasbuster.methodologies.cochrane_rob2.algorithms`.
   * **Output JSON Schemas**: `schemas/rob2_annotation.schema.json`, `schemas/quadas2_annotation.schema.json`.
   * **Annotation JSON spec**: `docs/pipeline/ANNOTATION_JSON_SPEC.md`.
 
 ## 8. Supplementary material plan
 
-  * **S1 Per-row audit TSV** — every (RCT × domain × model × pass) cell with signalling answers, model-emitted judgement, algorithmic verdict, Cochrane rating, direction of disagreement, and evidence-quote presence flag (5,460 rows).
+  * **S1 Per-row audit TSV** — every (RCT × domain × model × pass) cell with signalling answers, model-emitted judgement, algorithmic verdict, Cochrane rating, direction of disagreement, and evidence-quote presence flag (4,680 rows).
   * **S2 Per-RCT audit JSON** — full annotation JSON dump (signalling answers + judgement + justification + evidence quotes) for every (RCT × model × pass) combination, organised for human review of any disagreement.
   * **S3 Cochrane reference ratings** — extracted per-domain ratings from the EM 2025 supplementary dataset (PMID, RCT id, per-domain, source review citation), plus the Deng 2024 and Jcm-15-01829 case-study ratings.
   * **S4 Locked prompts** — all per-domain system prompts as run, verbatim.

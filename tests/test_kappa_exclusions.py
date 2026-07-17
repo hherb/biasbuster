@@ -49,19 +49,32 @@ cpk = _load("compute_phase6_kappa")
 
 class TestWrongPaperFilter:
     def test_unaliased_fragment_and_params(self) -> None:
+        # Expectations derive from the actual set so the test stays correct as
+        # the wrong-paper class grows (it went from {RCT030} to 13 in #29).
+        expected = sorted(exclusions.WRONG_PAPER_RCTS)
+        placeholders = ",".join("?" * len(expected))
         sql, params = exclusions.wrong_paper_filter("")
-        assert sql == " AND rct_id NOT IN (?)"
-        assert params == ["RCT030"]
+        assert sql == f" AND rct_id NOT IN ({placeholders})"
+        assert params == expected
 
     def test_aliased_fragment_repeats_per_alias(self) -> None:
+        expected = sorted(exclusions.WRONG_PAPER_RCTS)
+        placeholders = ",".join("?" * len(expected))
         sql, params = exclusions.wrong_paper_filter("a", "b")
-        assert sql == " AND a.rct_id NOT IN (?) AND b.rct_id NOT IN (?)"
-        # One bound param per alias, so positional binding stays aligned.
-        assert params == ["RCT030", "RCT030"]
+        assert sql == (f" AND a.rct_id NOT IN ({placeholders}) "
+                       f"AND b.rct_id NOT IN ({placeholders})")
+        # One full copy of the ids per alias, so positional binding stays aligned.
+        assert params == expected + expected
 
     def test_empty_set_is_a_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(exclusions, "WRONG_PAPER_RCTS", frozenset())
         assert exclusions.wrong_paper_filter("a") == ("", [])
+
+    def test_unrecoverable_is_subset_of_wrong_paper_set(self) -> None:
+        # The sensitivity-analysis excludes must all be genuine wrong papers.
+        assert exclusions.UNRECOVERABLE_WRONG_PAPER_RCTS <= exclusions.WRONG_PAPER_RCTS
+        # RCT030 is both a wrong paper and unrecoverable (not PubMed-indexed).
+        assert "RCT030" in exclusions.UNRECOVERABLE_WRONG_PAPER_RCTS
 
 
 # --- loader integration -----------------------------------------------

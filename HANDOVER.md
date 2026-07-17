@@ -1,12 +1,15 @@
 # HANDOVER — BiasBuster
 
-_Last updated: 2026-07-17 (stale tests #21/#22 fixed, suite green at 579 passed;
-κ tables regenerated and both drafts updated to strict-primary numbers, but a
-review of PR #28 found those tables are polluted by RCT030 wrong-paper judgements —
-tracked as blocking issue #29, must regenerate before submission. Wrong-paper
-recovery guard added. Maintenance scaffolding introduced 2026-07-16: this file,
-ROADMAP.md, and the `nextsession`/`fixall` skills, seeded from the 2026-05-01
-next-session runbook, now archived at
+_Last updated: 2026-07-17 (issue #29: RCT030 exclusion centralised in
+`exclusions.py` (PR #30). A follow-up completeness audit found RCT030 is NOT the
+only wrong-paper acquisition — 13 in total (Tier-A wrong documents + a Tier-B
+"wrong report" class). The owner DECISION is made and applied: the primary
+analysis excludes all 13, with a recovered-corpus sensitivity analysis still to
+run (Open work #0). `WRONG_PAPER_RCTS` expanded to 13, both κ modes + the
+algorithm-conformance audit regenerated on n=78, and both drafts updated.
+Reproducible audit + surgical recovery tools committed with tests. Suite green at
+609 passed. Maintenance scaffolding (HANDOVER/ROADMAP + `nextsession`/`fixall`
+skills) seeded 2026-07-16 from the runbook archived at
 `docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`.)_
 
 This file briefs the next session on what is done, what is still open, and the
@@ -35,49 +38,128 @@ The §9 publishability gate was already cleared with gpt-oss:20b and Sonnet 4.6.
   (two were paper-critical: untagged live-path FALLBACK ingest, and κ scripts that
   could not exclude FALLBACK rows). PR #20 merged; issues #7–#19 closed. The full
   finding-by-finding record is in the archived runbook.
-- **Test suite: 576 passed, 0 failed** (`uv run pytest`). The two stale tests
-  (issues #21, #22) were realigned to the intended post-fix behaviour on
-  2026-07-17: distinct PMIDs for the PMID-grouped export split, and the
-  algorithm-derived judgement for the RoB 2 missing-judgement fallback.
-- **The κ regeneration gate ran (2026-07-17) but the output is BLOCKED by issue
-  #29**: retro-tag was a genuine no-op (0 untagged rows in 11,592 scanned);
-  `phase6_results.{md,csv}` and the new `phase6_results.strict.{md,csv}` + forest
-  CSVs were regenerated; both preprint drafts updated to the strict-primary
-  picture. The regenerated tables (and the numbers in both drafts) are **polluted
-  by RCT030 wrong-paper judgements** and must be regenerated again once #29 is
-  fixed — do not submit on the current numbers. The qualitative findings likely
-  survive but every figure will shift. For the record, the current (polluted)
-  headline: under the corrected worst-wins ensemble, naive ensembling underperforms
-  the best single pass for all four models (former "qwen exception" +0.012 became
-  −0.012); Sonnet strict best-pass fulltext κ_quad 0.236 (0.264 inclusive),
-  four-model spread 0.021.
-- **Recovery guard added (2026-07-17), but only covers parse-failure recovery**:
-  `recover_parse_failures.py` recovered 2 qwen fulltext d3 rows that belonged to
-  **RCT030 — the wrong-paper acquisition** (its signalling describes the parent
-  Cochrane review, not the trial). The rows were reverted from backup,
-  `WRONG_PAPER_RCTS = {"RCT030"}` now guards the recovery script (with tests in
-  `tests/test_recover_parse_failures.py`), and RCT030's exclusion is documented in
-  `benchmark_rct.notes`. **BUT** the guard does NOT touch RCT030's 179 already-valid
-  `benchmark_judgment` rows (full cochrane + all-model judgements, both protocols),
-  which are still counted in every κ script — see issue #29. So "excluded from
-  analysis" is documented and enforced in the *recovery* path only, not in the
-  *analysis* path. FALLBACK total stands at 91 (all Sonnet); the 29 RCT030
-  parse-failure rows stay out of recovery, but the wrong-paper *valid* rows do not.
+- **Test suite: 609 passed, 0 failed** (`uv run pytest`). Stale tests #21/#22
+  were realigned 2026-07-17; the wrong-paper audit + recovery tools added audit,
+  exclusion, and surgical-recovery tests.
+- **`phase6_results*.{md,csv}` and both drafts have been regenerated on n=78**
+  (all 13 wrong papers excluded — Open work #0). The regenerated headline numbers
+  and the finding-#1 reframe are in Open work #0; the owner still needs to weave
+  them into the prose before submission. Do not submit until that prose pass is
+  done.
+- **RCT030 wrong-paper exclusion is now enforced in BOTH paths** (PR #30 merged
+  2026-07-17): `studies/eisele_metzger_replication/exclusions.py` is the single
+  source of truth (`WRONG_PAPER_RCTS` + `wrong_paper_filter()` SQL helper), imported
+  by `recover_parse_failures.py` (recovery guard) and by the analysis loaders in
+  `compute_phase6_kappa.py` / `interim_analysis.py` / `temperature_analysis.py`.
+  Deliberately NOT applied in `sanity_check_kappa.py` (it reproduces EM's published
+  κ from EM's own correctly-acquired data). Tests in
+  `tests/test_kappa_exclusions.py` + `tests/test_recover_parse_failures.py`.
+  FALLBACK total stands at 91 (all Sonnet).
 
 ## Open work (in priority order)
 
-### 1. Fix the RCT030 κ pollution and regenerate (issue #29) — BLOCKS the manuscript
+### 0. DECISION MADE (2026-07-17): hybrid — exclude-all primary + recovered sensitivity
 
-RCT030 is documented "excluded from analysis" in `benchmark_rct.notes`, but the κ
-scripts have no RCT030 filter, so its wrong-paper judgements (179 valid rows) are in
-every phase-6 table and both drafts. Fix: centralise `WRONG_PAPER_RCTS` into a shared
-study module, enforce it in `compute_phase6_kappa.py` / `interim_analysis.py` /
-`temperature_analysis.py` / `sanity_check_kappa.py`, regenerate both κ modes against
-the canonical DB, then re-update both drafts (RCT030 is a *wrong-paper* exclusion
-distinct from the 9 unrecoverable regional-journal RCTs → n=90, not 91, for affected
-sources; §3.1 narrative needs rewording). Owner decision needed on whether RCT030 is
-the *only* wrong-paper acquisition (the set was populated reactively). Full evidence
-and a proposed patch are in issue #29.
+Owner chose the **hybrid**: the pre-registered **primary** excludes ALL 13
+wrong papers; the **recovered corpus** is a secondary **sensitivity** analysis.
+
+**Done this session (committed):** `WRONG_PAPER_RCTS` expanded to all 13;
+`UNRECOVERABLE_WRONG_PAPER_RCTS = {RCT030, RCT080}` added for the sensitivity;
+both phase-6 κ modes and the algorithm-conformance audit regenerated on n=78
+(the audit now computes its cross-model consensus in-script — previously ad hoc);
+`recovery_obtainability.md` finalised (11 recoverable incl. RCT017=31968595,
+2 exclude).
+
+**Material result the owner must weave into the prose:** excluding the 13
+removes spurious disagreements and **raises κ unevenly**, breaking the old
+"tight clustering" finding. Best-pass κ_quad fulltext (strict) went
+0.257/0.254/0.253/0.236 (spread 0.021) → **gpt-oss 0.321, Sonnet 0.281, qwen
+0.273, gemma 0.259 (spread 0.062)**; gpt-oss now +0.10 above EM's 0.22.
+Reframed finding #1 (owner-approved): *after correcting the wrong-paper
+acquisitions, best-pass κ_quad spans 0.26–0.32; the ceiling is modestly above
+EM's 0.22 but still far below human-usable; run-to-run and ensemble findings
+unchanged.* Ensemble-loses-to-best-pass and run-to-run ordering both SURVIVE.
+
+**Draft updates (numbers → prose):** the **primary** draft
+(`20260501_*`) is being updated by Claude this session (finding #1 reframe,
+§3.1 wrong-paper class, §3.2 tables, n=78). The **companion** draft
+(`20260423_*`) is under concurrent owner edit — number map below; note its
+match-rate cell read 45.5% but the regenerated value is **47.9%**.
+Regenerated conformance numbers (n=4,676 cells / 78 RCTs): self-conformance
+**95.9%**, Cochrane match **47.9%**, more-lenient **46.6%**, more-strict
+**5.5%**, asymmetry **8.5:1**; 4/4 consensus **236** cells, **105** unanimous
+lenient disagreements (102 low→some_concerns), evidence-quote full coverage
+**86/105 (81.9%)**, pooled **1216/1260 (96.5%)**, D1 100% on 38 cells; 4/4
+sharpened asymmetry **11.7:1**.
+
+**Sensitivity analysis (owner-gated, NOT run — expensive model re-run):**
+recover the 11 obtainable RCTs, re-assess, then compute κ excluding only
+`UNRECOVERABLE_WRONG_PAPER_RCTS`. Steps:
+```bash
+# 1. recover (surgical: re-fetch correct doc, update benchmark_rct, delete stale
+#    MODEL rows only; backs up the DB first). Dry-run first, then --apply.
+uv run python studies/eisele_metzger_replication/recover_wrong_papers.py apply \
+  RCT008 RCT009 RCT019 RCT040 RCT064 RCT074 RCT095 RCT100 \
+  RCT017=31968595 RCT088=32871238 RCT093=34800427 --apply
+# 2. re-assess ONLY the deleted rows (existence check skips the rest):
+uv run python studies/eisele_metzger_replication/run_evaluation.py --model gpt_oss_20b --protocol abstract   # ×{abstract,fulltext}×{gpt_oss_20b,gemma4_26b,qwen3_6_35b}
+uv run python studies/eisele_metzger_replication/run_evaluation_anthropic.py --protocol abstract            # Sonnet ×{abstract,fulltext}
+# 3. compute the sensitivity κ (needs a --sensitivity flag on compute_phase6_kappa
+#    that swaps in UNRECOVERABLE_WRONG_PAPER_RCTS — small add, do it against the
+#    re-assessed DB so it can be validated).
+```
+
+### 1. Wrong-paper exclusion set is BIGGER than {RCT030} — (resolved, see §0)
+
+The 2026-07-17 completeness audit (issue #29 step 5, full evidence in the issue
+comment) found **RCT030 is not the only wrong-paper acquisition**. Phase 1
+mis-resolved the fetched document for several more RCTs; regenerating the κ
+tables with only RCT030 excluded would still ship polluted numbers. Resolved by
+the §0 decision (exclude all 13); the drafts and κ tables were regenerated on
+n=78 accordingly.
+
+- **Tier A — wrong document entirely, recommend excluding**: RCT008 (systematic
+  review, not the Jolly RCT), RCT080 (Scandinavian mortality stats, not the
+  kindergarten language RCT), RCT088 (concrete engineering, not the calcifediol
+  COVID RCT), RCT093 (RECOVERY *empagliflozin* arm, not the intended *aspirin*
+  arm) — alongside RCT030. All model-confirmed via rationales.
+- **Tier B — right trial, wrong report (protocol/sub-analysis/different
+  follow-up), owner adjudicates**: RCT017, RCT074 (protocols not results),
+  RCT100 (pooled 4-trial analysis vs single COVE trial), RCT095 (STOIC
+  mechanistic sub-study), RCT040 (insulin antibody 104-wk vs 52-wk efficacy —
+  verify), RCT009 (TTM2 oxygen sub-analysis), RCT064 (PRET-PD cognition report),
+  RCT019 (fluocinolone 3-yr vs 12-mo results).
+- Reproducible tools: `audit_wrong_paper_acquisitions.py` (detection) and
+  `recover_wrong_papers.py` (obtainability + surgical recovery), tests in
+  `tests/test_wrong_paper_audit.py` + `tests/test_recover_wrong_papers.py`.
+
+**Exclude vs recover — obtainability audit (2026-07-17, `recovery_obtainability.md`):**
+most of these are *recoverable*, not just excludable, because the `cochrane` /
+`em_claude2_*` ground truth is already for the correct trial — only the fetched
+document is wrong. `recover_wrong_papers.py report` re-resolves each intended
+trial (validated by title coverage vs `em_rct_ref` — the gate that would have
+prevented the bug):
+- **8 auto-recoverable** (correct PMID found): RCT008, RCT009, RCT019, RCT040,
+  RCT064, RCT074, RCT095, RCT100.
+- **2 manual-recoverable** (verified PMID, resolver can't select): RCT088=32871238
+  (compound surname), RCT093=34800427 (same-platform arm). `MANUAL_PMIDS` holds these.
+- **3 to exclude / manual-lookup**: RCT030, RCT080 (correct paper not PubMed-indexed
+  → genuine exclude); RCT017 (results paper exists but resolver locks on the
+  near-identical protocol PMID — needs a manual PMID lookup).
+
+**Owner decision:** exclude-all (simplest, conservative) vs recover the ~10-11
+obtainable ones (restores n, needs a pre-reg §12 amendment + a targeted model
+re-run). `recover_wrong_papers.py apply RCTxxx [RCTyyy=PMID] --apply` does the
+surgery (re-fetch correct doc → update `benchmark_rct` → delete stale *model*
+rows only, never ground truth; DB backed up first) and prints the
+`run_evaluation.py` re-assess commands (its existence check recomputes only the
+deleted rows). The model re-run is expensive/owner-gated — NOT run automatically.
+
+Whichever path: add exclude-only IDs to `exclusions.WRONG_PAPER_RCTS` (enforced
+across all κ loaders by #30), then regenerate both κ modes, re-derive both drafts,
+and rewrite §3.1 to name a **wrong-paper class** distinct from the 9 unrecoverable
+regional-journal RCTs. RCT030-only magnitude was small (+0.007–0.009 κ_quad, PR
+#30 pre-check); the full set moves figures more.
 
 ### 2. Papers
 
@@ -135,9 +217,13 @@ and a proposed patch are in issue #29.
 - Two near-identical filenames in `biasbuster/methodologies/cochrane_rob2/`:
   `algorithm.py` (consistency checking) vs `algorithms.py` (per-domain truth
   tables). Both carry cross-reference notes — mind which one you touch.
-- **RCT030 is the wrong-paper acquisition** — its 29 parse-failure rows must stay
-  excluded; `recover_parse_failures.py` guards this via `WRONG_PAPER_RCTS`. Never
-  "recover" them.
+- **Wrong-paper acquisitions are a class, not just RCT030** — RCT030 is the only
+  one *enforced* in `exclusions.WRONG_PAPER_RCTS` today, but the audit found
+  more (Open work #1). Before any κ regeneration, run
+  `audit_wrong_paper_acquisitions.py` and get the owner's sign-off on the set.
+  RCT030's 29 parse-failure rows must always stay out of recovery
+  (`recover_parse_failures.py` guards via `WRONG_PAPER_RCTS`). Never "recover"
+  them.
 - All κ / ensemble / synthesis numbers are computed in code, never by the model.
 - Repo-wide rules (CLAUDE.md): `uv` only; prompts single-sourced in `prompts*.py`;
   processes >2 min are printed for the user to run, never run in-session; anything
@@ -154,6 +240,7 @@ and a proposed patch are in issue #29.
 | Study scripts (phases 1–6) | `studies/eisele_metzger_replication/` |
 | Cross-model κ report | `studies/eisele_metzger_replication/compute_phase6_kappa.py` → `phase6_results*.{md,csv}` |
 | Recovery / retro-tagging | `studies/eisele_metzger_replication/{recover_parse_failures,retro_tag_live_fallback}.py` |
+| Wrong-paper exclusion set / audit / recovery | `studies/eisele_metzger_replication/{exclusions,audit_wrong_paper_acquisitions,recover_wrong_papers}.py`; obtainability at `recovery_obtainability.md` |
 | Shard merge (Mac ⇄ DGX) | `studies/eisele_metzger_replication/merge_eval_dbs.py` |
 | Per-domain Cochrane algorithms | `biasbuster/methodologies/cochrane_rob2/algorithms.py` |
 | Benchmark DB (gitignored) | `dataset/eisele_metzger_benchmark.db` (+ `.spark.db` shard) |

@@ -1,11 +1,14 @@
 """Single source of truth for RCTs excluded from the benchmark analysis.
 
-RCT030 is the known **wrong-paper acquisition**: Phase 1 resolved the parent
-Cochrane review (PMID 37131928, CD013127.PUB2) instead of the underlying
-primary trial (Hung MS et al. 2021, *Collegian*, not PubMed-indexed). Every
-model judgement for RCT030 therefore describes a *different document* than the
-Cochrane ground truth it is scored against, so every model-vs-Cochrane pair for
-it is spurious and must not enter any κ computation.
+**Wrong-paper acquisitions** are a class (see ``WRONG_PAPER_RCTS`` below), not
+just RCT030: for each, Phase 1 resolved a *different document* than the primary
+trial EM cited (a parent Cochrane review, a systematic review, a protocol, a
+sub-analysis, or the wrong platform arm). RCT030 is the canonical example —
+Phase 1 resolved the parent Cochrane review (PMID 37131928, CD013127.PUB2)
+instead of the underlying trial (Hung MS et al. 2021, *Collegian*, not
+PubMed-indexed). Every model judgement for a wrong-paper RCT describes a
+different document than the Cochrane ground truth it is scored against, so every
+model-vs-Cochrane pair for it is spurious and must not enter any κ computation.
 
 Code paths that must honour this exclusion, all importing from here so the set
 is defined once:
@@ -32,10 +35,40 @@ at query time, so it is robust to whatever is stored.
 """
 from __future__ import annotations
 
-# RCTs whose Phase-1 acquisition resolved the WRONG DOCUMENT. Excluded from
-# analysis entirely. Kept as a frozenset so callers can do O(1) membership
+# RCTs whose Phase-1 acquisition resolved the WRONG DOCUMENT — a class, not just
+# RCT030. Found by the 2026-07-17 completeness audit + manual review (issue #29;
+# see audit_wrong_paper_acquisitions.py and recovery_obtainability.md). Every
+# model judgement for these describes a different document than the Cochrane
+# ground truth it is scored against, so all model-vs-Cochrane pairs for them are
+# spurious. The **primary** analysis (hybrid design, owner-approved 2026-07-17)
+# excludes ALL of these. Kept as a frozenset so callers can do O(1) membership
 # tests (recovery guard) and build a SQL fragment (analysis) from one source.
-WRONG_PAPER_RCTS: frozenset[str] = frozenset({"RCT030"})
+WRONG_PAPER_RCTS: frozenset[str] = frozenset({
+    "RCT008",  # systematic review, not the Jolly COPD RCT
+    "RCT009",  # TTM2 oxygen sub-analysis, not the temperature main paper
+    "RCT017",  # ERAS study protocol, not the results paper
+    "RCT019",  # fluocinolone 3-year results, not the 12-month paper
+    "RCT030",  # parent Cochrane review, not the Hung MHFA trial
+    "RCT040",  # insulin antibody 104-wk study, not the 52-wk efficacy RCT
+    "RCT064",  # PRET-PD cognition report, not the 2-year main RCT
+    "RCT074",  # Steps Ahead study protocol, not the results paper
+    "RCT080",  # Scandinavian mortality stats, not the kindergarten RCT
+    "RCT088",  # concrete-engineering paper, not the calcifediol COVID RCT
+    "RCT093",  # RECOVERY empagliflozin arm, not the intended aspirin arm
+    "RCT095",  # STOIC mechanistic sub-study, not the budesonide RCT
+    "RCT100",  # pooled four-trial analysis, not the single COVE trial
+})
+
+# Of the wrong-paper set, the RCTs whose CORRECT primary trial is not obtainable
+# (not PubMed-indexed) — excluded even in the recovered-corpus **sensitivity**
+# analysis. The rest are recoverable (see recover_wrong_papers.MANUAL_PMIDS and
+# recovery_obtainability.md); recovering them and re-assessing is the owner-gated
+# secondary analysis. Until that re-assessment exists, only the primary (exclude
+# ALL of WRONG_PAPER_RCTS) is computed.
+UNRECOVERABLE_WRONG_PAPER_RCTS: frozenset[str] = frozenset({
+    "RCT030",  # Hung MS et al 2021, Collegian — not PubMed-indexed
+    "RCT080",  # Rogde et al 2016, education journal — not PubMed-indexed
+})
 
 
 def wrong_paper_filter(*aliases: str) -> tuple[str, list[str]]:
