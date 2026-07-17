@@ -47,6 +47,15 @@ def test_reject_non_trial_pubtype(tmp_path):
         store.upsert_item(bad)
 
 
+def test_accept_source_asserted_pubtype(tmp_path):
+    """A source-asserted trial marker (e.g. a ROBoto2 RCT PubMed did not tag)
+    passes the §4.3 gate; only genuine non-trial values are rejected."""
+    store = BenchmarkStore(str(tmp_path / "b.db"))
+    ok = _valid_item() | {"pubtype_check": "trial_source_asserted"}
+    assert store.upsert_item(ok) is True
+    assert store.count() == 1
+
+
 def test_reject_missing_fulltext_or_provenance(tmp_path):
     store = BenchmarkStore(str(tmp_path / "b.db"))
     with pytest.raises(LitmusError):

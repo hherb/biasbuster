@@ -60,22 +60,31 @@ def test_non_dict_record_is_dropped_not_raised():
 async def test_ingest_roboto2_end_to_end_stubbed(tmp_path, monkeypatch):
     """Exercise the async ingest loop with all network I/O stubbed out.
 
-    Dataset has four records: one admissible (title resolves confidently, OA
-    subset, trial pubtype, JATS ok), one with a ``none`` domain (dropped by
-    the parser), one whose title does not resolve (rejected, not guessed),
-    and one bare JSON ``null`` (must be logged and skipped, never crash the
-    run).
+    Dataset has five records: one admissible with a PubMed-confirmed trial
+    type, one admissible whose PubMed metadata lacks a trial tag (admitted as
+    ``trial_source_asserted``, flagged for manual verification — ROBoto2 rows
+    are RCTs by construction), one with a ``none`` domain (dropped by the
+    parser), one whose title does not resolve (rejected, not guessed), and one
+    bare JSON ``null`` (must be logged and skipped, never crash the run).
 
     The OA status stub returns an unprefixed ``pmcid`` (no "PMC" lead) to
     verify ``fetch_jats`` is still called with the normalized ``PMC``-prefixed
     id.
     """
     dataset = [
-        {  # admissible
+        {  # admissible, PubMed-confirmed trial type
             "paper_id": "29838",
             "title": "An admissible resolvable trial title",
             "rob2": {"overall": "low", "randomization": "low", "deviations": "low",
                      "missing_outcome": "low", "measurement": "low", "reporting": "low"},
+            "signalling": {},
+        },
+        {  # admissible, but PubMed does not tag it a trial → source-asserted
+            "paper_id": "555",
+            "title": "A source-asserted trial PubMed did not tag",
+            "rob2": {"overall": "some concerns", "randomization": "some concerns",
+                     "deviations": "low", "missing_outcome": "low",
+                     "measurement": "low", "reporting": "low"},
             "signalling": {},
         },
         RECS[1],  # 'none' domain → parser drops
@@ -99,16 +108,20 @@ async def test_ingest_roboto2_end_to_end_stubbed(tmp_path, monkeypatch):
     async def fake_resolve(client, title, *, pubmed_base, ncbi_api_key="", **_kw):
         if title.startswith("An admissible"):
             return TitleResolution("301", 0.97, "title_search")
+        if title.startswith("A source-asserted"):
+            return TitleResolution("555", 0.95, "title_search")
         return TitleResolution("", 0.42, "below_threshold")
 
     async def fake_fetch_oa_status(client, pmid, *, base):
-        assert pmid == "301"
+        assert pmid in {"301", "555"}
         lic = classify_license("cc by")
         # Deliberately unprefixed pmcid — exercises PMC normalization.
-        return OAStatus(pmid=pmid, pmcid="1000301", in_oa_subset=True, license=lic)
+        return OAStatus(pmid=pmid, pmcid=f"1000{pmid}", in_oa_subset=True, license=lic)
 
     async def fake_fetch_publication_types(pmids, *, client=None, ncbi_api_key="", **_kw):
-        return {pmid: ["Randomized Controlled Trial"] for pmid in pmids}
+        # 301 is a tagged RCT; 555 carries no trial PublicationType.
+        tags = {"301": ["Randomized Controlled Trial"], "555": ["Journal Article"]}
+        return {pmid: tags.get(pmid, []) for pmid in pmids}
 
     async def fake_fetch_jats(client, pmid, pmcid, cache_dir):
         fetch_jats_calls.append((pmid, pmcid))
@@ -131,23 +144,28 @@ async def test_ingest_roboto2_end_to_end_stubbed(tmp_path, monkeypatch):
             str(dataset_path), store, client=client, config=config,
         )
 
-    assert report.seen == 4
-    assert store.count() == 1  # only the admissible trial was admitted
-    assert report.admitted == 1
+    assert report.seen == 5
+    assert store.count() == 2  # confirmed-trial + source-asserted both admitted
+    assert report.admitted == 2
     assert report.rejected == 3  # none-domain + unresolved-title + malformed
 
     # fetch_jats must see the PMC-normalized pmcid, not the raw one.
-    assert fetch_jats_calls == [("301", "PMC1000301")]
+    assert set(fetch_jats_calls) == {("301", "PMC1000301"), ("555", "PMC1000555")}
 
-    # The admitted row carries the recorded labels, resolved PMID, title, and
-    # resolution confidence.
-    row = store.all_items()[0]
-    assert row["trial_pmid"] == "301"
-    assert row["rob2_overall"] == "low"
-    assert row["resolution_method"] == "title_search"
-    assert row["similarity_score"] == 0.97
-    assert row["trial_title"] == "An admissible resolvable trial title"
+    rows = {r["trial_pmid"]: r for r in store.all_items()}
+    # The PubMed-confirmed trial is recorded as a plain "trial".
+    assert rows["301"]["pubtype_check"] == "trial"
+    assert rows["301"]["rob2_overall"] == "low"
+    assert rows["301"]["resolution_method"] == "title_search"
+    assert rows["301"]["similarity_score"] == 0.97
+    assert rows["301"]["trial_title"] == "An admissible resolvable trial title"
+    # The PubMed-untagged RCT is admitted but flagged source-asserted, awaiting
+    # manual verification (never claimed as PubMed-confirmed).
+    assert rows["555"]["pubtype_check"] == "trial_source_asserted"
+    assert rows["555"]["manual_verified"] == 0
 
     # The unresolved-title record was logged, not silently dropped.
     reject_rules = {json.loads(line)["rule"] for line in rejects_path.read_text().splitlines()}
     assert "title_unresolved" in reject_rules
+    # non_trial_pubtype must NOT appear — the source-asserted row was admitted.
+    assert "non_trial_pubtype" not in reject_rules

@@ -70,7 +70,12 @@ _DOMAIN_ORDER = ("randomization", "deviations", "missing_outcome",
 _LABEL_SOURCE = "roboto2"
 _SOURCE_REVIEW_PMID = "ROBoto2"  # non-empty for litmus §4.4; not a real PMID
 _EXTRACTION_METHOD = "recorded_expert_label"
-_PUBTYPE_CHECK = "trial"
+
+#: pubtype_check values (store §4.3). ROBoto2 rows are RCTs by construction, so
+#: a missing PubMed trial tag yields the source-asserted marker (admitted but
+#: flagged for manual verification) rather than a rejection.
+_PUBTYPE_CONFIRMED = "trial"
+_PUBTYPE_SOURCE_ASSERTED = "trial_source_asserted"
 
 
 @dataclass
@@ -133,13 +138,14 @@ def parse_record(rec: dict) -> ParsedRecord | None:
 
 def _build_item(
     resolution: TitleResolution, oa: OAStatus, rob2: RoB2Tuple,
-    fulltext_path: str, title: str,
+    fulltext_path: str, title: str, pubtype_check: str,
 ) -> dict:
     """Map a resolved + fetched trial to a ``benchmark_item`` store dict.
 
     Populates every NOT NULL / litmus-required column (store.py's
     ``_SCHEMA``): the resolved PMID + license facts from ``oa``, the RoB 2
-    tuple's six recorded-label fields, the resolution confidence, and the
+    tuple's six recorded-label fields, the resolution confidence,
+    ``pubtype_check`` (confirmed vs source-asserted, see caller), and the
     ROBoto2-specific provenance constants defined module-level above.
     """
     lic = oa.license
@@ -167,7 +173,7 @@ def _build_item(
         "row_index": None,
         "resolution_method": RESOLUTION_METHOD,
         "similarity_score": resolution.similarity,
-        "pubtype_check": _PUBTYPE_CHECK,
+        "pubtype_check": pubtype_check,
         "extraction_method": _EXTRACTION_METHOD,
         "manual_verified": False,
     }
@@ -238,10 +244,22 @@ async def ingest_roboto2(
         pt = await pubtype.fetch_publication_types(
             [pmid], client=client, ncbi_api_key=config.ncbi_api_key,
         )
-        if pubtype.classify(pt.get(pmid, [])) != "trial":
-            rejected += 1
-            store.log_reject({"pmid": pmid}, "non_trial_pubtype", str(pt.get(pmid)))
-            continue
+        # ROBoto2 rows are RCTs by construction (each carries an expert RoB 2
+        # assessment), so a missing PubMed trial PublicationType is incomplete
+        # metadata, not evidence against inclusion. Admit either way, but record
+        # HOW trial status was established: PubMed-unconfirmed rows are marked
+        # ``trial_source_asserted`` (queryable, manual_verified=False) and
+        # logged for the operator's manual check — never silently claimed as
+        # PubMed-confirmed.
+        if pubtype.classify(pt.get(pmid, [])) == "trial":
+            pubtype_check = _PUBTYPE_CONFIRMED
+        else:
+            pubtype_check = _PUBTYPE_SOURCE_ASSERTED
+            logger.warning(
+                "ROBoto2 PMID %s admitted with source-asserted trial type "
+                "(PubMed types=%s); flag for manual verification",
+                pmid, pt.get(pmid),
+            )
 
         pmcid = oa.pmcid if oa.pmcid.startswith("PMC") else f"PMC{oa.pmcid}"
         status, _n_bytes = await fetch_jats(client, pmid, pmcid, DEFAULT_CACHE_DIR)
@@ -252,7 +270,9 @@ async def ingest_roboto2(
 
         fulltext_path = str(_cache_path(DEFAULT_CACHE_DIR, pmid))
         try:
-            store.upsert_item(_build_item(resolution, oa, parsed.rob2, fulltext_path, parsed.title))
+            store.upsert_item(
+                _build_item(resolution, oa, parsed.rob2, fulltext_path, parsed.title, pubtype_check)
+            )
             admitted += 1
         except (LitmusError, sqlite3.Error) as exc:
             rejected += 1

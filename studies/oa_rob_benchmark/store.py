@@ -26,6 +26,15 @@ _TUPLE_FIELDS = ("rob2_overall", "rob2_d1", "rob2_d2", "rob2_d3",
 _PROVENANCE_FIELDS = ("source_review_pmid", "resolution_method",
                       "extraction_method", "fulltext_path")
 
+#: Accepted values for the §4.3 pubtype gate. ``trial`` = PubMed confirmed a
+#: trial PublicationType. ``trial_source_asserted`` = the label source
+#: guarantees RCT status by construction (e.g. a ROBoto2 row carries an expert
+#: RoB 2 assessment) while PubMed's metadata simply lacks the tag — admitted,
+#: but recorded distinctly so it is queryable and gets manual verification by
+#: the ingesting caller. Any other value (e.g. a genuine ``non_trial``
+#: classification) still fails the litmus.
+ACCEPTED_PUBTYPE_CHECKS = frozenset({"trial", "trial_source_asserted"})
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS benchmark_item (
     trial_pmid TEXT PRIMARY KEY,
@@ -68,8 +77,11 @@ def litmus_violations(item: dict) -> list[str]:
     for f in _TUPLE_FIELDS:
         if item.get(f) not in CANONICAL_LEVELS:
             v.append(f"{f}={item.get(f)!r} not a canonical level (§4.2)")
-    if item.get("pubtype_check") != "trial":
-        v.append(f"pubtype_check={item.get('pubtype_check')!r} not 'trial' (§4.3)")
+    if item.get("pubtype_check") not in ACCEPTED_PUBTYPE_CHECKS:
+        v.append(
+            f"pubtype_check={item.get('pubtype_check')!r} not an accepted "
+            f"trial marker (§4.3)"
+        )
     for f in _PROVENANCE_FIELDS + ("trial_pmid",):
         if not str(item.get(f, "")).strip():
             v.append(f"{f} empty (§4.4)")
