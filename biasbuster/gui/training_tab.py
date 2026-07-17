@@ -13,6 +13,7 @@ from pathlib import Path
 from nicegui import ui
 
 from biasbuster.gui.process_runner import ProcessRunner
+from biasbuster.gui.timers import managed_timer
 from biasbuster.utils.training_monitor import MetricsReader, format_eta
 
 logger = logging.getLogger(__name__)
@@ -368,6 +369,8 @@ def create_training_tab(state: dict) -> None:
     start_btn.on_click(on_start)
     stop_btn.on_click(on_stop)
 
-    # Start polling timers (charts + completion detection)
-    ui.timer(REFRESH_INTERVAL, update_charts)
-    ui.timer(1.0, _poll_completion)
+    # Start polling timers (charts + completion detection).
+    # managed_timer defers creation until the client connects, so phantom
+    # HTTP-only clients never orphan a timer (see biasbuster/gui/timers.py).
+    managed_timer(REFRESH_INTERVAL, update_charts)
+    managed_timer(1.0, _poll_completion)

@@ -14,6 +14,7 @@ from pathlib import Path
 from nicegui import ui
 
 from biasbuster.gui.process_runner import ProcessRunner
+from biasbuster.gui.timers import managed_timer
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +270,7 @@ def create_evaluation_tab(state: dict) -> None:
             status_badge.props("color=red")
             ui.notify(f"Evaluation failed (exit code {code})", type="negative")
 
-    ui.timer(1.0, _poll_completion)
+    managed_timer(1.0, _poll_completion)
 
     baseline_btn.on_click(lambda: run_eval("zero-shot"))
     finetuned_btn.on_click(lambda: run_eval("fine-tuned"))

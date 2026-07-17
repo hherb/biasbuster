@@ -13,6 +13,7 @@ from nicegui import ui
 
 from biasbuster.gui.process_runner import ProcessRunner
 from biasbuster.gui.state import save_settings
+from biasbuster.gui.timers import managed_timer
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ def _poll_runner_completion(
             status.props("color=red")
             ui.notify(f"{fail_msg} (exit code {code})", type="negative")
 
-    ui.timer(1.0, _check)
+    managed_timer(1.0, _check)
 
 
 async def _start_guarded(
