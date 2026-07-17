@@ -1,0 +1,98 @@
+name: Lockfile refresh
+
+# Weekly uv lock --upgrade, gated by the full test suite. Opens (or
+# force-updates) a single standing PR only when the lockfile changed and
+# tests pass, so stale dependencies and security advisories don't
+# accumulate the way the April→July 2026 lockfile did (33 alerts).
+#
+# Dependabot cannot do this for us: its updater clones only this repo,
+# so it can never resolve the ../bmlib editable path dependency.
+
+on:
+  schedule:
+    - cron: '30 5 * * 1' # Mondays 05:30 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: lockfile-refresh
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: biasbuster
+    steps:
+      - name: Check out biasbuster
+        uses: actions/checkout@v5
+        with:
+          path: biasbuster
+
+      # bmlib is an editable path dependency (../bmlib in pyproject.toml),
+      # so it must be checked out as a sibling directory.
+      - name: Check out bmlib
+        uses: actions/checkout@v5
+        with:
+          repository: hherb/bmlib
+          path: bmlib
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: biasbuster/uv.lock
+
+      - name: Upgrade lockfile
+        id: upgrade
+        run: |
+          uv lock --upgrade 2>&1 | tee /tmp/uv-upgrade.log
+          if git diff --quiet -- uv.lock; then
+            echo "Lockfile already up to date."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A failing suite fails the whole run (loud signal, no PR opened):
+      # an upgrade that breaks tests needs human attention either way.
+      - name: Run tests against upgraded lockfile
+        if: steps.upgrade.outputs.changed == 'true'
+        run: |
+          uv sync --locked
+          cp config.example.py config.py
+          uv run pytest -q
+
+      - name: Open or update PR
+        if: steps.upgrade.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: deps/scheduled-lockfile-refresh
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add uv.lock
+          git commit -m "deps: scheduled lockfile refresh (uv lock --upgrade)"
+          git push --force origin "$BRANCH"
+          {
+            echo "Automated weekly \`uv lock --upgrade\`."
+            echo
+            echo "The full test suite passed against this lockfile in the [refresh run]($RUN_URL)."
+            echo
+            echo '```'
+            grep -E 'Updated|Added|Removed' /tmp/uv-upgrade.log || echo "See run log for the change list."
+            echo '```'
+            echo
+            echo "_PRs opened by the workflow token do not trigger the CI workflow;_"
+            echo "_tests already ran in the refresh job. Close and reopen this PR if_"
+            echo "_you want a CI check on it._"
+          } > /tmp/pr-body.md
+          TITLE="deps: scheduled lockfile refresh"
+          gh pr create --head "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md \
+            || gh pr edit "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md
