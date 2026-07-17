@@ -82,3 +82,6 @@ worktrees/
 # Third-party research data with unresolved redistribution rights
 # (e.g. Eisele-Metzger 2025 supplementary CSVs — keep local until copyright is clear)
 DATA/
+
+# wrong-paper recovery obtainability checkpoint (transient resume state)
+studies/eisele_metzger_replication/recovery_obtainability.checkpoint.json

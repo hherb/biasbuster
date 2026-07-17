@@ -78,18 +78,37 @@ regenerate or touch the drafts until the owner decides the exclusion set.**
   mechanistic sub-study), RCT040 (insulin antibody 104-wk vs 52-wk efficacy —
   verify), RCT009 (TTM2 oxygen sub-analysis), RCT064 (PRET-PD cognition report),
   RCT019 (fluocinolone 3-yr vs 12-mo results).
-- Reproducible tool: `studies/eisele_metzger_replication/audit_wrong_paper_acquisitions.py`
-  (`uv run python …`), tests in `tests/test_wrong_paper_audit.py`. RCT093 is the
-  heuristic blind spot (same platform, different arm → high title coverage, no
-  model complaint) — caught by hand; the report prints a standing reminder.
+- Reproducible tools: `audit_wrong_paper_acquisitions.py` (detection) and
+  `recover_wrong_papers.py` (obtainability + surgical recovery), tests in
+  `tests/test_wrong_paper_audit.py` + `tests/test_recover_wrong_papers.py`.
 
-Only after the owner agrees the set: add the IDs to `exclusions.WRONG_PAPER_RCTS`
-(single source of truth, already enforced across all κ loaders by #30),
-regenerate both κ modes, re-derive both drafts, and rewrite §3.1 to name a
-**wrong-paper exclusion class** distinct from the 9 unrecoverable regional-journal
-RCTs (denominator drops from 91: RCT030 → 90; +Tier A → ~86; +Tier B lower).
-Expected magnitude of RCT030-only was small (+0.007–0.009 κ_quad, PR #30
-pre-check); the additional exclusions will move figures more.
+**Exclude vs recover — obtainability audit (2026-07-17, `recovery_obtainability.md`):**
+most of these are *recoverable*, not just excludable, because the `cochrane` /
+`em_claude2_*` ground truth is already for the correct trial — only the fetched
+document is wrong. `recover_wrong_papers.py report` re-resolves each intended
+trial (validated by title coverage vs `em_rct_ref` — the gate that would have
+prevented the bug):
+- **8 auto-recoverable** (correct PMID found): RCT008, RCT009, RCT019, RCT040,
+  RCT064, RCT074, RCT095, RCT100.
+- **2 manual-recoverable** (verified PMID, resolver can't select): RCT088=32871238
+  (compound surname), RCT093=34800427 (same-platform arm). `MANUAL_PMIDS` holds these.
+- **3 to exclude / manual-lookup**: RCT030, RCT080 (correct paper not PubMed-indexed
+  → genuine exclude); RCT017 (results paper exists but resolver locks on the
+  near-identical protocol PMID — needs a manual PMID lookup).
+
+**Owner decision:** exclude-all (simplest, conservative) vs recover the ~10-11
+obtainable ones (restores n, needs a pre-reg §12 amendment + a targeted model
+re-run). `recover_wrong_papers.py apply RCTxxx [RCTyyy=PMID] --apply` does the
+surgery (re-fetch correct doc → update `benchmark_rct` → delete stale *model*
+rows only, never ground truth; DB backed up first) and prints the
+`run_evaluation.py` re-assess commands (its existence check recomputes only the
+deleted rows). The model re-run is expensive/owner-gated — NOT run automatically.
+
+Whichever path: add exclude-only IDs to `exclusions.WRONG_PAPER_RCTS` (enforced
+across all κ loaders by #30), then regenerate both κ modes, re-derive both drafts,
+and rewrite §3.1 to name a **wrong-paper class** distinct from the 9 unrecoverable
+regional-journal RCTs. RCT030-only magnitude was small (+0.007–0.009 κ_quad, PR
+#30 pre-check); the full set moves figures more.
 
 ### 2. Papers
 
@@ -170,7 +189,7 @@ pre-check); the additional exclusions will move figures more.
 | Study scripts (phases 1–6) | `studies/eisele_metzger_replication/` |
 | Cross-model κ report | `studies/eisele_metzger_replication/compute_phase6_kappa.py` → `phase6_results*.{md,csv}` |
 | Recovery / retro-tagging | `studies/eisele_metzger_replication/{recover_parse_failures,retro_tag_live_fallback}.py` |
-| Wrong-paper exclusion set / audit | `studies/eisele_metzger_replication/{exclusions,audit_wrong_paper_acquisitions}.py` |
+| Wrong-paper exclusion set / audit / recovery | `studies/eisele_metzger_replication/{exclusions,audit_wrong_paper_acquisitions,recover_wrong_papers}.py`; obtainability at `recovery_obtainability.md` |
 | Shard merge (Mac ⇄ DGX) | `studies/eisele_metzger_replication/merge_eval_dbs.py` |
 | Per-domain Cochrane algorithms | `biasbuster/methodologies/cochrane_rob2/algorithms.py` |
 | Benchmark DB (gitignored) | `dataset/eisele_metzger_benchmark.db` (+ `.spark.db` shard) |

@@ -39,7 +39,8 @@ current session-level detail lives in HANDOVER.md, historical records in
 | ✅ Done | Wrong-paper recovery guard | `WRONG_PAPER_RCTS` in `recover_parse_failures.py` + tests; RCT030 rows reverted and documented in `benchmark_rct.notes` (2026-07-17). Recovery path only — analysis-path exclusion tracked in #29 |
 | ✅ Done | Enforce RCT030 exclusion in κ scripts (#29 code fix) | `exclusions.py` single source of truth, enforced in `compute_phase6_kappa.py`/`interim_analysis.py`/`temperature_analysis.py`; deliberately not in `sanity_check_kappa.py` (EM reproduction) — PR #30, 2026-07-17 |
 | ✅ Done | Wrong-paper completeness audit (#29 step 5) | `audit_wrong_paper_acquisitions.py` + tests; found ≥4 more Tier-A wrong docs (RCT008/080/088/093) + a Tier-B "wrong report" class — RCT030 is not unique (2026-07-17) |
-| ⛔ Blocked | Agree wrong-paper exclusion set (owner) | Tier A recommend-exclude; Tier B needs adjudication; sets the denominator + §3.1 narrative. Gates κ regeneration |
+| ✅ Done | Obtainability audit + recovery tool | `recover_wrong_papers.py` (validated re-resolver, `report`/`apply`, surgical DB update, `MANUAL_PMIDS`) + tests; `recovery_obtainability.md`: 8 auto- + 2 manual-recoverable, 2 genuine excludes, RCT017 needs manual PMID (2026-07-17) |
+| ⛔ Blocked | Exclude-vs-recover decision (owner) | Exclude-all (simple) vs recover the ~10-11 obtainable (restores n; needs pre-reg §12 amendment + targeted model re-run). Sets denominator + §3.1 narrative; gates κ regeneration |
 | 🔶 In progress | Regenerate κ tables + drafts post-#29 | **Blocked** on the exclusion-set decision above; then regenerate both κ modes + re-derive both drafts (wrong-paper exclusion class distinct from the 9 regional-journal RCTs) |
 | ⬜ Planned | Forest-plot figure | Figure 1 for the primary draft, from `phase6_forest_data.csv` |
 | ⬜ Planned | OSF pre-registration mirror | Pre-reg currently locked in git history only (commit `7854a1c`) |
