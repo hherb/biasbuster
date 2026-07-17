@@ -41,6 +41,13 @@ dataset/manual_verification_sets/*.jats.xml
 dataset_*/
 *.bak
 
+# ROBoto2 OA-benchmark seed data — third-party data (license R1 unconfirmed)
+# and derived artifacts; never commit (raw CSV is ~62 MB). Reproduce locally
+# via `python -m studies.oa_rob_benchmark.convert_roboto2_csv`.
+dataset/roboto2_dataset.csv
+dataset/roboto2/
+dataset/oa_rob_benchmark_rejects.jsonl
+
 # Scratch / logs
 log.txt
 annotation_evaluation.md
