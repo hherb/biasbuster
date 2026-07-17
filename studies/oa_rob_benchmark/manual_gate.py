@@ -63,16 +63,51 @@ def _render_item(item: dict, index: int) -> str:
     return "\n".join(lines)
 
 
+def _stratified_sample(items: list[dict], limit: int) -> list[dict]:
+    """Round-robin a sample of up to ``limit`` items across ``label_source``.
+
+    The benchmark has two provenance pools with very different failure
+    modes: the signalling-derived ``roboto2`` pool and the structural
+    table-extraction ``cochrane_review`` pool (the more error-prone path,
+    carrying the resolution/similarity provenance this manifest surfaces).
+    A plain ``items[:limit]`` slice would show only whichever pool was
+    ingested first, so the riskier pool could go entirely un-eyeballed
+    before the benchmark is scaled. Drawing round-robin across each
+    distinct ``label_source`` guarantees every pool is represented and the
+    smaller pool is fully surfaced.
+
+    Deterministic: within a pool the store's row order is preserved and
+    pools appear in first-seen order — no randomness, so the manual gate is
+    reproducible.
+    """
+    groups: dict[str, list[dict]] = {}
+    for item in items:
+        groups.setdefault(str(item.get("label_source", "")), []).append(item)
+    queues = list(groups.values())
+    sample: list[dict] = []
+    while len(sample) < limit and queues:
+        for queue in list(queues):
+            if len(sample) >= limit:
+                break
+            if queue:
+                sample.append(queue.pop(0))
+            else:
+                queues.remove(queue)
+    return sample
+
+
 def render_manifest(items: list[dict], *, limit: int = MANUAL_SAMPLE_SIZE) -> str:
     """Render up to ``limit`` benchmark items as a Markdown manual-gate manifest.
 
     Pure: no file or database I/O. Each item dict is expected to use the
     store's column names, as returned by ``BenchmarkStore.all_items()``.
+    The sample is stratified across ``label_source`` (see
+    ``_stratified_sample``) so both provenance pools are always eyeballed.
     Fields that may be ``None`` (e.g. ``table_index``, ``row_index``,
     ``similarity_score`` for ROBoto2-sourced rows) are rendered as an
     em-dash rather than raising or printing the literal string ``"None"``.
     """
-    sample = items[:limit]
+    sample = _stratified_sample(items, limit)
     header = (
         "# OA-First RoB Benchmark — Manual Gate Manifest\n\n"
         f"{len(sample)} of {len(items)} item(s) shown "

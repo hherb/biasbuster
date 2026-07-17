@@ -248,99 +248,115 @@ async def ingest_em_candidates(
     review_map, excluded_pmids = _load_em_benchmark_data(EM_BENCHMARK_DB_PATH)
     seen = admitted = rejected = 0
 
-    for pmid in em_pmids:
-        seen += 1
-        if pmid in WRONG_PAPER_RCTS or pmid in excluded_pmids:
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "wrong_paper_excluded", pmid)
-            continue
+    # One collector (and one HTTP client) for the whole run: opening a fresh
+    # RetractionWatchCollector per candidate would spin up and tear down a new
+    # connection pool for every trial just to resolve one review DOI.
+    async with RetractionWatchCollector(
+        mailto=config.crossref_mailto, ncbi_api_key=config.ncbi_api_key,
+    ) as rw:
+        for pmid in em_pmids:
+            seen += 1
+            if pmid in WRONG_PAPER_RCTS or pmid in excluded_pmids:
+                rejected += 1
+                store.log_reject({"trial_pmid": pmid}, "wrong_paper_excluded", pmid)
+                continue
 
-        oa = await fetch_oa_status(client, pmid, base=config.europmc_base)
-        if not oa.in_oa_subset:
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "not_oa_subset", oa.license.raw)
-            continue
+            oa = await fetch_oa_status(client, pmid, base=config.europmc_base)
+            if not oa.in_oa_subset:
+                rejected += 1
+                store.log_reject({"trial_pmid": pmid}, "not_oa_subset", oa.license.raw)
+                continue
 
-        cr_id = review_map.get(pmid, "")
-        if not cr_id:
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "no_review_mapping", "cr_id not found")
-            continue
+            cr_id = review_map.get(pmid, "")
+            if not cr_id:
+                rejected += 1
+                store.log_reject({"trial_pmid": pmid}, "no_review_mapping", "cr_id not found")
+                continue
 
-        review_doi = _cr_id_to_doi(cr_id)
-        async with RetractionWatchCollector(
-            mailto=config.crossref_mailto, ncbi_api_key=config.ncbi_api_key,
-        ) as rw:
+            review_doi = _cr_id_to_doi(cr_id)
             doi_map = await rw.doi_to_pmid([review_doi])
-        review_pmid = doi_map.get(review_doi, "")
-        if not review_pmid:
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "review_pmid_unresolved", review_doi)
-            continue
+            # NCBI's ID Converter echoes the DOI back in its own canonical
+            # casing — Cochrane DOIs carry an uppercase "CD" (e.g.
+            # "10.1002/14651858.CD001159.pub3") — which need not match the
+            # lowercased key we queried with. Exactly one DOI was requested,
+            # so take the single resolved value rather than keying on our
+            # (differently-cased) query string, which would spuriously miss.
+            review_pmid = next(iter(doi_map.values()), "")
+            if not review_pmid:
+                rejected += 1
+                store.log_reject({"trial_pmid": pmid}, "review_pmid_unresolved", review_doi)
+                continue
 
-        review_oa = await fetch_oa_status(client, review_pmid, base=config.europmc_base)
-        if not review_oa.pmcid:
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "review_pmcid_unresolved", review_pmid)
-            continue
-        review_pmcid = (
-            review_oa.pmcid if review_oa.pmcid.startswith("PMC") else f"PMC{review_oa.pmcid}"
-        )
-        review_status, _n = await fetch_jats(client, review_pmid, review_pmcid, DEFAULT_CACHE_DIR)
-        if review_status != "ok":
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "review_fulltext_fetch_failed", review_status)
-            continue
+            review_oa = await fetch_oa_status(client, review_pmid, base=config.europmc_base)
+            if not review_oa.pmcid:
+                rejected += 1
+                store.log_reject({"trial_pmid": pmid}, "review_pmcid_unresolved", review_pmid)
+                continue
+            review_pmcid = (
+                review_oa.pmcid if review_oa.pmcid.startswith("PMC")
+                else f"PMC{review_oa.pmcid}"
+            )
+            review_status, _n = await fetch_jats(
+                client, review_pmid, review_pmcid, DEFAULT_CACHE_DIR,
+            )
+            if review_status != "ok":
+                rejected += 1
+                store.log_reject(
+                    {"trial_pmid": pmid}, "review_fulltext_fetch_failed", review_status,
+                )
+                continue
 
-        review_jats = _cache_path(DEFAULT_CACHE_DIR, review_pmid).read_bytes()
-        items = derive_items_from_review(review_jats, {pmid})
-        if not items:
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "no_rob2_row_resolved", review_pmid)
-            continue
-        item = items[0]
-        # The review's own PMID/PMCID are known authoritatively here (network-
-        # resolved above); prefer them over derive_items_from_review's
-        # best-effort front-matter extraction, which may have found nothing.
-        item["source_review_pmid"] = review_pmid
-        item["source_review_pmcid"] = review_pmcid
+            review_jats = _cache_path(DEFAULT_CACHE_DIR, review_pmid).read_bytes()
+            items = derive_items_from_review(review_jats, {pmid})
+            if not items:
+                rejected += 1
+                store.log_reject({"trial_pmid": pmid}, "no_rob2_row_resolved", review_pmid)
+                continue
+            item = items[0]
+            # The review's own PMID/PMCID are known authoritatively here (network-
+            # resolved above); prefer them over derive_items_from_review's
+            # best-effort front-matter extraction, which may have found nothing.
+            item["source_review_pmid"] = review_pmid
+            item["source_review_pmcid"] = review_pmcid
 
-        pt = await pubtype.fetch_publication_types(
-            [pmid], client=client, ncbi_api_key=config.ncbi_api_key,
-        )
-        pubtype_check = pubtype.classify(pt.get(pmid, []))
-        if pubtype_check != _PUBTYPE_TRIAL:
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "non_trial_pubtype", str(pt.get(pmid)))
-            continue
+            pt = await pubtype.fetch_publication_types(
+                [pmid], client=client, ncbi_api_key=config.ncbi_api_key,
+            )
+            pubtype_check = pubtype.classify(pt.get(pmid, []))
+            if pubtype_check != _PUBTYPE_TRIAL:
+                rejected += 1
+                store.log_reject({"trial_pmid": pmid}, "non_trial_pubtype", str(pt.get(pmid)))
+                continue
 
-        trial_pmcid = oa.pmcid if oa.pmcid.startswith("PMC") else f"PMC{oa.pmcid}"
-        trial_status, _n = await fetch_jats(client, pmid, trial_pmcid, DEFAULT_CACHE_DIR)
-        if trial_status != "ok":
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "trial_fulltext_fetch_failed", trial_status)
-            continue
+            trial_pmcid = oa.pmcid if oa.pmcid.startswith("PMC") else f"PMC{oa.pmcid}"
+            trial_status, _n = await fetch_jats(client, pmid, trial_pmcid, DEFAULT_CACHE_DIR)
+            if trial_status != "ok":
+                rejected += 1
+                store.log_reject(
+                    {"trial_pmid": pmid}, "trial_fulltext_fetch_failed", trial_status,
+                )
+                continue
 
-        lic = oa.license
-        item.update({
-            "trial_pmcid": oa.pmcid,
-            "trial_doi": "",
-            "trial_title": "",
-            "trial_license": lic.spdx or lic.raw,
-            "license_redistributable": lic.redistributable,
-            "non_commercial": lic.non_commercial,
-            "no_derivatives": lic.no_derivatives,
-            "fulltext_path": str(_cache_path(DEFAULT_CACHE_DIR, pmid)),
-            "pubtype_check": pubtype_check,
-            "manual_verified": False,
-        })
+            lic = oa.license
+            item.update({
+                "trial_pmcid": oa.pmcid,
+                "trial_doi": "",
+                "trial_title": "",
+                "trial_license": lic.spdx or lic.raw,
+                "license_redistributable": lic.redistributable,
+                "non_commercial": lic.non_commercial,
+                "no_derivatives": lic.no_derivatives,
+                "fulltext_path": str(_cache_path(DEFAULT_CACHE_DIR, pmid)),
+                "pubtype_check": pubtype_check,
+                "manual_verified": False,
+            })
 
-        try:
-            store.upsert_item(item)
-            admitted += 1
-        except (LitmusError, sqlite3.Error) as exc:
-            rejected += 1
-            store.log_reject({"trial_pmid": pmid}, "litmus_or_db", str(exc))
+            try:
+                store.upsert_item(item)
+                admitted += 1
+            except (LitmusError, sqlite3.Error) as exc:
+                rejected += 1
+                store.log_reject({"trial_pmid": pmid}, "litmus_or_db", str(exc))
 
     logger.info(
         "EM candidate ingest: seen=%d admitted=%d rejected=%d", seen, admitted, rejected,

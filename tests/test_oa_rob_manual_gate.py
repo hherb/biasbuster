@@ -16,6 +16,23 @@ def test_manifest_lists_up_to_sample_size_rows():
     assert "some concerns" in md
     assert "PMC999" in md
 
+
+def test_manifest_samples_across_label_sources():
+    """Both provenance pools must be surfaced even when one dominates.
+
+    Regression for the manual-gate sampling fix: a plain ``items[:20]``
+    slice over 30 ``roboto2`` rows followed by 3 ``cochrane_review`` rows
+    would show only ``roboto2`` rows and never surface the riskier
+    structural-extraction pool. Stratified round-robin must include every
+    ``cochrane_review`` row while still capping at the sample size.
+    """
+    roboto2 = [_item(f"r{i}") | {"label_source": "roboto2"} for i in range(30)]
+    cochrane = [_item(f"c{i}") | {"label_source": "cochrane_review"} for i in range(3)]
+    md = render_manifest(roboto2 + cochrane)
+    assert md.count("Trial ") == MANUAL_SAMPLE_SIZE
+    for i in range(3):
+        assert f"(PMID c{i})" in md  # every minority-pool row surfaced
+
 def test_manifest_shows_all_six_fields_per_row():
     md = render_manifest([_item("111")])
     for field in ("overall", "D1", "D2", "D3", "D4", "D5"):
