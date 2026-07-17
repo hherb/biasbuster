@@ -71,8 +71,12 @@ def parse_roboto2_record(rec: dict) -> tuple[str, dict, dict] | None:
     """Extract ``(pmid, domain_answers, overall_answers)`` from a manual record.
 
     Returns ``None`` (never raises) for records with no manual assessment
-    (LLM-assisted-only rows, per spec §6.1 step 1) or from which a PMID
-    cannot be parsed out of ``paper_id``. ``domain_answers`` maps each
+    (LLM-assisted-only rows, per spec §6.1 step 1), from which a PMID
+    cannot be parsed out of ``paper_id``, or whose ``manual_assessment``
+    entries are not shaped as expected (e.g. a non-dict entry, or a
+    ``signalling`` value that isn't a mapping — a plausible real-world
+    encoding is a flat list of ``{"question": ..., "answer": ...}`` rows
+    instead of a ``{question: answer}`` dict). ``domain_answers`` maps each
     domain's canonical extractor name (``randomization`` / ``deviations`` /
     ``missing_outcome`` / ``measurement`` / ``reporting`` — see
     ``rob2_tuple._DOMAINS``) to its raw signalling-question answers dict.
@@ -86,10 +90,27 @@ def parse_roboto2_record(rec: dict) -> tuple[str, dict, dict] | None:
     m = _PMID_RE.search(str(rec.get("paper_id", "")))
     if not m:
         return None
-    domain_answers = {
-        str(d.get("domain", "")): dict(d.get("signalling", {}))
-        for d in manual if d.get("domain")
-    }
+    domain_answers: dict[str, dict] = {}
+    try:
+        for d in manual:
+            if not isinstance(d, dict):
+                continue
+            domain = d.get("domain")
+            if not domain:
+                continue
+            signalling = d.get("signalling", {})
+            if not isinstance(signalling, dict):
+                continue
+            domain_answers[str(domain)] = dict(signalling)
+    except (AttributeError, TypeError, ValueError) as exc:
+        # Structural surprise beyond the isinstance guards above (e.g. an
+        # exotic mapping-like object that raises on dict()) — fail safe
+        # rather than violate the "never raises" contract this function
+        # promises its caller.
+        logger.warning(
+            "parse_roboto2_record: malformed manual_assessment entry: %s", exc,
+        )
+        return None
     return m.group(1), domain_answers, {}
 
 
@@ -164,7 +185,12 @@ async def ingest_roboto2(
     seen = admitted = rejected = 0
     for rec in records:
         seen += 1
-        parsed = parse_roboto2_record(rec)
+        try:
+            parsed = parse_roboto2_record(rec)
+        except Exception as exc:  # noqa: BLE001 — one bad record must not abort the run
+            rejected += 1
+            store.log_reject(rec, "malformed_record", str(exc))
+            continue
         if parsed is None:
             rejected += 1
             store.log_reject(rec, "not_manual_or_no_pmid", "dropped")
@@ -191,7 +217,8 @@ async def ingest_roboto2(
             store.log_reject({"pmid": pmid}, "non_trial_pubtype", str(pt.get(pmid)))
             continue
 
-        status, _n_bytes = await fetch_jats(client, pmid, oa.pmcid, DEFAULT_CACHE_DIR)
+        pmcid = oa.pmcid if oa.pmcid.startswith("PMC") else f"PMC{oa.pmcid}"
+        status, _n_bytes = await fetch_jats(client, pmid, pmcid, DEFAULT_CACHE_DIR)
         if status != "ok":
             rejected += 1
             store.log_reject({"pmid": pmid}, "fulltext_fetch_failed", status)
