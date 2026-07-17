@@ -102,18 +102,38 @@ def tuple_from_signalling(
     ``algorithms.py``'s own (inconsistent) slug vocabulary. Overall is taken
     from ``overall_answers`` if the source records it, else derived by
     worst-wins over the five domains (RoB 2's own rule).
+
+    A ``domain_answers`` missing any of the five domains (or holding an
+    empty answers dict for one) is treated as an incomplete row and
+    rejected with ``None`` — ``derive_domain_judgement`` would otherwise
+    silently fall through to ``some_concerns`` for an absent domain
+    (no signalling answer fires either its low or high trigger), masking
+    the missing assessment as a plausible-looking judgement.
+
+    ``synthesis_worst_wins`` is fed the RAW (underscore-form, e.g.
+    ``"some_concerns"``) judgements returned by ``derive_domain_judgement``
+    — its own native vocabulary — never the canonical space-form
+    (``"some concerns"``) stored in the returned tuple's per-domain fields.
+    Feeding it the canonical form would make its ``"some_concerns" in
+    values`` membership check never match, silently downgrading the
+    overall to ``"low"`` whenever the worst domain was some-concerns and
+    none was high.
     """
+    if any(not domain_answers.get(name) for name, _code in _DOMAINS):
+        return None
+    raw_judgements: list[str] = []
     levels: list[str] = []
     for name, code in _DOMAINS:
-        judged = derive_domain_judgement(code, domain_answers.get(name, {}))
+        judged = derive_domain_judgement(code, domain_answers[name])
         lv = normalise_level(judged or "")
         if lv not in CANONICAL_LEVELS:
             return None
+        raw_judgements.append(judged or "")
         levels.append(lv)
     if overall_answers is not None:
         overall = normalise_level(overall_answers.get("overall", ""))
     else:
-        overall = normalise_level(synthesis_worst_wins(levels))
+        overall = normalise_level(synthesis_worst_wins(raw_judgements))
     if overall not in CANONICAL_LEVELS:
         return None
     return RoB2Tuple(overall, *levels)

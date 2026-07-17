@@ -90,3 +90,51 @@ def test_signalling_path_derives_judgements_via_algorithm():
     assert all(v in CANONICAL_LEVELS for v in (t.d1, t.d2, t.d3, t.d4, t.d5, t.overall))
     # worst-wins: any "high" domain present -> overall "high"
     assert t.overall == "high"
+
+
+def test_signalling_worst_wins_some_concerns_not_downgraded():
+    """Regression: synthesis_worst_wins must see the raw underscore-form
+    judgements (``some_concerns``), not the canonical space-form
+    (``some concerns``) that tuple_from_signalling stores in the tuple
+    fields. Before the fix, the canonical form was fed to
+    synthesis_worst_wins, whose "some_concerns" in values check never
+    matched, so the overall silently fell through to "low" whenever the
+    worst domain was some-concerns and none was high.
+
+    All five domains derive to "low" except missing_outcome, which derives
+    to "some_concerns" (per algorithms.py: neither the low trigger
+    (3.1/3.2 yes) nor the high trigger (3.4 yes) fires). No domain is
+    "high", so worst-wins must yield "some concerns" overall, not "low".
+    """
+    domain_answers = {
+        "randomization": {"1.1": "Y", "1.2": "Y", "1.3": "N"},          # -> low
+        "deviations": {"2.1": "N", "2.2": "N", "2.6": "Y"},              # -> low
+        "missing_outcome": {"3.1": "N", "3.2": "N", "3.4": "N"},        # -> some_concerns
+        "measurement": {"4.1": "N", "4.2": "N", "4.3": "N"},            # -> low
+        "reporting": {"5.1": "Y", "5.2": "N", "5.3": "N"},              # -> low
+    }
+    t = tuple_from_signalling(domain_answers, None)
+    assert t is not None
+    assert t.d1 == "low"
+    assert t.d2 == "low"
+    assert t.d3 == "some concerns"
+    assert t.d4 == "low"
+    assert t.d5 == "low"
+    assert t.overall == "some concerns"
+
+
+def test_signalling_missing_domain_rejected():
+    """Regression: a domain_answers dict missing one of the five extractor
+    domain names must be rejected with None, not silently derived to
+    "some_concerns" (derive_domain_judgement(code, {}) does not fire any
+    low/high trigger and falls through to "some_concerns" for an empty
+    answers dict, which previously masked the missing domain entirely).
+    """
+    domain_answers = {
+        "randomization": {"1.1": "Y", "1.2": "Y", "1.3": "N"},
+        "deviations": {"2.1": "N", "2.2": "N", "2.6": "Y"},
+        "missing_outcome": {"3.1": "N", "3.2": "N", "3.4": "N"},
+        "measurement": {"4.1": "N", "4.2": "N", "4.3": "N"},
+        # "reporting" domain is absent entirely
+    }
+    assert tuple_from_signalling(domain_answers, None) is None
