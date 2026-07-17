@@ -8,8 +8,8 @@ Read-only on the DB; verdicts from re-resolving each intended trial and validati
 - auto-recover (full text): 3
 - auto-recover (abstract only): 5
 - **auto-recover total: 8**
-- manual-recover (verified PMID, resolver cannot select): 2 (RCT088, RCT093)
-- exclude (correct paper not obtainable): 3
+- manual-recover (verified PMID, resolver cannot select): 3 (RCT017, RCT088, RCT093)
+- exclude (correct paper not obtainable): 2
 
 ## Per-RCT
 
@@ -17,7 +17,7 @@ Read-only on the DB; verdicts from re-resolving each intended trial and validati
 |---|---|---|--:|---|:-:|---|
 | RCT008 | A | recover_fulltext | 1.00 | 30470741 → 29899047 | ✓ |  |
 | RCT009 | B | recover_abstract | 1.00 | 36271410 → 34133859 |   |  |
-| RCT017 | B | exclude | 0.60 | 32546217 → 32546217 | ✓ | resolver still returns the same (wrong) PMID — needs manual PMID |
+| RCT017 | B | recover (manual) | 0.60 | 32546217 → 31968595 | ✓ | auto-resolver cannot select; apply with `RCT017=31968595` |
 | RCT019 | B | recover_abstract | 1.00 | 32624244 → 30367884 |   |  |
 | RCT030 | A | exclude | 0.09 | 37131928 → - |   | best coverage 0.09 < 0.6 gate |
 | RCT040 | B | recover_fulltext | 1.00 | 27600385 → 23094597 | ✓ |  |

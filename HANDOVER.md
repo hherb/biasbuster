@@ -59,7 +59,58 @@ The §9 publishability gate was already cleared with gpt-oss:20b and Sonnet 4.6.
 
 ## Open work (in priority order)
 
-### 1. Wrong-paper exclusion set is BIGGER than {RCT030} — OWNER DECISION blocks the manuscript
+### 0. DECISION MADE (2026-07-17): hybrid — exclude-all primary + recovered sensitivity
+
+Owner chose the **hybrid**: the pre-registered **primary** excludes ALL 13
+wrong papers; the **recovered corpus** is a secondary **sensitivity** analysis.
+
+**Done this session (committed):** `WRONG_PAPER_RCTS` expanded to all 13;
+`UNRECOVERABLE_WRONG_PAPER_RCTS = {RCT030, RCT080}` added for the sensitivity;
+both phase-6 κ modes and the algorithm-conformance audit regenerated on n=78
+(the audit now computes its cross-model consensus in-script — previously ad hoc);
+`recovery_obtainability.md` finalised (11 recoverable incl. RCT017=31968595,
+2 exclude).
+
+**Material result the owner must weave into the prose:** excluding the 13
+removes spurious disagreements and **raises κ unevenly**, breaking the old
+"tight clustering" finding. Best-pass κ_quad fulltext (strict) went
+0.257/0.254/0.253/0.236 (spread 0.021) → **gpt-oss 0.321, Sonnet 0.281, qwen
+0.273, gemma 0.259 (spread 0.062)**; gpt-oss now +0.10 above EM's 0.22.
+Reframed finding #1 (owner-approved): *after correcting the wrong-paper
+acquisitions, best-pass κ_quad spans 0.26–0.32; the ceiling is modestly above
+EM's 0.22 but still far below human-usable; run-to-run and ensemble findings
+unchanged.* Ensemble-loses-to-best-pass and run-to-run ordering both SURVIVE.
+
+**Draft updates (numbers → prose):** the **primary** draft
+(`20260501_*`) is being updated by Claude this session (finding #1 reframe,
+§3.1 wrong-paper class, §3.2 tables, n=78). The **companion** draft
+(`20260423_*`) is under concurrent owner edit — number map below; note its
+match-rate cell read 45.5% but the regenerated value is **47.9%**.
+Regenerated conformance numbers (n=4,676 cells / 78 RCTs): self-conformance
+**95.9%**, Cochrane match **47.9%**, more-lenient **46.6%**, more-strict
+**5.5%**, asymmetry **8.5:1**; 4/4 consensus **236** cells, **105** unanimous
+lenient disagreements (102 low→some_concerns), evidence-quote full coverage
+**86/105 (81.9%)**, pooled **1216/1260 (96.5%)**, D1 100% on 38 cells; 4/4
+sharpened asymmetry **11.7:1**.
+
+**Sensitivity analysis (owner-gated, NOT run — expensive model re-run):**
+recover the 11 obtainable RCTs, re-assess, then compute κ excluding only
+`UNRECOVERABLE_WRONG_PAPER_RCTS`. Steps:
+```bash
+# 1. recover (surgical: re-fetch correct doc, update benchmark_rct, delete stale
+#    MODEL rows only; backs up the DB first). Dry-run first, then --apply.
+uv run python studies/eisele_metzger_replication/recover_wrong_papers.py apply \
+  RCT008 RCT009 RCT019 RCT040 RCT064 RCT074 RCT095 RCT100 \
+  RCT017=31968595 RCT088=32871238 RCT093=34800427 --apply
+# 2. re-assess ONLY the deleted rows (existence check skips the rest):
+uv run python studies/eisele_metzger_replication/run_evaluation.py --model gpt_oss_20b --protocol abstract   # ×{abstract,fulltext}×{gpt_oss_20b,gemma4_26b,qwen3_6_35b}
+uv run python studies/eisele_metzger_replication/run_evaluation_anthropic.py --protocol abstract            # Sonnet ×{abstract,fulltext}
+# 3. compute the sensitivity κ (needs a --sensitivity flag on compute_phase6_kappa
+#    that swaps in UNRECOVERABLE_WRONG_PAPER_RCTS — small add, do it against the
+#    re-assessed DB so it can be validated).
+```
+
+### 1. Wrong-paper exclusion set is BIGGER than {RCT030} — (resolved, see §0)
 
 The 2026-07-17 completeness audit (issue #29 step 5, full evidence in the issue
 comment) found **RCT030 is not the only wrong-paper acquisition**. Phase 1

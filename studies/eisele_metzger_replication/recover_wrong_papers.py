@@ -107,10 +107,11 @@ RECOVERY_CANDIDATES: dict[str, str] = {
 # Human-verified correct PMIDs for RCTs the auto-resolver cannot select (supply
 # via the ``RCTxxx=PMID`` apply syntax; the override is still coverage-validated).
 # The resolver misses these for structural reasons: a compound surname query
-# (RCT088 "Entrenas Castillo") and a same-platform-different-arm title (RCT093
-# empagliflozin vs aspirin). RCT017's results paper still needs a manual lookup —
-# the resolver locks onto the near-identically-titled protocol PMID.
+# (RCT088 "Entrenas Castillo"), a same-platform-different-arm title (RCT093
+# empagliflozin vs aspirin), and near-identical protocol/results titles (RCT017 —
+# the resolver locks onto the protocol PMID, so the results paper is supplied here).
 MANUAL_PMIDS: dict[str, str] = {
+    "RCT017": "31968595",  # Ho et al ERAS results paper (Nutrients 2020), not the protocol
     "RCT088": "32871238",  # Entrenas Castillo calcifediol COVID-19 pilot RCT
     "RCT093": "34800427",  # aspirin RECOVERY arm (Lancet 2022)
 }
