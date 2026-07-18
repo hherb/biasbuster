@@ -249,8 +249,8 @@ def ensemble_majority_vote(conn: sqlite3.Connection, model: str,
     for rct_id in rct_ids:
         ensemble_domains: dict[str, str] = {}
         for d in SIGNALLING_DOMAINS:
-            votes = [pass_judgments[p][d].get(rct_id) for p in PASSES]
-            votes = [v for v in votes if v is not None]
+            maybe_votes = [pass_judgments[p][d].get(rct_id) for p in PASSES]
+            votes = [v for v in maybe_votes if v is not None]
             if len(votes) < 2:
                 continue
             counter = Counter(votes)
@@ -561,15 +561,15 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
     with open(results_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=fieldnames)
         w.writeheader()
-        for r in rows:
-            w.writerow(r)
+        for row in rows:
+            w.writerow(row)
     forest_fields = ["label", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi",
                      "ci_quad_lo", "ci_quad_hi", "n", "kind"]
     with open(forest_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=forest_fields)
         w.writeheader()
-        for r in forest_rows:
-            w.writerow(r)
+        for row in forest_rows:
+            w.writerow(row)
 
     # Markdown report
     write_markdown_report(rows, forest_rows, results_md=results_md,
