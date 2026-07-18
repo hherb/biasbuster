@@ -62,4 +62,5 @@ current session-level detail lives in HANDOVER.md, historical records in
 | ✅ Done | CI test workflow | GitHub Actions runs `uv run pytest` on every push (PR #34); weekly scheduled lockfile refresh (PR #36) |
 | ✅ Done | Dependabot triage | All 33 alerts (12 high, 13 moderate, 8 low) resolved via dependency upgrades (PRs #35, #38) |
 | ✅ Done | pytest collection scoping | `testpaths = ["tests"]` so bare `uv run pytest` no longer collects stray `worktrees/` checkouts (2026-07-16) |
+| ✅ Done | Shared study-module test loader | `tests/conftest.load_study_module` (PR #43) + migration of the five remaining by-path test loaders; `test_root_module_imports` keeps a deliberate local uncached loader, documented in-file (issue #44, 2026-07-19) |
 | ✅ Done | Fix stale tests | #21 (export split fixture vs PMID grouping), #22 (RoB 2 missing-judgement fallback expectation) — realigned 2026-07-17 |
