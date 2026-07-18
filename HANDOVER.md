@@ -1,15 +1,19 @@
 # HANDOVER — BiasBuster
 
-_Last updated: 2026-07-18 (session-start reconciliation). Since the last HANDOVER
-(2026-07-17 morning) PRs #31–#39 all merged: the wrong-paper **hybrid was executed**
-(all 13 excluded from the primary; both drafts regenerated on n=78 with the reframed
-finding #1 — PR #31); the **OA-first RoB benchmark Stage A** shipped as a new parallel
-objective-3 workstream (PRs #32, #37); CI test workflow + weekly lockfile refresh added
-(#34, #36); **all 33 Dependabot alerts resolved** (#35, #38); a GUI log-spam fix (#39).
-This file was stale by nine PRs — the state, open-work, and housekeeping sections below
-are rewritten to match the merged tree. This session also **built the `--sensitivity`
-κ flag** (Open work #A.1) with a recovery-precondition guard + 15 tests. Suite green at
-**697 passed**._
+_Last updated: 2026-07-18 (pre-manuscript spot-checks session). Recent merges: the
+`--sensitivity` κ flag (PR #40); before that the wrong-paper **hybrid** (all 13 excluded
+from the primary; both drafts regenerated on n=78 — PR #31), **OA-first RoB benchmark
+Stage A** (PRs #32, #37), CI + weekly lockfile refresh (#34, #36), all 33 Dependabot
+alerts resolved (#35, #38), a GUI log-spam fix (#39). **This session** executed the
+runbook §6 pre-manuscript spot-checks (Open work #A.2): a committed, tested analysis
+script (`studies/eisele_metzger_replication/premanuscript_spotchecks.py`) drives (a) the
+Sonnet `low`-judgement right-for-the-right-reasons audit and (b) a full-corpus per-domain
+run-to-run instability audit across all four models. **Key finding:** the draft §3.6
+"instability concentrated on D1" is audit-set-specific and does NOT generalise — pooled
+across the full corpus the noisiest signalling domain is D3 (gpt-oss, gemma) / D5 (qwen)
+/ D4 (Sonnet), and D1 is among the most stable for three of four models (gpt-oss's low-κ
+D1 is a base-rate/kappa artefact of skewed marginals). Primary draft §3.5/§3.6/§5 updated
+accordingly. Suite green at **711 passed**._
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -45,7 +49,12 @@ The §9 publishability gate was cleared with gpt-oss:20b and Sonnet 4.6.
   "tight clustering" finding is gone). Ceiling 0.04–0.10 above EM's 0.22 but still far
   below human-usable. Ensemble-loses-to-best-pass and run-to-run ordering both SURVIVE;
   conformance lenient-asymmetry sharpened to 8.5:1 pooled / 11.7:1 at 4/4 consensus.
-- **Test suite: 697 passed, 0 failed** (`uv run pytest`).
+- **Pre-manuscript spot-checks DONE** (this session, Open work #A.2): Sonnet `low` audit
+  (2/5 match Cochrane but right-for-the-right-reasons — 2 RCTs, the 3 misses all one
+  shared-with-gpt-oss D2 case); per-domain instability audit shows §3.6's D1 concentration
+  is audit-set-specific, not corpus-wide; §3.5/§3.6/§5 updated. All numbers from
+  `premanuscript_spotchecks.py` (read-only over the benchmark DB).
+- **Test suite: 711 passed, 0 failed** (`uv run pytest`).
 
 ### B. OA-first Risk-of-Bias benchmark (Stage A shipped; owner actions pending)
 
@@ -91,9 +100,12 @@ label). Context: memory `project_oa_first_rob_benchmark.md`; spec
    uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --sensitivity
    uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --sensitivity --exclude-fallback  # strict variant
    ```
-2. **Pre-manuscript spot-checks** (from the runbook): right-for-the-right-reasons audit
-   of Sonnet's `low` judgements; check whether Sonnet/gemma/qwen share gpt-oss's D1
-   instability (§3.6); one more Limitations pass with all four models in.
+2. ~~**Pre-manuscript spot-checks**~~ **DONE this session** — `premanuscript_spotchecks.py`
+   (+ `premanuscript_spotcheck_results.md` / `premanuscript_instability.csv`; tests in
+   `tests/test_premanuscript_spotchecks.py`). Sonnet `low` audit and full-corpus per-domain
+   instability audit computed in code; primary draft §3.5 (Sonnet audit added), §3.6
+   (reframed — D1 concentration does not generalise), and §5 Limitations (four-model pass)
+   updated. Only remaining piece is the owner's final read-through — folded into #A.3.
 3. **Final prose pass on both drafts** — the n=78 numbers and reframed finding #1 are in
    (PR #31), but the owner still wants a read-through before submission.
 4. **Stretch (only if numbers are unequivocal):** forest-plot figure from
