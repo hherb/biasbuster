@@ -11,28 +11,11 @@ judgements are excluded from the "model-emitted low" audit.
 """
 from __future__ import annotations
 
-import importlib.util
 import sqlite3
-import sys
-from pathlib import Path
 
-_STUDY_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "studies" / "eisele_metzger_replication"
-)
+from tests.conftest import load_study_module
 
-
-def _load(module_name: str):
-    """Load a study module by file path (mirrors test_kappa_exclusions)."""
-    spec = importlib.util.spec_from_file_location(
-        module_name, _STUDY_DIR / f"{module_name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-pms = _load("premanuscript_spotchecks")
+pms = load_study_module("premanuscript_spotchecks")
 
 
 # --- disagreement_stats / disagreement_rate ---------------------------

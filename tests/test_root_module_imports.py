@@ -41,11 +41,23 @@ _ROOT_MODULES = ("config", "annotate_single_paper", "main", "seed_database")
 
 
 def _load_study_module(name: str) -> None:
-    """Load a study module by path, mirroring the wrong-paper/kappa tests.
+    """Load a study module by path, deliberately NOT via the shared helper.
 
-    These modules call `sys.path.insert(0, <study dir>)` at import time, so
-    loading them here reproduces the collection-time `sys.path` churn this
-    regression guards against.
+    This is intentionally a local, uncached loader (issue #44 reviewed and
+    kept it): `tests.conftest.load_study_module` returns the already-registered
+    module when another test file loaded it first, skipping re-execution — and
+    with it the `sys.path.insert(0, <study dir>)` churn this guard exists to
+    reproduce. Unconditional re-execution keeps the adversarial state
+    independent of collection order and of how the other test files load their
+    study modules, and holds when this file runs alone or in the full suite.
+
+    Note: re-executing replaces the ``sys.modules`` entry for each module it
+    loads, so a test file collected after this one that requests the same name
+    via the shared helper receives this re-executed copy, not the copy earlier
+    files share. The copies are functionally identical and test mutation goes
+    through ``monkeypatch`` on file-local references, so this is benign — but
+    conftest's single-shared-copy guarantee does not strictly hold for the
+    modules listed below.
     """
     spec = importlib.util.spec_from_file_location(name, _STUDY_DIR / f"{name}.py")
     module = importlib.util.module_from_spec(spec)

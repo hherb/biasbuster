@@ -7,27 +7,11 @@ truth, and must leave other RCTs untouched. No network is exercised here.
 """
 from __future__ import annotations
 
-import importlib.util
 import sqlite3
-import sys
-from pathlib import Path
 
-_STUDY_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "studies" / "eisele_metzger_replication"
-)
+from tests.conftest import load_study_module
 
-
-def _load(module_name: str):
-    spec = importlib.util.spec_from_file_location(
-        module_name, _STUDY_DIR / f"{module_name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-recover = _load("recover_wrong_papers")
+recover = load_study_module("recover_wrong_papers")
 
 
 # --- classify_verdict -------------------------------------------------

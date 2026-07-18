@@ -10,21 +10,14 @@ tests pin that guard.
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import sqlite3
-from pathlib import Path
 
 import pytest
 
-_MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "studies" / "eisele_metzger_replication" / "recover_parse_failures.py"
-)
-_spec = importlib.util.spec_from_file_location(
-    "recover_parse_failures", _MODULE_PATH)
-recover_parse_failures = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(recover_parse_failures)
+from tests.conftest import load_study_module
+
+recover_parse_failures = load_study_module("recover_parse_failures")
 
 
 RECOVERABLE_RESPONSE = json.dumps({

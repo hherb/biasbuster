@@ -10,39 +10,18 @@ the loader behaviour.
 """
 from __future__ import annotations
 
-import importlib.util
 import sqlite3
 import sys
-from pathlib import Path
 
 import pytest
 
-_STUDY_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "studies" / "eisele_metzger_replication"
-)
+from tests.conftest import load_study_module
 
-
-def _load(module_name: str):
-    """Load a study module by file path (mirrors test_recover_parse_failures).
-
-    Registers the module in ``sys.modules`` before executing it: ``@dataclass``
-    (used by ``compute_phase6_kappa.KappaRow``) looks the class's module up in
-    ``sys.modules`` during class creation and fails if it is absent.
-    """
-    spec = importlib.util.spec_from_file_location(
-        module_name, _STUDY_DIR / f"{module_name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-exclusions = _load("exclusions")
+exclusions = load_study_module("exclusions")
 # compute_phase6_kappa adds the study dir to sys.path at import time, so its
 # own ``from exclusions import ...`` / ``from sanity_check_kappa import ...``
 # resolve when exec'd here.
-cpk = _load("compute_phase6_kappa")
+cpk = load_study_module("compute_phase6_kappa")
 
 
 # --- wrong_paper_filter helper ----------------------------------------

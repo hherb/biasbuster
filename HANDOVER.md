@@ -1,6 +1,7 @@
 # HANDOVER — BiasBuster
 
-_Last updated: 2026-07-19 (Figure 1 forest-plot session). Recent merges: pre-manuscript
+_Last updated: 2026-07-19 (Figure 1 forest-plot session + same-day test-loader
+migration, issue #44). Recent merges: pre-manuscript
 spot-checks (PR #42); before that the `--sensitivity` κ flag (PR #40), the wrong-paper
 **hybrid** (all 13 excluded from the primary; both drafts regenerated on n=78 — PR #31),
 **OA-first RoB benchmark Stage A** (PRs #32, #37). **This session** built and shipped
@@ -24,8 +25,13 @@ post-review fix round unified the ensemble predicate (`ForestPoint.is_ensemble` 
 load-time consistency check), validated all required forest-CSV columns up front,
 derived tick precision from the step, moved both CI weightings onto one shared
 bootstrap resample stream (regression-tested CI-identical to the old two-call path;
-rendered PNG byte-identical), and added a shared `load_study_module` test helper
-(remaining migrations: issue #44). Suite green at **745 passed**._
+rendered PNG byte-identical), and added a shared `load_study_module` test helper.
+**A same-day follow-up session** completed the remaining migrations (issue #44):
+the five test files still carrying local by-path loaders now use the shared
+helper; `test_root_module_imports.py` deliberately keeps its local uncached
+loader — re-execution IS the `sys.path` churn it guards against, and the cached
+shared helper would skip it — with the rationale documented in-file. Suite green
+at **745 passed**._
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -168,10 +174,10 @@ per the >2-min rule):
 - `dataset/` still contains two stray `* copy.db` files
   (`eisele_metzger_benchmark copy.db`, `eisele_metzger_benchmark.spark copy.db`) —
   confirm with the owner they are disposable before removing.
-- Only **one** GitHub issue is open: **#29** (RCT030/wrong-paper κ pollution). The code
-  fix + drafts are done (PRs #30, #31); it stays open to track the owner-gated
-  sensitivity analysis (Open work #A.1). Close it once the sensitivity κ ships or the
-  owner decides to skip it.
+- Open GitHub issues: **#29** (RCT030/wrong-paper κ pollution — code fix + drafts done
+  in PRs #30, #31; stays open to track the owner-gated sensitivity analysis, Open work
+  #A.1; close it once the sensitivity κ ships or the owner decides to skip it) and
+  **#44** (test-loader migration — done in this session's PR; closes on merge).
 
 ## Conventions and gotchas
 
