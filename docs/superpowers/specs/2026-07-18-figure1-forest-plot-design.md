@@ -130,13 +130,52 @@ If any previously-published number moves, **stop and report** rather than
 proceeding. A shifted κ would mean both drafts need regenerating, which is a
 different and owner-gated piece of work.
 
+### 5.1a Amendment — a pre-existing reproducibility bug found while validating §5.1
+
+Running the **unmodified** script twice and diffing proved it is not
+reproducible today. Characterisation:
+
+- All point estimates (`raw_agr`, `k_unw`, `k_lin`, `k_quad`) are byte-identical
+  across runs.
+- Single-pass CIs are byte-identical.
+- **Ensemble-row CIs drift between runs** (e.g. gpt-oss fulltext κ_lin CI
+  `[0.067, 0.313]` → `[0.074, 0.315]`).
+
+**Root cause.** `load_pairs` (`compute_phase6_kappa.py:163`) issues its SELECT
+with **no `ORDER BY`**, so SQLite row order is unspecified.
+`insert_ensemble_into_db` rewrites the ensemble rows with `INSERT OR REPLACE` on
+every run, changing their physical placement and hence the scan order.
+`bootstrap_kappa_ci` seeds its own RNG at 42 but resamples *by index*, so a
+reordered `pairs` list yields different resamples. κ itself depends only on the
+confusion matrix and is order-invariant — which is exactly why point estimates
+stay fixed while CIs move.
+
+**Impact on published numbers: none.** Both drafts quote ensemble κ_quad point
+estimates only (§3.7: 0.223 / 0.212 / 0.253 / 0.246 and the abstract-protocol
+row); no ensemble CI appears in either draft. So the bug has not corrupted
+anything published, and fixing it cannot move a published number.
+
+**Fix (added to scope).** Add `ORDER BY a.rct_id` to `load_pairs`, making pair
+order deterministic regardless of physical storage. This must land **before**
+the κ_quad CI work, because the §5.1 byte-identical safeguard is meaningless
+against a moving baseline. It also matters directly for Figure 1: without it the
+ensemble error bars would not be reproducible.
+
+**Revised §5.1 safeguard.** After the ordering fix, the byte-identical check
+applies to *all* pre-existing columns including ensemble CIs — the check becomes
+strictly stronger. The one expected, intended change is that ensemble CI values
+settle on new stable values differing from those in the currently-committed
+`phase6_results.*` / `phase6_forest_data.csv`. That is the bug fix landing, not
+a regression; it is confined to CI columns and must be accompanied by proof that
+every point-estimate column is unchanged.
+
 ### 5.2 Runtime
 
-Adding a second 1000-resample bootstrap per row roughly doubles the script's
-runtime. The repo owner has granted a **5-minute in-session budget** for this
-specific regeneration (an explicit, task-scoped extension of the CLAUDE.md
->2-minute rule). Time the current script first; if the doubled runtime would
-exceed the budget, print the command for the owner's terminal instead.
+Measured: the current script runs in **3.5 s** wall-clock (`n_resamples=500`, not
+1000 — `build_kappa_row`'s default). Adding a second bootstrap per row roughly
+doubles that, so the regeneration lands around 7 s — far inside the owner's
+5-minute in-session budget, and inside the CLAUDE.md 2-minute rule regardless.
+No terminal hand-off is needed.
 
 The `--sensitivity` and `--exclude-fallback` modes must continue to compose
 unchanged; the new columns flow through the same writer.
