@@ -23,6 +23,11 @@
 - Do not modify the locked pre-analysis plan or prompt spec at commit `7854a1c`.
 - Model display order is fixed: gpt-oss 20B, Claude Sonnet 4.6, Qwen 3.6 35B-A3B, Gemma 4 26B-A4B.
 - Reference values: EM Claude 2 = 0.22, Minozzi 2020 = 0.16, Minozzi 2021 = 0.42.
+- **`studies/` is NOT a Python package** — there is no `__init__.py` anywhere under it, and this plan does not add one. Follow the established conventions exactly:
+  - **Study modules** import siblings via `sys.path.insert(0, str(PROJECT_ROOT / "studies/eisele_metzger_replication"))` followed by a flat `from sanity_check_kappa import ...` with a `# noqa: E402` comment. See `compute_phase6_kappa.py:42-56`.
+  - **Tests** load study modules through an `importlib.util.spec_from_file_location` helper that registers the module in `sys.modules` **before** executing it — `@dataclass` looks its class's module up in `sys.modules` during class creation and fails if absent. See `tests/test_kappa_exclusions.py:20-38`.
+  - **CLI invocation is by path**, never `python -m`: `uv run python studies/eisele_metzger_replication/figures/figure1_forest.py`.
+  - Converting `studies/` to a package is explicitly out of scope: it would give modules such as `sanity_check_kappa` a dual identity (importable both as top-level and as a submodule), which is the exact hazard the existing test helper guards against.
 
 ---
 
@@ -51,11 +56,37 @@ pairs list yields different resamples and therefore a different CI. Cohen's
 kappa itself is order-invariant (it depends only on the confusion matrix),
 which is why this bug moved CIs while leaving point estimates fixed.
 """
+import importlib.util
 import sqlite3
+import sys
+from pathlib import Path
 
 import pytest
 
-from studies.eisele_metzger_replication.compute_phase6_kappa import load_pairs
+_STUDY_DIR = (
+    Path(__file__).resolve().parents[1]
+    / "studies" / "eisele_metzger_replication"
+)
+
+
+def _load(module_name: str):
+    """Load a study module by file path (mirrors test_kappa_exclusions).
+
+    ``studies/`` is not a package. Registers the module in ``sys.modules``
+    before executing it: ``@dataclass`` (used by ``KappaRow``) looks the
+    class's module up in ``sys.modules`` during class creation and fails if
+    it is absent.
+    """
+    spec = importlib.util.spec_from_file_location(
+        module_name, _STUDY_DIR / f"{module_name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_kappa = _load("compute_phase6_kappa")
+load_pairs = _kappa.load_pairs
 
 _SCHEMA = """
 CREATE TABLE benchmark_judgment (
@@ -173,7 +204,7 @@ Expected: `REPRODUCIBLE`, no diff output. Runtime ~3.5 s per run.
 - [ ] **Step 6: Confirm no point estimate moved**
 
 ```bash
-git stash && cp studies/eisele_metzger_replication/phase6_results.csv /tmp/results_before.csv && git stash pop
+git show HEAD:studies/eisele_metzger_replication/phase6_results.csv > /tmp/results_before.csv
 uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py
 uv run python - <<'PY'
 import csv
@@ -228,7 +259,7 @@ Append to `tests/test_kappa_determinism.py`:
 ```python
 def test_build_kappa_row_reports_quadratic_ci():
     """build_kappa_row must return a quadratic-weighted CI bracketing k_quad."""
-    from studies.eisele_metzger_replication.compute_phase6_kappa import build_kappa_row
+    build_kappa_row = _kappa.build_kappa_row
 
     conn = sqlite3.connect(":memory:")
     conn.executescript(_SCHEMA)
@@ -385,9 +416,10 @@ pre-existing columns verified byte-identical after regeneration."
 ### Task 3: Forest-plot data layer (matplotlib-free)
 
 **Files:**
-- Create: `studies/eisele_metzger_replication/figures/__init__.py`
 - Create: `studies/eisele_metzger_replication/figures/forest_data.py`
 - Test: `tests/test_forest_data.py`
+
+**No `__init__.py`** — `figures/` is a plain directory, consistent with the rest of `studies/`. See Global Constraints.
 
 **Interfaces:**
 - Consumes: the CSV schema produced by Task 2.
@@ -409,18 +441,35 @@ Create `tests/test_forest_data.py`:
 Deliberately free of matplotlib so it runs in CI without the optional
 `figures` dependency group.
 """
+import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 
-from studies.eisele_metzger_replication.figures.forest_data import (
-    ForestPoint,
-    MODEL_DISPLAY_ORDER,
-    load_forest_points,
-    order_for_plot,
-    parse_label,
-    split_references,
+_FIGURES_DIR = (
+    Path(__file__).resolve().parents[1]
+    / "studies" / "eisele_metzger_replication" / "figures"
 )
+
+
+def _load(module_name: str):
+    """Load a figures module by file path — `studies/` is not a package."""
+    spec = importlib.util.spec_from_file_location(
+        module_name, _FIGURES_DIR / f"{module_name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_fd = _load("forest_data")
+ForestPoint = _fd.ForestPoint
+MODEL_DISPLAY_ORDER = _fd.MODEL_DISPLAY_ORDER
+load_forest_points = _fd.load_forest_points
+order_for_plot = _fd.order_for_plot
+parse_label = _fd.parse_label
+split_references = _fd.split_references
 
 _CSV = """label,k_lin,k_quad,ci_lin_lo,ci_lin_hi,ci_quad_lo,ci_quad_hi,n,kind
 "gpt-oss 20B (fulltext, pass 1)",0.26,0.32,0.12,0.40,0.15,0.45,78,single_pass
@@ -514,17 +563,9 @@ def test_order_is_stable(csv_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_forest_data.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'studies.eisele_metzger_replication.figures'`.
+Expected: FAIL — `FileNotFoundError` / `ModuleNotFoundError` from the `_load("forest_data")` helper, because `figures/forest_data.py` does not exist yet.
 
-- [ ] **Step 3: Create the package marker**
-
-Create `studies/eisele_metzger_replication/figures/__init__.py`:
-
-```python
-"""Manuscript figures for the Eisele-Metzger replication study."""
-```
-
-- [ ] **Step 4: Implement `forest_data.py`**
+- [ ] **Step 3: Implement `forest_data.py`**
 
 Create `studies/eisele_metzger_replication/figures/forest_data.py`:
 
@@ -677,17 +718,16 @@ def order_for_plot(points: list[ForestPoint]) -> list[ForestPoint]:
     return sorted(points, key=_sort_key)
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_forest_data.py -v`
 Expected: all passed (13 test cases including the 4 parametrised label cases).
 
-- [ ] **Step 6: Run full suite and commit**
+- [ ] **Step 5: Run full suite and commit**
 
 ```bash
 uv run pytest
-git add studies/eisele_metzger_replication/figures/__init__.py \
-        studies/eisele_metzger_replication/figures/forest_data.py \
+git add studies/eisele_metzger_replication/figures/forest_data.py \
         tests/test_forest_data.py
 git commit -m "feat(study): add matplotlib-free forest-plot data layer for Figure 1"
 ```
@@ -729,10 +769,30 @@ import pytest
 
 pytest.importorskip("matplotlib", reason="requires the optional 'figures' group")
 
-from studies.eisele_metzger_replication.figures.figure1_forest import render_figure
-from studies.eisele_metzger_replication.figures.forest_data import (
-    load_forest_points, order_for_plot, split_references,
+import importlib.util
+import sys
+
+_FIGURES_DIR = (
+    Path(__file__).resolve().parents[1]
+    / "studies" / "eisele_metzger_replication" / "figures"
 )
+
+
+def _load(module_name: str):
+    """Load a figures module by file path — `studies/` is not a package."""
+    spec = importlib.util.spec_from_file_location(
+        module_name, _FIGURES_DIR / f"{module_name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_fd = _load("forest_data")
+load_forest_points = _fd.load_forest_points
+order_for_plot = _fd.order_for_plot
+split_references = _fd.split_references
+render_figure = _load("figure1_forest").render_figure
 
 _CSV = """label,k_lin,k_quad,ci_lin_lo,ci_lin_hi,ci_quad_lo,ci_quad_hi,n,kind
 "gpt-oss 20B (abstract, pass 1)",0.03,0.01,-0.06,0.14,-0.07,0.16,78,single_pass
@@ -773,14 +833,19 @@ Rendering only — all parsing and ordering lives in `forest_data.py`, which
 carries no plotting dependency and holds the unit-tested logic.
 
 Run:
-    uv run python -m studies.eisele_metzger_replication.figures.figure1_forest
+    uv run python studies/eisele_metzger_replication/figures/figure1_forest.py
 """
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
-from .forest_data import (
+# `studies/` is not a Python package; siblings are imported flat off sys.path,
+# matching the convention in compute_phase6_kappa.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from forest_data import (  # noqa: E402
     ForestPoint,
     MODEL_DISPLAY_ORDER,
     load_forest_points,
@@ -987,7 +1052,7 @@ Expected: 1 passed.
 - [ ] **Step 6: Render the real figure and inspect it**
 
 ```bash
-uv run python -m studies.eisele_metzger_replication.figures.figure1_forest
+uv run python studies/eisele_metzger_replication/figures/figure1_forest.py
 ls -la studies/eisele_metzger_replication/figures/figure1_forest.*
 ```
 
