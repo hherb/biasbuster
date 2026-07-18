@@ -36,6 +36,9 @@ def _load(module_name: str):
 _kappa = _load("compute_phase6_kappa")
 load_pairs = _kappa.load_pairs
 
+_sanity = _load("sanity_check_kappa")
+load_paired = _sanity.load_paired
+
 _SCHEMA = """
 CREATE TABLE benchmark_judgment (
     rct_id TEXT, source TEXT, domain TEXT, judgment TEXT,
@@ -122,6 +125,57 @@ def test_load_pairs_order_survives_physical_rewrite() -> None:
     conn.commit()
 
     assert load_pairs(conn, "cochrane", "model_x", "overall") == before
+
+
+def test_load_paired_is_ordered_by_rct_id() -> None:
+    """``sanity_check_kappa.load_paired`` rows must come back sorted by rct_id
+    regardless of insertion order.
+
+    Mirrors ``test_load_pairs_is_ordered_by_rct_id`` above for the sibling
+    ``compute_phase6_kappa.load_pairs`` loader — this is the identical
+    reproducibility bug (no ``ORDER BY``) in the Phase 4 sanity-check module.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(_SCHEMA)
+    _seed(conn, ["RCT050", "RCT001", "RCT099", "RCT010"])
+
+    pairs = load_paired(conn, "cochrane", "model_x", "overall")
+
+    assert len(pairs) == 4
+    ordered = load_paired(conn, "cochrane", "model_x", "overall")
+    assert pairs == ordered
+
+
+def test_load_paired_order_survives_physical_rewrite() -> None:
+    """Deleting and reinserting rows must not change ``load_paired``'s order.
+
+    Mirrors ``test_load_pairs_order_survives_physical_rewrite`` above: this
+    reproduces the ensemble-style rewrite pattern (delete + reinsert changes
+    physical row placement) that first surfaced the ordering bug in the
+    sibling module. ``sanity_check_kappa.load_paired`` never rewrites rows
+    itself (it is only ever run against static ``cochrane`` /
+    ``em_claude2_run1`` source labels), but the missing ``ORDER BY`` is the
+    same latent bug: any DB state where the two sources' physical row order
+    diverges reproduces it.
+    """
+    rct_ids = ["RCT050", "RCT001", "RCT099", "RCT010"]
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(_SCHEMA)
+    _seed(conn, rct_ids)
+    before = load_paired(conn, "cochrane", "model_x", "overall")
+
+    conn.execute("DELETE FROM benchmark_judgment WHERE source = 'model_x'")
+    for rct in ["RCT099", "RCT010", "RCT001", "RCT050"]:
+        judgment = _judgment_for(rct_ids, rct, offset=1)
+        conn.execute(
+            "INSERT INTO benchmark_judgment "
+            "(rct_id, source, domain, judgment, rationale, valid, raw_label) "
+            "VALUES (?, 'model_x', 'overall', ?, '', 1, ?)",
+            (rct, judgment, judgment),
+        )
+    conn.commit()
+
+    assert load_paired(conn, "cochrane", "model_x", "overall") == before
 
 
 def test_build_kappa_row_reports_quadratic_ci() -> None:

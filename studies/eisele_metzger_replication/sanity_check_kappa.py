@@ -69,9 +69,16 @@ class KappaResult:
 
 def load_paired(conn: sqlite3.Connection, source_a: str, source_b: str,
                 domain: str) -> list[tuple[str, str]]:
-    """Return paired (label_a, label_b) tuples for one domain.
+    """Return paired (label_a, label_b) tuples for one domain, ordered by rct_id.
 
     Skips RCTs where either source's judgment is missing or invalid.
+
+    The ORDER BY is load-bearing, not cosmetic: ``bootstrap_kappa_ci``
+    resamples this list by index, so an unspecified SQLite row order makes
+    the resulting confidence intervals irreproducible between runs. Cohen's
+    kappa itself is order-invariant, so this affects CIs only — never a
+    point estimate. Mirrors the identical fix in
+    ``compute_phase6_kappa.load_pairs`` (commit eb0efe0).
     """
     cur = conn.cursor()
     cur.execute(
@@ -81,7 +88,8 @@ def load_paired(conn: sqlite3.Connection, source_a: str, source_b: str,
              ON a.rct_id = b.rct_id AND a.domain = b.domain
            WHERE a.source = ? AND b.source = ? AND a.domain = ?
              AND a.judgment IS NOT NULL AND b.judgment IS NOT NULL
-             AND a.valid = 1 AND b.valid = 1""",
+             AND a.valid = 1 AND b.valid = 1
+           ORDER BY a.rct_id""",
         (source_a, source_b, domain),
     )
     return cur.fetchall()
