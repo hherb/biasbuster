@@ -361,8 +361,11 @@ def build_kappa_row(conn: sqlite3.Connection, source: str, domain: str,
 
     Quadratic weighting is the manuscript's primary metric, so it needs its
     own interval — the linear CI does not bracket κ_quad. Each
-    ``bootstrap_kappa_ci`` call reseeds its own RNG, so the two calls are
-    independent and adding the quadratic one cannot perturb the linear one.
+    ``bootstrap_kappa_ci`` call reseeds its own RNG with the same hardcoded
+    ``seed=42``, so the two calls draw identical resamples (perfectly
+    correlated, not independent) — but each reseeds fresh rather than
+    sharing one ``Random`` instance, so adding the quadratic call cannot
+    perturb the linear one.
     """
     pairs = load_pairs(conn, reference, source, domain)
     if not pairs:

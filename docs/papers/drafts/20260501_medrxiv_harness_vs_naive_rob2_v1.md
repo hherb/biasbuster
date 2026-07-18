@@ -174,11 +174,20 @@ four models, both protocols, and all three passes.** Points are single passes
 horizontal bars are percentile bootstrap 95% confidence intervals (500
 resamples) at quadratic weighting. Vertical rules mark Eisele-Metzger 2025's
 published Claude 2 result (κ = 0.22) and two human-reliability reference points
-from Minozzi et al. (2020, κ = 0.16 without item descriptions; 2021, κ = 0.42
-with them). n = 78 RCTs — the pre-registered primary corpus, excluding the 13
-wrong-paper acquisitions. Every model's fulltext intervals overlap Eisele-Metzger's
+from Minozzi et al. (2020, κ = 0.16 without implementation document (ID); 2021,
+κ = 0.42 with ID) — unweighted multi-rater human-vs-human Fleiss reliability,
+shown for order-of-magnitude context only against the quadratic-weighted
+single-rater LLM-vs-Cochrane agreement plotted here; the two are not directly
+comparable (§5). All 32 rows plot the **inclusive** (algorithmic-fallback-included)
+metric at n = 78 RCTs throughout — the 100-RCT EM corpus minus 9 RCTs in
+non-PubMed-indexed regional journals minus 13 wrong-paper acquisitions
+(100 − 9 − 13 = 78; §3.1). This coincides with the **strict** (model-emitted,
+FALLBACK-excluded) pre-registered primary metric for gpt-oss, gemma, and qwen;
+for Sonnet 4.6 the two modes differ (strict fulltext κ_quad 0.101/0.281/0.246 at
+n = 64/69/67, §3.2, vs the inclusive 0.186/0.309/0.246 at n = 78 plotted here,
+supplementary S5). Every model's fulltext intervals overlap Eisele-Metzger's
 point estimate; every point estimate — across all models, passes, and ensembles —
-sits below the with-descriptions human benchmark, though several fulltext interval
+sits below the with-ID human benchmark, though several fulltext interval
 upper bounds cross above it.
 
 ### 3.3 LLM-internal run-to-run reliability — the headline result

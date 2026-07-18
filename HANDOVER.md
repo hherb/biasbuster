@@ -11,7 +11,16 @@ Minozzi 2021 κ=0.42) — and wired it into primary draft §3.2 (Open work #A.4,
 Along the way found and fixed a **pre-existing reproducibility bug**: `load_pairs` in
 `compute_phase6_kappa.py` had no `ORDER BY`, so bootstrap CIs for ensemble rows drifted
 between runs; point estimates were never affected (Cohen's κ is order-invariant) and no
-published number moved. Suite green at **733 passed**._
+published number moved. A final whole-branch review then found the identical bug in the
+sibling `load_paired` (`sanity_check_kappa.py`); same `ORDER BY a.rct_id` fix applied,
+`sanity_check_report.md` regenerated (byte-identical — this DB's physical row order for
+the static `cochrane`/`em_claude2_run1` sources already matched `rct_id` order, so nothing
+moved, but the latent bug is now closed for any future DB state). The same review also
+found Figure 1's caption claimed the pre-registered **strict** n=78 primary corpus, when
+the figure is actually rendered from the **inclusive** (FALLBACK-included) variant — same
+n=78 and numbers for gpt-oss/gemma/qwen, but different κ_quad for Sonnet (strict
+0.101/0.281/0.246 vs inclusive 0.186/0.309/0.246); caption now discloses this. Suite green
+at **736 passed**._
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -62,7 +71,7 @@ The §9 publishability gate was cleared with gpt-oss:20b and Sonnet 4.6.
   + fixed along the way — see header above. `phase6_results.strict.{csv,md}` and
   `phase6_forest_data.strict.csv` now lag the primary schema by one generation (see
   Conventions and gotchas).
-- **Test suite: 733 passed, 0 failed** (`uv run pytest`).
+- **Test suite: 736 passed, 0 failed** (`uv run pytest`).
 
 ### B. OA-first Risk-of-Bias benchmark (Stage A shipped; owner actions pending)
 
