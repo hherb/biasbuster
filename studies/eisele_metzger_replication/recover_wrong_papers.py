@@ -77,7 +77,7 @@ from acquire_fulltext import (  # noqa: E402
     _title_keywords,
 )
 from audit_wrong_paper_acquisitions import reference_coverage  # noqa: E402
-from exclusions import WRONG_PAPER_RCTS  # noqa: E402
+from exclusions import RECOVERY_NOTE_MARKER, WRONG_PAPER_RCTS  # noqa: E402
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 STUDY_DIR = PROJECT_ROOT / "studies/eisele_metzger_replication"
@@ -488,8 +488,10 @@ def apply_recovery(conn: sqlite3.Connection, plan: RecoveryPlan) -> None:
     })
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
+    # RECOVERY_NOTE_MARKER is the substring compute_phase6_kappa keys on to tell
+    # which wrong papers have been recovered (the --sensitivity precondition).
     note = (f"Recovered {plan.rct_id}: wrong pmid {plan.old_pmid} -> correct "
-            f"pmid {plan.new_pmid} (#29 wrong-paper recovery).")
+            f"pmid {plan.new_pmid} ({RECOVERY_NOTE_MARKER}).")
     conn.execute(
         "UPDATE benchmark_rct SET pmid=?, doi=?, title=?, has_abstract=?, "
         "has_fulltext=?, fulltext_source=?, "

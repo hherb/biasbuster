@@ -47,7 +47,13 @@ from sanity_check_kappa import (  # noqa: E402
     cohen_kappa,
     raw_agreement,
 )
-from exclusions import wrong_paper_filter  # noqa: E402
+from exclusions import (  # noqa: E402
+    RECOVERABLE_WRONG_PAPER_RCTS,
+    RECOVERY_NOTE_MARKER,
+    UNRECOVERABLE_WRONG_PAPER_RCTS,
+    WRONG_PAPER_RCTS,
+    wrong_paper_filter,
+)
 
 DEFAULT_DB_PATH = PROJECT_ROOT / "dataset/eisele_metzger_benchmark.db"
 STUDY_DIR = PROJECT_ROOT / "studies/eisele_metzger_replication"
@@ -91,6 +97,53 @@ MINOZZI_2021_HUMAN_WITH_ID_KAPPA = 0.42
 # NULL raw_label (e.g. Cochrane ground truth) are always kept.
 EXCLUDE_FALLBACK = False
 
+# When True, run the recovered-corpus **sensitivity** analysis: exclude only the
+# two unindexed wrong papers (UNRECOVERABLE_WRONG_PAPER_RCTS) instead of all 13
+# (WRONG_PAPER_RCTS), so the ~11 recovered-and-re-assessed RCTs re-enter the κ.
+# Toggled by --sensitivity, which also guards that those RCTs really were
+# recovered (see sensitivity_precondition_failures) — running it against a
+# non-recovered DB would count stale wrong-document judgements. Default (False)
+# is the pre-registered primary (exclude all 13).
+SENSITIVITY_MODE = False
+
+
+def _active_wrong_paper_set() -> frozenset[str]:
+    """The RCTs excluded from κ under the current mode.
+
+    Sensitivity mode drops only the unindexed (unrecoverable) wrong papers; the
+    primary drops the full wrong-paper class. Read at query time so the CLI can
+    flip ``SENSITIVITY_MODE`` before the loaders run.
+    """
+    return UNRECOVERABLE_WRONG_PAPER_RCTS if SENSITIVITY_MODE else WRONG_PAPER_RCTS
+
+
+def recovered_wrong_paper_rcts(conn: sqlite3.Connection) -> frozenset[str]:
+    """RCT ids whose ``benchmark_rct.notes`` record a wrong-paper recovery.
+
+    ``recover_wrong_papers.apply_recovery`` appends ``RECOVERY_NOTE_MARKER`` to
+    the notes of every RCT it re-fetches. Detecting the marker tells the
+    sensitivity guard which recoverable wrong papers have actually been
+    corrected in this DB (rows with NULL notes never match).
+    """
+    rows = conn.execute(
+        "SELECT rct_id FROM benchmark_rct WHERE notes LIKE ?",
+        (f"%{RECOVERY_NOTE_MARKER}%",),
+    ).fetchall()
+    return frozenset(r[0] for r in rows)
+
+
+def sensitivity_precondition_failures(
+        conn: sqlite3.Connection) -> frozenset[str]:
+    """Recoverable wrong papers NOT yet recovered in this DB.
+
+    The sensitivity κ re-includes ``RECOVERABLE_WRONG_PAPER_RCTS``; that is only
+    valid once each has been re-fetched to the correct document and re-assessed
+    (otherwise its stale wrong-document judgements would be counted). Returns
+    the recoverable RCTs missing the recovery marker — empty when the DB is
+    ready. The CLI refuses ``--sensitivity`` when this is non-empty.
+    """
+    return RECOVERABLE_WRONG_PAPER_RCTS - recovered_wrong_paper_rcts(conn)
+
 
 def _fallback_filter(*aliases: str) -> str:
     """SQL fragment excluding FALLBACK-tagged rows, or '' when disabled.
@@ -109,7 +162,8 @@ def _fallback_filter(*aliases: str) -> str:
 
 def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
                domain: str) -> list[tuple[str, str]]:
-    wp_sql, wp_params = wrong_paper_filter("a", "b")
+    wp_sql, wp_params = wrong_paper_filter(
+        "a", "b", exclusion_set=_active_wrong_paper_set())
     return conn.execute(
         """SELECT a.judgment, b.judgment
            FROM benchmark_judgment a
@@ -128,10 +182,12 @@ def load_judgments(conn: sqlite3.Connection, source: str, domain: str
                    ) -> dict[str, str]:
     """{rct_id: judgment} for one (source, domain), valid rows only.
 
-    Wrong-paper RCTs (exclusions.WRONG_PAPER_RCTS) are dropped here, which
-    also keeps them out of the ensemble (built from these judgments).
+    Wrong-paper RCTs (the active set — all 13 in the primary, only the two
+    unindexed ones under --sensitivity) are dropped here, which also keeps them
+    out of the ensemble (built from these judgments).
     """
-    wp_sql, wp_params = wrong_paper_filter("")
+    wp_sql, wp_params = wrong_paper_filter(
+        "", exclusion_set=_active_wrong_paper_set())
     return dict(conn.execute(
         """SELECT rct_id, judgment FROM benchmark_judgment
            WHERE source = ? AND domain = ? AND valid = 1
@@ -506,6 +562,15 @@ def write_markdown_report(rows: list[dict], forest_rows: list[dict], *,
             "(`raw_label='FALLBACK'`) judgements are included. Re-run with "
             "`--exclude-fallback` for the pre-registered model-emitted primary metric."
         )
+    if SENSITIVITY_MODE:
+        excl = ", ".join(sorted(UNRECOVERABLE_WRONG_PAPER_RCTS))
+        lines.append("")
+        lines.append(
+            f"> **SENSITIVITY ANALYSIS (`--sensitivity`):** only the unindexed "
+            f"wrong papers ({excl}) are excluded; the recovered-and-re-assessed "
+            "wrong-paper RCTs are re-included. Secondary to the pre-registered "
+            "primary (all 13 wrong papers excluded)."
+        )
     lines.append("")
 
     # Section 1: overall κ vs Cochrane per single pass
@@ -597,7 +662,7 @@ def write_markdown_report(rows: list[dict], forest_rows: list[dict], *,
 # --- main ---------------------------------------------------------------
 
 def main() -> int:
-    global EXCLUDE_FALLBACK
+    global EXCLUDE_FALLBACK, SENSITIVITY_MODE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument(
@@ -611,23 +676,67 @@ def main() -> int:
              "primary metric. Writes to *.strict.{md,csv} so the inclusive "
              "results are not overwritten.",
     )
+    parser.add_argument(
+        "--sensitivity", action="store_true",
+        help="Recovered-corpus SENSITIVITY analysis: exclude only the two "
+             "unindexed wrong papers (RCT030, RCT080) instead of all 13, so the "
+             "recovered-and-re-assessed wrong-paper RCTs re-enter the κ. Refuses "
+             "to run unless every recoverable wrong paper has been recovered in "
+             "the DB (see recover_wrong_papers.py). Writes to "
+             "*.sensitivity.{md,csv} so the primary results are not overwritten; "
+             "composes with --exclude-fallback (*.sensitivity.strict.{md,csv}).",
+    )
     args = parser.parse_args()
     if not args.db_path.exists():
         print(f"[error] DB not found at {args.db_path}", file=sys.stderr)
         return 2
 
     EXCLUDE_FALLBACK = args.exclude_fallback
-    if args.exclude_fallback:
-        results_md = STUDY_DIR / "phase6_results.strict.md"
-        results_csv = STUDY_DIR / "phase6_results.strict.csv"
-        forest_csv = STUDY_DIR / "phase6_forest_data.strict.csv"
-        print("[mode] STRICT — excluding raw_label='FALLBACK' rows")
-    else:
-        results_md, results_csv, forest_csv = RESULTS_MD, RESULTS_CSV, FOREST_CSV
-        print("[mode] INCLUSIVE — FALLBACK rows included (use --exclude-fallback for primary metric)")
+    SENSITIVITY_MODE = args.sensitivity
 
     conn = sqlite3.connect(args.db_path)
     try:
+        # Refuse the sensitivity analysis on a DB where the recoverable wrong
+        # papers have not actually been recovered — otherwise the re-included
+        # RCTs still carry stale wrong-document judgements and the κ is garbage.
+        if args.sensitivity:
+            missing = sensitivity_precondition_failures(conn)
+            if missing:
+                ids = " ".join(sorted(missing))
+                print(
+                    "[error] --sensitivity requires the recoverable wrong "
+                    "papers to be recovered + re-assessed first. Not yet "
+                    f"recovered in this DB:\n        {', '.join(sorted(missing))}\n"
+                    "        Run the owner-gated recovery, e.g.:\n"
+                    "        uv run python studies/eisele_metzger_replication/"
+                    f"recover_wrong_papers.py apply {ids} --apply\n"
+                    "        then re-assess the deleted rows (run_evaluation*.py) "
+                    "before re-running --sensitivity.",
+                    file=sys.stderr,
+                )
+                return 2
+
+        tags = []
+        if args.sensitivity:
+            tags.append("sensitivity")
+        if args.exclude_fallback:
+            tags.append("strict")
+        infix = "." + ".".join(tags) if tags else ""
+        results_md = STUDY_DIR / f"phase6_results{infix}.md"
+        results_csv = STUDY_DIR / f"phase6_results{infix}.csv"
+        forest_csv = STUDY_DIR / f"phase6_forest_data{infix}.csv"
+
+        if args.sensitivity:
+            excl = ", ".join(sorted(UNRECOVERABLE_WRONG_PAPER_RCTS))
+            print(f"[mode] SENSITIVITY — recovered corpus; excluding only the "
+                  f"unindexed wrong papers ({excl})")
+        if args.exclude_fallback:
+            print("[mode] STRICT — excluding raw_label='FALLBACK' rows")
+        if not (args.sensitivity or args.exclude_fallback):
+            print("[mode] PRIMARY INCLUSIVE — all 13 wrong papers excluded, "
+                  "FALLBACK rows included (use --exclude-fallback for the "
+                  "model-emitted primary metric)")
+
         write_results(conn, run_ensembles=not args.no_ensembles,
                       results_md=results_md, results_csv=results_csv,
                       forest_csv=forest_csv, exclude_fallback=args.exclude_fallback)
