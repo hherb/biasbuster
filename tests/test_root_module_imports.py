@@ -50,6 +50,14 @@ def _load_study_module(name: str) -> None:
     reproduce. Unconditional re-execution keeps the adversarial state
     independent of collection order and of how the other test files load their
     study modules, and holds when this file runs alone or in the full suite.
+
+    Note: re-executing replaces the ``sys.modules`` entry for each module it
+    loads, so a test file collected after this one that requests the same name
+    via the shared helper receives this re-executed copy, not the copy earlier
+    files share. The copies are functionally identical and test mutation goes
+    through ``monkeypatch`` on file-local references, so this is benign — but
+    conftest's single-shared-copy guarantee does not strictly hold for the
+    modules listed below.
     """
     spec = importlib.util.spec_from_file_location(name, _STUDY_DIR / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
