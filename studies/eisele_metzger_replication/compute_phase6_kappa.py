@@ -349,15 +349,26 @@ class KappaRow:
     kappa_quad: float
     ci_lin_low: float
     ci_lin_high: float
+    ci_quad_low: float
+    ci_quad_high: float
 
 
 def build_kappa_row(conn: sqlite3.Connection, source: str, domain: str,
                     reference: str = "cochrane",
                     n_resamples: int = 500) -> KappaRow | None:
+    """One κ row (all three weightings) with bootstrap CIs at linear and
+    quadratic weighting.
+
+    Quadratic weighting is the manuscript's primary metric, so it needs its
+    own interval — the linear CI does not bracket κ_quad. Each
+    ``bootstrap_kappa_ci`` call reseeds its own RNG, so the two calls are
+    independent and adding the quadratic one cannot perturb the linear one.
+    """
     pairs = load_pairs(conn, reference, source, domain)
     if not pairs:
         return None
     lo, hi = bootstrap_kappa_ci(pairs, "linear", n_resamples=n_resamples)
+    q_lo, q_hi = bootstrap_kappa_ci(pairs, "quadratic", n_resamples=n_resamples)
     return KappaRow(
         source=source,
         domain=domain,
@@ -368,6 +379,8 @@ def build_kappa_row(conn: sqlite3.Connection, source: str, domain: str,
         kappa_quad=cohen_kappa(pairs, "quadratic"),
         ci_lin_low=lo,
         ci_lin_high=hi,
+        ci_quad_low=q_lo,
+        ci_quad_high=q_hi,
     )
 
 
@@ -431,6 +444,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                         "k_quad": r.kappa_quad,
                         "ci_lin_lo": r.ci_lin_low,
                         "ci_lin_hi": r.ci_lin_high,
+                        "ci_quad_lo": r.ci_quad_low,
+                        "ci_quad_hi": r.ci_quad_high,
                     })
                     if domain == "overall":
                         forest_rows.append({
@@ -439,6 +454,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                             "k_quad": r.kappa_quad,
                             "ci_lin_lo": r.ci_lin_low,
                             "ci_lin_hi": r.ci_lin_high,
+                            "ci_quad_lo": r.ci_quad_low,
+                            "ci_quad_hi": r.ci_quad_high,
                             "n": r.n,
                             "kind": "single_pass",
                         })
@@ -463,6 +480,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                 "k_quad": r2r.get("quadratic"),
                 "ci_lin_lo": None,
                 "ci_lin_hi": None,
+                "ci_quad_lo": None,
+                "ci_quad_hi": None,
             })
 
     # 3. Ensemble (majority vote across passes) vs Cochrane
@@ -496,6 +515,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                         "k_quad": r.kappa_quad,
                         "ci_lin_lo": r.ci_lin_low,
                         "ci_lin_hi": r.ci_lin_high,
+                        "ci_quad_lo": r.ci_quad_low,
+                        "ci_quad_hi": r.ci_quad_high,
                     })
                     if domain == "overall":
                         forest_rows.append({
@@ -504,6 +525,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                             "k_quad": r.kappa_quad,
                             "ci_lin_lo": r.ci_lin_low,
                             "ci_lin_hi": r.ci_lin_high,
+                            "ci_quad_lo": r.ci_quad_low,
+                            "ci_quad_hi": r.ci_quad_high,
                             "n": r.n,
                             "kind": "ensemble",
                         })
@@ -520,19 +543,23 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
             "k_quad": k_quad,
             "ci_lin_lo": None,
             "ci_lin_hi": None,
+            "ci_quad_lo": None,
+            "ci_quad_hi": None,
             "n": None,
             "kind": kind,
         })
 
     # CSV outputs
     fieldnames = ["source", "model", "protocol", "pass", "kind", "domain",
-                  "n", "raw_agr", "k_unw", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi"]
+                  "n", "raw_agr", "k_unw", "k_lin", "k_quad",
+                  "ci_lin_lo", "ci_lin_hi", "ci_quad_lo", "ci_quad_hi"]
     with open(results_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=fieldnames)
         w.writeheader()
         for r in rows:
             w.writerow(r)
-    forest_fields = ["label", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi", "n", "kind"]
+    forest_fields = ["label", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi",
+                     "ci_quad_lo", "ci_quad_hi", "n", "kind"]
     with open(forest_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=forest_fields)
         w.writeheader()

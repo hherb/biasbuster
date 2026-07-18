@@ -11,8 +11,6 @@ import sqlite3
 import sys
 from pathlib import Path
 
-import pytest
-
 _STUDY_DIR = (
     Path(__file__).resolve().parents[1]
     / "studies" / "eisele_metzger_replication"
@@ -87,7 +85,7 @@ def _seed(conn: sqlite3.Connection, rct_ids: list[str]) -> None:
     conn.commit()
 
 
-def test_load_pairs_is_ordered_by_rct_id():
+def test_load_pairs_is_ordered_by_rct_id() -> None:
     """Rows must come back sorted by rct_id regardless of insertion order."""
     conn = sqlite3.connect(":memory:")
     conn.executescript(_SCHEMA)
@@ -100,7 +98,7 @@ def test_load_pairs_is_ordered_by_rct_id():
     assert pairs == ordered
 
 
-def test_load_pairs_order_survives_physical_rewrite():
+def test_load_pairs_order_survives_physical_rewrite() -> None:
     """Deleting and reinserting rows must not change the returned order.
 
     This reproduces the ensemble path, which rewrites its rows via
@@ -124,3 +122,30 @@ def test_load_pairs_order_survives_physical_rewrite():
     conn.commit()
 
     assert load_pairs(conn, "cochrane", "model_x", "overall") == before
+
+
+def test_build_kappa_row_reports_quadratic_ci() -> None:
+    """build_kappa_row must return a quadratic-weighted CI bracketing k_quad."""
+    build_kappa_row = _kappa.build_kappa_row
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(_SCHEMA)
+    for i, (gold, pred) in enumerate(
+        [("low", "low"), ("high", "high"), ("some_concerns", "some_concerns"),
+         ("low", "high"), ("high", "low"), ("low", "low"),
+         ("high", "high"), ("some_concerns", "low")]
+    ):
+        rct = f"RCT{i:03d}"
+        conn.execute(
+            "INSERT INTO benchmark_judgment VALUES (?, 'cochrane', 'overall', ?, '', 1, ?)",
+            (rct, gold, gold))
+        conn.execute(
+            "INSERT INTO benchmark_judgment VALUES (?, 'model_x', 'overall', ?, '', 1, ?)",
+            (rct, pred, pred))
+    conn.commit()
+
+    row = build_kappa_row(conn, "model_x", "overall", n_resamples=100)
+
+    assert row is not None
+    assert row.ci_quad_low <= row.kappa_quad <= row.ci_quad_high
+    assert (row.ci_quad_low, row.ci_quad_high) != (row.ci_lin_low, row.ci_lin_high)
