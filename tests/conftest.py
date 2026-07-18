@@ -1,6 +1,8 @@
 """Shared fixtures for biasbuster tests."""
 
+import importlib.util
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,38 @@ import pytest
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+
+# Directories of the active study's plain-file modules. `studies/` is not a
+# package: its modules import each other bare (`from forest_data import ...`)
+# off sys.path, so tests load them by file path instead.
+STUDY_DIR = Path(_REPO_ROOT) / "studies" / "eisele_metzger_replication"
+FIGURES_DIR = STUDY_DIR / "figures"
+
+
+def load_study_module(module_name: str,
+                      directory: Path = STUDY_DIR) -> types.ModuleType:
+    """Load a study module by file path, shared by test modules.
+
+    Registers the module in ``sys.modules`` under its bare name BEFORE
+    executing it, for two reasons: ``@dataclass`` (used by e.g.
+    ``compute_phase6_kappa.KappaRow``) looks the class's module up in
+    ``sys.modules`` during class creation and fails if absent, and study
+    modules import their siblings bare (``from forest_data import ...``),
+    which must resolve to the already-loaded copy rather than a duplicate.
+
+    Returns the already-registered module when one exists, so every test
+    file shares a single copy per module name instead of re-executing the
+    file and shadowing the previous registration.
+    """
+    cached = sys.modules.get(module_name)
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(
+        module_name, directory / f"{module_name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture

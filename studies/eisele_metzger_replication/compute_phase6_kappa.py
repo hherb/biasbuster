@@ -43,7 +43,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "studies/eisele_metzger_replication"))
 
 from sanity_check_kappa import (  # noqa: E402
-    bootstrap_kappa_ci,
+    bootstrap_kappa_cis,
     cohen_kappa,
     raw_agreement,
 )
@@ -162,6 +162,16 @@ def _fallback_filter(*aliases: str) -> str:
 
 def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
                domain: str) -> list[tuple[str, str]]:
+    """Paired (reference, model) judgments for one domain, ordered by rct_id.
+
+    The ORDER BY is load-bearing, not cosmetic: ``bootstrap_kappa_ci``
+    resamples this list by index, so an unspecified SQLite row order makes
+    the resulting confidence intervals irreproducible between runs. The
+    ensemble sources are rewritten via INSERT OR REPLACE on every run,
+    which changes their physical placement and previously caused exactly
+    that drift. Cohen's kappa itself is order-invariant, so this affects
+    CIs only — never a point estimate.
+    """
     wp_sql, wp_params = wrong_paper_filter(
         "a", "b", exclusion_set=_active_wrong_paper_set())
     return conn.execute(
@@ -173,7 +183,8 @@ def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
              AND a.judgment IS NOT NULL AND b.judgment IS NOT NULL
              AND a.valid = 1 AND b.valid = 1"""
         + _fallback_filter("a", "b")
-        + wp_sql,
+        + wp_sql
+        + " ORDER BY a.rct_id",
         (source_a, source_b, domain, *wp_params),
     ).fetchall()
 
@@ -238,8 +249,8 @@ def ensemble_majority_vote(conn: sqlite3.Connection, model: str,
     for rct_id in rct_ids:
         ensemble_domains: dict[str, str] = {}
         for d in SIGNALLING_DOMAINS:
-            votes = [pass_judgments[p][d].get(rct_id) for p in PASSES]
-            votes = [v for v in votes if v is not None]
+            maybe_votes = [pass_judgments[p][d].get(rct_id) for p in PASSES]
+            votes = [v for v in maybe_votes if v is not None]
             if len(votes) < 2:
                 continue
             counter = Counter(votes)
@@ -338,15 +349,31 @@ class KappaRow:
     kappa_quad: float
     ci_lin_low: float
     ci_lin_high: float
+    ci_quad_low: float
+    ci_quad_high: float
 
 
 def build_kappa_row(conn: sqlite3.Connection, source: str, domain: str,
                     reference: str = "cochrane",
                     n_resamples: int = 500) -> KappaRow | None:
+    """One κ row (all three weightings) with bootstrap CIs at linear and
+    quadratic weighting.
+
+    Quadratic weighting is the manuscript's primary metric, so it needs its
+    own interval — the linear CI does not bracket κ_quad. Both intervals
+    come from one shared resample stream via ``bootstrap_kappa_cis``, which
+    is regression-tested to reproduce exactly what separate, identically
+    seeded ``bootstrap_kappa_ci`` calls produced (the two intervals are
+    perfectly correlated, not independent) — so halving the resampling work
+    cannot move a published CI.
+    """
     pairs = load_pairs(conn, reference, source, domain)
     if not pairs:
         return None
-    lo, hi = bootstrap_kappa_ci(pairs, "linear", n_resamples=n_resamples)
+    cis = bootstrap_kappa_cis(pairs, ("linear", "quadratic"),
+                              n_resamples=n_resamples)
+    lo, hi = cis["linear"]
+    q_lo, q_hi = cis["quadratic"]
     return KappaRow(
         source=source,
         domain=domain,
@@ -357,6 +384,8 @@ def build_kappa_row(conn: sqlite3.Connection, source: str, domain: str,
         kappa_quad=cohen_kappa(pairs, "quadratic"),
         ci_lin_low=lo,
         ci_lin_high=hi,
+        ci_quad_low=q_lo,
+        ci_quad_high=q_hi,
     )
 
 
@@ -420,6 +449,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                         "k_quad": r.kappa_quad,
                         "ci_lin_lo": r.ci_lin_low,
                         "ci_lin_hi": r.ci_lin_high,
+                        "ci_quad_lo": r.ci_quad_low,
+                        "ci_quad_hi": r.ci_quad_high,
                     })
                     if domain == "overall":
                         forest_rows.append({
@@ -428,6 +459,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                             "k_quad": r.kappa_quad,
                             "ci_lin_lo": r.ci_lin_low,
                             "ci_lin_hi": r.ci_lin_high,
+                            "ci_quad_lo": r.ci_quad_low,
+                            "ci_quad_hi": r.ci_quad_high,
                             "n": r.n,
                             "kind": "single_pass",
                         })
@@ -452,6 +485,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                 "k_quad": r2r.get("quadratic"),
                 "ci_lin_lo": None,
                 "ci_lin_hi": None,
+                "ci_quad_lo": None,
+                "ci_quad_hi": None,
             })
 
     # 3. Ensemble (majority vote across passes) vs Cochrane
@@ -485,6 +520,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                         "k_quad": r.kappa_quad,
                         "ci_lin_lo": r.ci_lin_low,
                         "ci_lin_hi": r.ci_lin_high,
+                        "ci_quad_lo": r.ci_quad_low,
+                        "ci_quad_hi": r.ci_quad_high,
                     })
                     if domain == "overall":
                         forest_rows.append({
@@ -493,6 +530,8 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
                             "k_quad": r.kappa_quad,
                             "ci_lin_lo": r.ci_lin_low,
                             "ci_lin_hi": r.ci_lin_high,
+                            "ci_quad_lo": r.ci_quad_low,
+                            "ci_quad_hi": r.ci_quad_high,
                             "n": r.n,
                             "kind": "ensemble",
                         })
@@ -509,24 +548,28 @@ def write_results(conn: sqlite3.Connection, run_ensembles: bool, *,
             "k_quad": k_quad,
             "ci_lin_lo": None,
             "ci_lin_hi": None,
+            "ci_quad_lo": None,
+            "ci_quad_hi": None,
             "n": None,
             "kind": kind,
         })
 
     # CSV outputs
     fieldnames = ["source", "model", "protocol", "pass", "kind", "domain",
-                  "n", "raw_agr", "k_unw", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi"]
+                  "n", "raw_agr", "k_unw", "k_lin", "k_quad",
+                  "ci_lin_lo", "ci_lin_hi", "ci_quad_lo", "ci_quad_hi"]
     with open(results_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=fieldnames)
         w.writeheader()
-        for r in rows:
-            w.writerow(r)
-    forest_fields = ["label", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi", "n", "kind"]
+        for row in rows:
+            w.writerow(row)
+    forest_fields = ["label", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi",
+                     "ci_quad_lo", "ci_quad_hi", "n", "kind"]
     with open(forest_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=forest_fields)
         w.writeheader()
-        for r in forest_rows:
-            w.writerow(r)
+        for row in forest_rows:
+            w.writerow(row)
 
     # Markdown report
     write_markdown_report(rows, forest_rows, results_md=results_md,

@@ -1,19 +1,31 @@
 # HANDOVER — BiasBuster
 
-_Last updated: 2026-07-18 (pre-manuscript spot-checks session). Recent merges: the
-`--sensitivity` κ flag (PR #40); before that the wrong-paper **hybrid** (all 13 excluded
-from the primary; both drafts regenerated on n=78 — PR #31), **OA-first RoB benchmark
-Stage A** (PRs #32, #37), CI + weekly lockfile refresh (#34, #36), all 33 Dependabot
-alerts resolved (#35, #38), a GUI log-spam fix (#39). **This session** executed the
-runbook §6 pre-manuscript spot-checks (Open work #A.2): a committed, tested analysis
-script (`studies/eisele_metzger_replication/premanuscript_spotchecks.py`) drives (a) the
-Sonnet `low`-judgement right-for-the-right-reasons audit and (b) a full-corpus per-domain
-run-to-run instability audit across all four models. **Key finding:** the draft §3.6
-"instability concentrated on D1" is audit-set-specific and does NOT generalise — pooled
-across the full corpus the noisiest signalling domain is D3 (gpt-oss, gemma) / D5 (qwen)
-/ D4 (Sonnet), and D1 is among the most stable for three of four models (gpt-oss's low-κ
-D1 is a base-rate/kappa artefact of skewed marginals). Primary draft §3.5/§3.6/§5 updated
-accordingly. Suite green at **711 passed**._
+_Last updated: 2026-07-19 (Figure 1 forest-plot session). Recent merges: pre-manuscript
+spot-checks (PR #42); before that the `--sensitivity` κ flag (PR #40), the wrong-paper
+**hybrid** (all 13 excluded from the primary; both drafts regenerated on n=78 — PR #31),
+**OA-first RoB benchmark Stage A** (PRs #32, #37). **This session** built and shipped
+**Figure 1** — a forest plot of κ_quad vs Cochrane RoB 2 across all four models × both
+protocols × three passes + ensembles, with bootstrap 95% CIs (quadratic weighting, 500
+resamples) and three literature reference lines (EM Claude 2 κ=0.22; Minozzi 2020 κ=0.16;
+Minozzi 2021 κ=0.42) — and wired it into primary draft §3.2 (Open work #A.4, now done).
+Along the way found and fixed a **pre-existing reproducibility bug**: `load_pairs` in
+`compute_phase6_kappa.py` had no `ORDER BY`, so bootstrap CIs for ensemble rows drifted
+between runs; point estimates were never affected (Cohen's κ is order-invariant) and no
+published number moved. A final whole-branch review then found the identical bug in the
+sibling `load_paired` (`sanity_check_kappa.py`); same `ORDER BY a.rct_id` fix applied,
+`sanity_check_report.md` regenerated (byte-identical — this DB's physical row order for
+the static `cochrane`/`em_claude2_run1` sources already matched `rct_id` order, so nothing
+moved, but the latent bug is now closed for any future DB state). The same review also
+found Figure 1's caption claimed the pre-registered **strict** n=78 primary corpus, when
+the figure is actually rendered from the **inclusive** (FALLBACK-included) variant — same
+n=78 and numbers for gpt-oss/gemma/qwen, but different κ_quad for Sonnet (strict
+0.101/0.281/0.246 vs inclusive 0.186/0.309/0.246); caption now discloses this. A
+post-review fix round unified the ensemble predicate (`ForestPoint.is_ensemble` +
+load-time consistency check), validated all required forest-CSV columns up front,
+derived tick precision from the step, moved both CI weightings onto one shared
+bootstrap resample stream (regression-tested CI-identical to the old two-call path;
+rendered PNG byte-identical), and added a shared `load_study_module` test helper
+(remaining migrations: issue #44). Suite green at **745 passed**._
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -49,12 +61,22 @@ The §9 publishability gate was cleared with gpt-oss:20b and Sonnet 4.6.
   "tight clustering" finding is gone). Ceiling 0.04–0.10 above EM's 0.22 but still far
   below human-usable. Ensemble-loses-to-best-pass and run-to-run ordering both SURVIVE;
   conformance lenient-asymmetry sharpened to 8.5:1 pooled / 11.7:1 at 4/4 consensus.
-- **Pre-manuscript spot-checks DONE** (this session, Open work #A.2): Sonnet `low` audit
-  (2/5 match Cochrane but right-for-the-right-reasons — 2 RCTs, the 3 misses all one
+- **Pre-manuscript spot-checks DONE** (2026-07-18 session, Open work #A.2): Sonnet `low`
+  audit (2/5 match Cochrane but right-for-the-right-reasons — 2 RCTs, the 3 misses all one
   shared-with-gpt-oss D2 case); per-domain instability audit shows §3.6's D1 concentration
   is audit-set-specific, not corpus-wide; §3.5/§3.6/§5 updated. All numbers from
   `premanuscript_spotchecks.py` (read-only over the benchmark DB).
-- **Test suite: 711 passed, 0 failed** (`uv run pytest`).
+- **Figure 1 DONE** (this session, Open work #A.4): forest plot of κ_quad vs Cochrane —
+  `studies/eisele_metzger_replication/figures/{figure1_forest.pdf,.png}`, committed (the
+  benchmark DB that regenerates them is gitignored) — wired into primary draft §3.2. The
+  caption's final sentence was rewritten from a pre-drafted claim that didn't hold once
+  checked against `phase6_forest_data.csv`: fulltext CIs all contain EM's 0.22, but it's
+  the point estimates (not the intervals) that stay below Minozzi 2021's 0.42 — several
+  fulltext CI upper bounds (e.g. gpt-oss pass 1, 0.49) exceed it. Reproducibility bug found
+  + fixed along the way — see header above. `phase6_results.strict.{csv,md}` and
+  `phase6_forest_data.strict.csv` now lag the primary schema by one generation (see
+  Conventions and gotchas).
+- **Test suite: 745 passed, 0 failed** (`uv run pytest`).
 
 ### B. OA-first Risk-of-Bias benchmark (Stage A shipped; owner actions pending)
 
@@ -100,17 +122,20 @@ label). Context: memory `project_oa_first_rob_benchmark.md`; spec
    uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --sensitivity
    uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --sensitivity --exclude-fallback  # strict variant
    ```
-2. ~~**Pre-manuscript spot-checks**~~ **DONE this session** — `premanuscript_spotchecks.py`
+2. ~~**Pre-manuscript spot-checks**~~ **DONE 2026-07-18** — `premanuscript_spotchecks.py`
    (+ `premanuscript_spotcheck_results.md` / `premanuscript_instability.csv`; tests in
    `tests/test_premanuscript_spotchecks.py`). Sonnet `low` audit and full-corpus per-domain
    instability audit computed in code; primary draft §3.5 (Sonnet audit added), §3.6
    (reframed — D1 concentration does not generalise), and §5 Limitations (four-model pass)
    updated. Only remaining piece is the owner's final read-through — folded into #A.3.
 3. **Final prose pass on both drafts** — the n=78 numbers and reframed finding #1 are in
-   (PR #31), but the owner still wants a read-through before submission.
-4. **Stretch (only if numbers are unequivocal):** forest-plot figure from
-   `phase6_forest_data.csv` (Figure 1); confidence-calibrated ensemble as a future-work
-   appendix (primary use would need a pre-reg amendment); OSF mirror of the pre-reg.
+   (PR #31), Figure 1 is now wired into §3.2 (this session), but the owner still wants a
+   read-through before submission.
+4. ~~**Forest-plot figure**~~ **DONE this session** — Figure 1 (κ_quad vs Cochrane, all
+   four models × both protocols × three passes + ensembles, bootstrap 95% CIs at
+   quadratic weighting) wired into primary draft §3.2. Remaining stretch items: a
+   confidence-calibrated ensemble as a future-work appendix (primary use would need a
+   pre-reg amendment); OSF mirror of the pre-reg.
 
 ### B. OA-first benchmark — owner actions before Stage B
 
@@ -175,6 +200,12 @@ per the >2-min rule):
   further κ regeneration, re-run `audit_wrong_paper_acquisitions.py` and get owner
   sign-off if the set changes. Parse-failure rows for wrong papers must always stay out
   of recovery (`recover_parse_failures.py` guards via `WRONG_PAPER_RCTS`).
+- **Strict-mode phase-6 outputs lag the primary schema by one generation**:
+  `phase6_results.strict.{csv,md}` and `phase6_forest_data.strict.csv` are git-tracked but
+  predate the quadratic-CI addition — they lack `ci_quad_lo`/`ci_quad_hi` because only the
+  primary (non-strict) outputs were regenerated this session. Regenerate deliberately with
+  `compute_phase6_kappa.py --exclude-fallback` before relying on strict-mode CIs, so the
+  diff isn't a surprise mix of schema catch-up and real content changes.
 - All κ / ensemble / synthesis numbers are computed in code, never by the model.
 - Repo-wide rules (CLAUDE.md): `uv` only; prompts single-sourced in `prompts*.py`;
   processes >2 min are printed for the user to run, never run in-session; anything
