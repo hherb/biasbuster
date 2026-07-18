@@ -5,30 +5,13 @@ Deliberately free of matplotlib so it runs in CI without the optional
 """
 from __future__ import annotations
 
-import importlib.util
-import sys
-import types
 from pathlib import Path
 
 import pytest
 
-_FIGURES_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "studies" / "eisele_metzger_replication" / "figures"
-)
+from tests.conftest import FIGURES_DIR, load_study_module
 
-
-def _load(module_name: str) -> types.ModuleType:
-    """Load a figures module by file path — `studies/` is not a package."""
-    spec = importlib.util.spec_from_file_location(
-        module_name, _FIGURES_DIR / f"{module_name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_fd = _load("forest_data")
+_fd = load_study_module("forest_data", FIGURES_DIR)
 ForestPoint = _fd.ForestPoint
 MODEL_DISPLAY_ORDER = _fd.MODEL_DISPLAY_ORDER
 load_forest_points = _fd.load_forest_points
@@ -83,6 +66,37 @@ def test_load_forest_points_reads_quadratic_cis(csv_path: Path) -> None:
     single = next(p for p in points if p.pass_id == "pass 1")
     assert single.k_quad == pytest.approx(0.32)
     assert (single.ci_lo, single.ci_hi) == (pytest.approx(0.15), pytest.approx(0.45))
+
+
+def test_is_ensemble_follows_kind(csv_path: Path) -> None:
+    """`is_ensemble` — the single predicate for sorting and marker styling —
+    is True exactly for kind == 'ensemble' rows."""
+    points = load_forest_points(csv_path)
+    by_kind = {p.kind: p.is_ensemble for p in points}
+    assert by_kind["ensemble"] is True
+    assert by_kind["single_pass"] is False
+    assert by_kind["reference"] is False
+
+
+@pytest.mark.parametrize("label,kind", [
+    ("gpt-oss 20B (fulltext, ensemble)", "single_pass"),
+    ("gpt-oss 20B (fulltext, pass 1)", "ensemble"),
+])
+def test_kind_and_label_ensemble_flags_must_agree(
+        tmp_path: Path, label: str, kind: str) -> None:
+    """A row whose kind column contradicts its label's pass field must raise.
+
+    Sorting keys off the same `is_ensemble` predicate as marker styling; an
+    inconsistent row would otherwise sort as one thing and render as the
+    other, so it is rejected at load time.
+    """
+    p = tmp_path / "inconsistent.csv"
+    p.write_text(
+        "label,k_lin,k_quad,ci_lin_lo,ci_lin_hi,ci_quad_lo,ci_quad_hi,n,kind\n"
+        f'"{label}",0.26,0.32,0.12,0.40,0.15,0.45,78,{kind}\n',
+        encoding="utf-8")
+    with pytest.raises(ValueError, match="internally inconsistent"):
+        load_forest_points(p)
 
 
 def test_reference_rows_carry_no_ci(csv_path: Path) -> None:
@@ -144,6 +158,30 @@ def test_missing_ci_quad_lo_column_is_a_hard_error(tmp_path: Path) -> None:
         encoding="utf-8")
     with pytest.raises(ValueError, match="ci_quad_lo"):
         load_forest_points(p)
+
+
+@pytest.mark.parametrize("dropped", ["k_quad", "kind"])
+def test_any_missing_required_column_names_it_and_the_fix(
+        tmp_path: Path, dropped: str) -> None:
+    """Every required column is validated up front, not just ci_quad_lo.
+
+    A CSV missing any column the loader reads must fail with a ValueError
+    naming the column and the regeneration command — never a bare KeyError
+    partway through parsing.
+    """
+    columns = ["label", "k_lin", "k_quad", "ci_lin_lo", "ci_lin_hi",
+               "ci_quad_lo", "ci_quad_hi", "n", "kind"]
+    values = ['"gpt-oss 20B (fulltext, pass 1)"', "0.26", "0.32", "0.12",
+              "0.40", "0.15", "0.45", "78", "single_pass"]
+    keep = [i for i, c in enumerate(columns) if c != dropped]
+    p = tmp_path / f"missing_{dropped}.csv"
+    p.write_text(
+        ",".join(columns[i] for i in keep) + "\n"
+        + ",".join(values[i] for i in keep) + "\n",
+        encoding="utf-8")
+    with pytest.raises(ValueError, match=dropped) as excinfo:
+        load_forest_points(p)
+    assert "compute_phase6_kappa" in str(excinfo.value)
 
 
 def test_order_puts_ensemble_last_within_each_block(csv_path: Path) -> None:

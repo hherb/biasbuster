@@ -6,37 +6,14 @@ pairs list yields different resamples and therefore a different CI. Cohen's
 kappa itself is order-invariant (it depends only on the confusion matrix),
 which is why this bug moved CIs while leaving point estimates fixed.
 """
-import importlib.util
 import sqlite3
-import sys
-from pathlib import Path
 
-_STUDY_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "studies" / "eisele_metzger_replication"
-)
+from tests.conftest import load_study_module
 
-
-def _load(module_name: str):
-    """Load a study module by file path (mirrors test_kappa_exclusions).
-
-    ``studies/`` is not a package. Registers the module in ``sys.modules``
-    before executing it: ``@dataclass`` (used by ``KappaRow``) looks the
-    class's module up in ``sys.modules`` during class creation and fails if
-    it is absent.
-    """
-    spec = importlib.util.spec_from_file_location(
-        module_name, _STUDY_DIR / f"{module_name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_kappa = _load("compute_phase6_kappa")
+_kappa = load_study_module("compute_phase6_kappa")
 load_pairs = _kappa.load_pairs
 
-_sanity = _load("sanity_check_kappa")
+_sanity = load_study_module("sanity_check_kappa")
 load_paired = _sanity.load_paired
 
 _SCHEMA = """
@@ -203,3 +180,38 @@ def test_build_kappa_row_reports_quadratic_ci() -> None:
     assert row is not None
     assert row.ci_quad_low <= row.kappa_quad <= row.ci_quad_high
     assert (row.ci_quad_low, row.ci_quad_high) != (row.ci_lin_low, row.ci_lin_high)
+
+
+def test_bootstrap_kappa_cis_matches_independent_single_weighting_calls() -> None:
+    """The shared-resample-stream bootstrap must reproduce, per weighting,
+    exactly what separate ``bootstrap_kappa_ci`` calls produce.
+
+    ``build_kappa_row`` originally called ``bootstrap_kappa_ci`` once per
+    weighting; those CIs are in the published phase-6 CSVs. The switch to
+    one shared resample stream (``bootstrap_kappa_cis``) is valid only if
+    the values are bit-identical — this is the no-published-number-moves
+    guarantee. ``bootstrap_kappa_ci`` is deliberately kept as an
+    independent implementation (not delegating to the plural form) so this
+    test compares two separate code paths rather than a function with
+    itself.
+    """
+    bootstrap_kappa_ci = _sanity.bootstrap_kappa_ci
+    bootstrap_kappa_cis = _sanity.bootstrap_kappa_cis
+    labels = ("low", "some_concerns", "high")
+    pairs = [(labels[i % 3], labels[(i * 2 + 1) % 3]) for i in range(24)]
+
+    combined = bootstrap_kappa_cis(pairs, ("linear", "quadratic"),
+                                   n_resamples=200)
+
+    for weighting in ("linear", "quadratic"):
+        assert combined[weighting] == bootstrap_kappa_ci(
+            pairs, weighting, n_resamples=200)
+
+
+def test_bootstrap_kappa_cis_degenerate_input_matches_single_form() -> None:
+    """Under two pairs, both bootstrap forms return the same (0.0, 0.0)."""
+    pairs = [("low", "low")]
+
+    assert _sanity.bootstrap_kappa_cis(pairs, ("linear", "quadratic")) == {
+        "linear": (0.0, 0.0), "quadratic": (0.0, 0.0)}
+    assert _sanity.bootstrap_kappa_ci(pairs, "linear") == (0.0, 0.0)

@@ -30,6 +30,13 @@ _ENSEMBLE_SORT_KEY = 99
 
 REFERENCE_KINDS = frozenset({"reference", "reference_human"})
 
+# Every column load_forest_points reads. Validated against the CSV header up
+# front so a stale or hand-edited file fails with the regeneration command
+# rather than a bare KeyError partway through parsing.
+REQUIRED_COLUMNS: tuple[str, ...] = (
+    "label", "k_quad", "ci_quad_lo", "ci_quad_hi", "n", "kind",
+)
+
 _LABEL_RE = re.compile(r"^(?P<model>.+?) \((?P<protocol>abstract|fulltext), "
                        r"(?P<pass_id>pass \d+|ensemble)\)$")
 
@@ -52,6 +59,17 @@ class ForestPoint:
     ci_hi: float | None
     kind: str
     n: int | None
+
+    @property
+    def is_ensemble(self) -> bool:
+        """True for ensemble-of-3 rows.
+
+        The single predicate both sorting (`_sort_key`) and marker styling
+        (`figure1_forest.render_figure`) key off, so a row can never sort as
+        an ensemble yet render as a single pass. ``kind`` is authoritative;
+        `load_forest_points` rejects rows whose label disagrees with it.
+        """
+        return self.kind == "ensemble"
 
 
 def parse_label(label: str) -> tuple[str | None, str | None, str | None]:
@@ -91,10 +109,13 @@ def load_forest_points(csv_path: Path) -> list[ForestPoint]:
     points: list[ForestPoint] = []
     with open(csv_path, newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
-        if reader.fieldnames is None or "ci_quad_lo" not in reader.fieldnames:
+        header = reader.fieldnames or []
+        missing_columns = [c for c in REQUIRED_COLUMNS if c not in header]
+        if missing_columns:
             raise ValueError(
-                f"{csv_path} has no ci_quad_lo column, so κ_quad error bars "
-                f"cannot be drawn. {_REGENERATE_HINT}"
+                f"{csv_path} is missing required column(s) "
+                f"{', '.join(missing_columns)}, so the forest plot cannot be "
+                f"drawn faithfully. {_REGENERATE_HINT}"
             )
         for row in reader:
             label = row["label"]
@@ -106,6 +127,14 @@ def load_forest_points(csv_path: Path) -> list[ForestPoint]:
                 )
             model, protocol, pass_id = parse_label(label)
             kind = row["kind"]
+            if model is not None and (pass_id == "ensemble") != (kind == "ensemble"):
+                raise ValueError(
+                    f"Forest row {label!r} is internally inconsistent: "
+                    f"kind={kind!r} but the label's pass field says "
+                    f"{pass_id!r}. The ensemble flag drives both row order "
+                    "and marker style, so the row would sort as one thing "
+                    "and render as another."
+                )
             if (model, protocol, pass_id) == (None, None, None) and kind not in REFERENCE_KINDS:
                 raise ValueError(
                     f"Forest row {label!r} (kind={kind!r}) failed to parse as a "
@@ -142,7 +171,7 @@ def _sort_key(point: ForestPoint) -> tuple[int, int, int]:
     model_rank = MODEL_DISPLAY_ORDER.index(point.model) if point.model else 0
     protocol_rank = (PROTOCOL_DISPLAY_ORDER.index(point.protocol)
                      if point.protocol else 0)
-    if point.pass_id == "ensemble":
+    if point.is_ensemble:
         pass_rank = _ENSEMBLE_SORT_KEY
     elif point.pass_id:
         pass_rank = int(point.pass_id.removeprefix("pass "))

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 # `studies/` is not a Python package; siblings are imported flat off sys.path,
@@ -140,11 +141,27 @@ def _check_points_within_limits(points: list[ForestPoint],
         )
 
 
+def _decimal_places(value: float) -> int:
+    """Decimal places in ``value``'s shortest decimal representation.
+
+    E.g. 0.1 → 1, 0.025 → 3, -0.30 → 1 (trailing zeros carry no precision),
+    100.0 → 0. Used to round tick positions exactly rather than assuming a
+    fixed precision.
+    """
+    exponent = Decimal(str(value)).normalize().as_tuple().exponent
+    return max(0, -int(exponent))
+
+
 def _compute_x_ticks(x_limits: tuple[float, float], step: float,
                       tolerance: float) -> list[float]:
     """Generate x-axis tick positions, filtered to fall within ``x_limits``.
 
-    Ticks are generated at ``step`` intervals starting from ``x_limits[0]``.
+    Ticks are generated at ``step`` intervals starting from ``x_limits[0]``,
+    each rounded to the decimal precision implied by the start bound and the
+    step (via `_decimal_places`) so positions are exact at any step
+    granularity — a hardcoded precision coarser than the step would silently
+    displace ticks (e.g. rounding 0.075 to 0.08 at two decimals).
+
     The raw count is derived from ``round((hi - lo) / step)``, which can
     overshoot by one step whenever that ratio lands on an odd-integer ``.5``
     (Python's round-half-to-even rounds e.g. 7.5 up to 8, not down to 7). A
@@ -157,8 +174,9 @@ def _compute_x_ticks(x_limits: tuple[float, float], step: float,
     within floating-point noise of a bound instead of dropping it.
     """
     lo, hi = x_limits
+    decimals = max(_decimal_places(lo), _decimal_places(step))
     raw_count = int(round((hi - lo) / step)) + 1
-    ticks = [round(lo + i * step, 2) for i in range(raw_count)]
+    ticks = [round(lo + i * step, decimals) for i in range(raw_count)]
     return [tick for tick in ticks if lo - tolerance <= tick <= hi + tolerance]
 
 
@@ -226,7 +244,7 @@ def render_figure(points: list[ForestPoint], references: list[ForestPoint],
                     color=style["colour"], annotation_clip=False)
 
     for y, point in zip(y_positions, points):
-        is_ensemble = point.kind == "ensemble"
+        is_ensemble = point.is_ensemble
         colour = ENSEMBLE_COLOUR if is_ensemble else POINT_COLOUR
         if point.ci_lo is not None and point.ci_hi is not None:
             ax.plot([point.ci_lo, point.ci_hi], [y, y], color=colour,

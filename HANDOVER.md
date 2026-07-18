@@ -19,8 +19,13 @@ moved, but the latent bug is now closed for any future DB state). The same revie
 found Figure 1's caption claimed the pre-registered **strict** n=78 primary corpus, when
 the figure is actually rendered from the **inclusive** (FALLBACK-included) variant — same
 n=78 and numbers for gpt-oss/gemma/qwen, but different κ_quad for Sonnet (strict
-0.101/0.281/0.246 vs inclusive 0.186/0.309/0.246); caption now discloses this. Suite green
-at **736 passed**._
+0.101/0.281/0.246 vs inclusive 0.186/0.309/0.246); caption now discloses this. A
+post-review fix round unified the ensemble predicate (`ForestPoint.is_ensemble` +
+load-time consistency check), validated all required forest-CSV columns up front,
+derived tick precision from the step, moved both CI weightings onto one shared
+bootstrap resample stream (regression-tested CI-identical to the old two-call path;
+rendered PNG byte-identical), and added a shared `load_study_module` test helper
+(remaining migrations: issue #44). Suite green at **745 passed**._
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -71,7 +76,7 @@ The §9 publishability gate was cleared with gpt-oss:20b and Sonnet 4.6.
   + fixed along the way — see header above. `phase6_results.strict.{csv,md}` and
   `phase6_forest_data.strict.csv` now lag the primary schema by one generation (see
   Conventions and gotchas).
-- **Test suite: 736 passed, 0 failed** (`uv run pytest`).
+- **Test suite: 745 passed, 0 failed** (`uv run pytest`).
 
 ### B. OA-first Risk-of-Bias benchmark (Stage A shipped; owner actions pending)
 

@@ -43,7 +43,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "studies/eisele_metzger_replication"))
 
 from sanity_check_kappa import (  # noqa: E402
-    bootstrap_kappa_ci,
+    bootstrap_kappa_cis,
     cohen_kappa,
     raw_agreement,
 )
@@ -360,18 +360,20 @@ def build_kappa_row(conn: sqlite3.Connection, source: str, domain: str,
     quadratic weighting.
 
     Quadratic weighting is the manuscript's primary metric, so it needs its
-    own interval — the linear CI does not bracket κ_quad. Each
-    ``bootstrap_kappa_ci`` call reseeds its own RNG with the same hardcoded
-    ``seed=42``, so the two calls draw identical resamples (perfectly
-    correlated, not independent) — but each reseeds fresh rather than
-    sharing one ``Random`` instance, so adding the quadratic call cannot
-    perturb the linear one.
+    own interval — the linear CI does not bracket κ_quad. Both intervals
+    come from one shared resample stream via ``bootstrap_kappa_cis``, which
+    is regression-tested to reproduce exactly what separate, identically
+    seeded ``bootstrap_kappa_ci`` calls produced (the two intervals are
+    perfectly correlated, not independent) — so halving the resampling work
+    cannot move a published CI.
     """
     pairs = load_pairs(conn, reference, source, domain)
     if not pairs:
         return None
-    lo, hi = bootstrap_kappa_ci(pairs, "linear", n_resamples=n_resamples)
-    q_lo, q_hi = bootstrap_kappa_ci(pairs, "quadratic", n_resamples=n_resamples)
+    cis = bootstrap_kappa_cis(pairs, ("linear", "quadratic"),
+                              n_resamples=n_resamples)
+    lo, hi = cis["linear"]
+    q_lo, q_hi = cis["quadratic"]
     return KappaRow(
         source=source,
         domain=domain,

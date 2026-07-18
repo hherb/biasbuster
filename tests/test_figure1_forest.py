@@ -9,33 +9,15 @@ import pytest
 
 pytest.importorskip("matplotlib", reason="requires the optional 'figures' group")
 
-import importlib.util
-import sys
-import types
-
 import matplotlib.pyplot as plt
 
-_FIGURES_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "studies" / "eisele_metzger_replication" / "figures"
-)
+from tests.conftest import FIGURES_DIR, load_study_module
 
-
-def _load(module_name: str) -> types.ModuleType:
-    """Load a figures module by file path — `studies/` is not a package."""
-    spec = importlib.util.spec_from_file_location(
-        module_name, _FIGURES_DIR / f"{module_name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_fd = _load("forest_data")
+_fd = load_study_module("forest_data", FIGURES_DIR)
 load_forest_points = _fd.load_forest_points
 order_for_plot = _fd.order_for_plot
 split_references = _fd.split_references
-_ff = _load("figure1_forest")
+_ff = load_study_module("figure1_forest", FIGURES_DIR)
 render_figure = _ff.render_figure
 _compute_x_ticks = _ff._compute_x_ticks
 X_LIMITS = _ff.X_LIMITS
@@ -107,20 +89,44 @@ def test_compute_x_ticks_never_overshoots_upper_limit() -> None:
     assert 0.6 not in ticks
 
 
-def test_compute_x_ticks_keeps_bound_landing_tick() -> None:
-    """A tick landing exactly on X_LIMITS is kept, not dropped as out-of-range.
+def test_compute_x_ticks_shipping_constants_produce_expected_set() -> None:
+    """The shipping constants' tick set is exactly nine ticks ending at 0.5.
 
     With the project's real constants — limits (-0.30, 0.55), step 0.1 —
     the ratio is 8.5, which round-half-to-even rounds down to 8, so the
-    generated ticks stop exactly at 0.5 and never actually reach the 0.55
-    upper bound. This asserts the currently-shipping tick set is unaffected
-    by the new filtering (no tick lost, no tick added).
+    generated ticks stop at 0.5 and never reach the 0.55 upper bound. This
+    pins the published figure's tick set: filtering must drop nothing and
+    precision derivation must displace nothing.
     """
     ticks = _compute_x_ticks(X_LIMITS, X_TICK_STEP, X_TICK_BOUNDS_TOLERANCE)
 
     assert ticks == [round(X_LIMITS[0] + i * X_TICK_STEP, 2)
                       for i in range(9)]
     assert max(ticks) == pytest.approx(0.5)
+
+
+def test_compute_x_ticks_keeps_tick_landing_exactly_on_bound() -> None:
+    """A tick landing exactly on the upper limit is kept, not filtered out.
+
+    Exercises the tolerance path with a genuinely bound-landing tick:
+    limits (0.0, 0.5) at step 0.1 put the final tick exactly on the bound,
+    where an exclusive or tolerance-free comparison would drop it.
+    """
+    ticks = _compute_x_ticks((0.0, 0.5), 0.1, X_TICK_BOUNDS_TOLERANCE)
+
+    assert ticks == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+
+
+def test_compute_x_ticks_precision_follows_step() -> None:
+    """Tick rounding precision derives from the step, not a hardcoded count.
+
+    At step 0.025 a fixed two-decimal rounding would displace ticks (0.025
+    to 0.03, 0.075 to 0.08); deriving the precision from the step keeps
+    every position exact.
+    """
+    ticks = _compute_x_ticks((0.0, 0.1), 0.025, X_TICK_BOUNDS_TOLERANCE)
+
+    assert ticks == [0.0, 0.025, 0.05, 0.075, 0.1]
 
 
 def test_render_figure_xlim_matches_x_limits_and_ticks_are_within(

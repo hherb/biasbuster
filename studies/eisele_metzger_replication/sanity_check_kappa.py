@@ -163,6 +163,41 @@ def bootstrap_kappa_ci(pairs: list[tuple[str, str]], weighting: str,
     return (samples[lo_idx], samples[hi_idx])
 
 
+def bootstrap_kappa_cis(pairs: list[tuple[str, str]],
+                        weightings: tuple[str, ...],
+                        n_resamples: int = 1000, alpha: float = 0.05,
+                        seed: int = 42) -> dict[str, tuple[float, float]]:
+    """Percentile bootstrap CIs at several weightings from one resample stream.
+
+    Draws each resample once and scores it under every weighting, instead of
+    re-drawing the whole stream per weighting via separate
+    ``bootstrap_kappa_ci`` calls. Because that function reseeds a fresh
+    ``random.Random(seed)`` per call — and scoring a resample consumes no
+    randomness — separate calls at the same seed draw the identical resample
+    sequence, so for every weighting this returns exactly what a standalone
+    ``bootstrap_kappa_ci`` call returns (a regression test asserts this
+    equivalence against the deliberately-untouched single-weighting
+    implementation; published CIs cannot move).
+    """
+    if len(pairs) < 2:
+        return {weighting: (0.0, 0.0) for weighting in weightings}
+    rng = random.Random(seed)
+    n = len(pairs)
+    samples: dict[str, list[float]] = {weighting: [] for weighting in weightings}
+    for _ in range(n_resamples):
+        resampled = [pairs[rng.randrange(n)] for _ in range(n)]
+        for weighting in weightings:
+            samples[weighting].append(cohen_kappa(resampled, weighting=weighting))
+    lo_idx = int(math.floor(alpha / 2 * n_resamples))
+    hi_idx = int(math.ceil((1 - alpha / 2) * n_resamples)) - 1
+    hi_idx = min(hi_idx, n_resamples - 1)
+    cis: dict[str, tuple[float, float]] = {}
+    for weighting, values in samples.items():
+        values.sort()
+        cis[weighting] = (values[lo_idx], values[hi_idx])
+    return cis
+
+
 def kappa_with_ci(conn: sqlite3.Connection, source_a: str, source_b: str,
                   domain: str, weighting: str = "linear",
                   n_resamples: int = 1000) -> KappaResult:
