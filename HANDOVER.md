@@ -13,7 +13,7 @@ run-to-run instability audit across all four models. **Key finding:** the draft 
 across the full corpus the noisiest signalling domain is D3 (gpt-oss, gemma) / D5 (qwen)
 / D4 (Sonnet), and D1 is among the most stable for three of four models (gpt-oss's low-κ
 D1 is a base-rate/kappa artefact of skewed marginals). Primary draft §3.5/§3.6/§5 updated
-accordingly. Suite green at **709 passed**._
+accordingly. Suite green at **711 passed**._
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -54,7 +54,7 @@ The §9 publishability gate was cleared with gpt-oss:20b and Sonnet 4.6.
   shared-with-gpt-oss D2 case); per-domain instability audit shows §3.6's D1 concentration
   is audit-set-specific, not corpus-wide; §3.5/§3.6/§5 updated. All numbers from
   `premanuscript_spotchecks.py` (read-only over the benchmark DB).
-- **Test suite: 709 passed, 0 failed** (`uv run pytest`).
+- **Test suite: 711 passed, 0 failed** (`uv run pytest`).
 
 ### B. OA-first Risk-of-Bias benchmark (Stage A shipped; owner actions pending)
 

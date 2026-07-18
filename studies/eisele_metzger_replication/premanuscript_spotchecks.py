@@ -42,6 +42,7 @@ from compute_phase6_kappa import (  # noqa: E402
     MODEL_LABELS,
     PASSES,
     SIGNALLING_DOMAINS,
+    _active_wrong_paper_set,
     load_pairs,
 )
 from exclusions import wrong_paper_filter  # noqa: E402
@@ -58,6 +59,23 @@ PASS_PAIRS = ((1, 2), (1, 3), (2, 3))
 # The model whose `low` calls the audit inspects (runbook §6.1). gpt-oss's own
 # `low` audit is already in draft §3.5; Sonnet is the outstanding one.
 LOW_AUDIT_MODEL = "sonnet_4_6"
+
+# Both audits target the full-text protocol only: draft §3.5 (the `low`-judgement
+# audit) and §3.6 (the per-domain instability audit) are both scoped to full text.
+# A module constant rather than a CLI option so the report prose ("full text")
+# can never disagree with the data it summarises.
+AUDIT_PROTOCOL = "fulltext"
+
+# The `low`-judgement audit inspects the model's OWN emitted `low` calls
+# ("right-for-the-right-reasons", draft §3.5). Algorithm-derived judgements
+# (``raw_label = 'FALLBACK'``, written by the parse-failure fallback) carry no
+# model reasoning to audit, so they are excluded from the low audit
+# UNCONDITIONALLY — unlike ``compute_phase6_kappa._fallback_filter``, which is
+# gated on that module's ``EXCLUDE_FALLBACK`` flag. Cochrane rows (``raw_label``
+# NULL) are kept. Fragment starts with " AND " so it appends onto a WHERE clause;
+# it binds no parameters. Applies only to the low audit — the instability audit
+# (§3.6) deliberately mirrors the main κ analysis, which includes fallback rows.
+_EXCLUDE_FALLBACK_SQL = " AND (raw_label IS NULL OR raw_label != 'FALLBACK')"
 
 
 # --- Pure helpers (unit-tested) ----------------------------------------
@@ -203,9 +221,18 @@ class LowAuditRow:
 def _domain_map(
     conn: sqlite3.Connection, source: str, rct_id: str
 ) -> dict[str, str | None]:
+    """``{domain: judgment}`` for one ``(source, rct_id)``, valid model-emitted
+    rows only.
+
+    FALLBACK-derived judgements are dropped so the low audit reflects what the
+    model actually emitted (a FALLBACK pass therefore shows no ``overall`` and is
+    not counted as a ``low`` call). Cochrane rows are unaffected (``raw_label``
+    is NULL for them).
+    """
     rows = conn.execute(
         """SELECT domain, judgment FROM benchmark_judgment
-           WHERE source = ? AND rct_id = ? AND valid = 1""",
+           WHERE source = ? AND rct_id = ? AND valid = 1"""
+        + _EXCLUDE_FALLBACK_SQL,
         (source, rct_id),
     ).fetchall()
     return {d: j for d, j in rows}
@@ -220,13 +247,15 @@ def load_low_audit(
     loader. One row per RCT; ``pass_overall``/``pass_domains`` carry all three
     passes so the reader sees the run-to-run picture around each ``low`` call.
     """
-    wp_sql, wp_params = wrong_paper_filter("")
+    wp_sql, wp_params = wrong_paper_filter(
+        "", exclusion_set=_active_wrong_paper_set())
     low_rcts = [
         r[0]
         for r in conn.execute(
             """SELECT DISTINCT rct_id FROM benchmark_judgment
                WHERE source LIKE ? AND domain = 'overall'
                  AND judgment = 'low' AND valid = 1"""
+            + _EXCLUDE_FALLBACK_SQL
             + wp_sql,
             (f"{model}_fulltext_pass%", *wp_params),
         ).fetchall()
@@ -245,7 +274,9 @@ def load_low_audit(
             if doms.get("overall") == "low":
                 rationale = conn.execute(
                     """SELECT rationale FROM benchmark_judgment
-                       WHERE source = ? AND rct_id = ? AND domain = 'overall'""",
+                       WHERE source = ? AND rct_id = ? AND domain = 'overall'
+                         AND valid = 1"""
+                    + _EXCLUDE_FALLBACK_SQL,
                     (src, rct_id),
                 ).fetchone()
                 low_rationales[p] = rationale[0] if rationale else None
@@ -397,9 +428,6 @@ def write_report(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH)
-    parser.add_argument("--protocol", default="fulltext",
-                        choices=("abstract", "fulltext"),
-                        help="Protocol for the instability audit (default: fulltext).")
     args = parser.parse_args()
     if not args.db_path.exists():
         print(f"[error] DB not found at {args.db_path}", file=sys.stderr)
@@ -410,7 +438,7 @@ def main() -> int:
         low_rows = load_low_audit(conn, LOW_AUDIT_MODEL)
         instabilities = []
         for model in MODEL_LABELS:
-            inst = model_instability(conn, model, args.protocol)
+            inst = model_instability(conn, model, AUDIT_PROTOCOL)
             if inst is not None:
                 instabilities.append(inst)
         write_report(low_rows, instabilities)
@@ -424,7 +452,7 @@ def main() -> int:
     n_correct = sum(len(r.correct_low_passes()) for r in low_rows)
     print(f"[audit] {LOW_AUDIT_MODEL} low judgements: {n_correct}/{n_low} match Cochrane")
     for inst in instabilities:
-        print(f"[instability] {inst.model} × {args.protocol}: dominant = {inst.dominant}")
+        print(f"[instability] {inst.model} × {inst.protocol}: dominant = {inst.dominant}")
     return 0
 
 
