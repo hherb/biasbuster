@@ -57,3 +57,25 @@ def test_render_writes_pdf_and_png(tmp_path: Path) -> None:
     assert suffixes == [".pdf", ".png"]
     for path in written:
         assert path.exists() and path.stat().st_size > 0
+
+
+_CSV_OUT_OF_BOUNDS = """label,k_lin,k_quad,ci_lin_lo,ci_lin_hi,ci_quad_lo,ci_quad_hi,n,kind
+"gpt-oss 20B (abstract, pass 1)",0.03,0.01,-0.06,0.14,-0.07,0.16,78,single_pass
+"gpt-oss 20B (abstract, pass 3)",-0.05,-0.05,-0.30,0.20,-0.60,0.13,78,single_pass
+"""
+
+
+def test_render_raises_when_ci_exceeds_x_limits(tmp_path: Path) -> None:
+    """render_figure refuses to silently clip a CI bound outside X_LIMITS.
+
+    A point whose interval extends past the axes would otherwise render as
+    a silently truncated error bar — exactly the defect this guard exists
+    to prevent — so it must raise a ValueError naming the offending row
+    instead of drawing it.
+    """
+    csv_path = tmp_path / "forest_out_of_bounds.csv"
+    csv_path.write_text(_CSV_OUT_OF_BOUNDS, encoding="utf-8")
+    plotted, references = split_references(load_forest_points(csv_path))
+
+    with pytest.raises(ValueError, match="gpt-oss 20B \\(abstract, pass 3\\)"):
+        render_figure(order_for_plot(plotted), references, tmp_path)

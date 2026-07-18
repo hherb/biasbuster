@@ -37,7 +37,7 @@ ROW_HEIGHT_IN = 0.24
 FIG_MIN_HEIGHT_IN = 4.0
 FIG_TOP_MARGIN_IN = 1.0
 DPI = 300
-X_LIMITS = (-0.20, 0.55)
+X_LIMITS = (-0.30, 0.55)
 X_TICK_STEP = 0.1
 
 SINGLE_PASS_MARKER = "o"
@@ -106,6 +106,37 @@ def _reference_style(label: str) -> dict | None:
     return None
 
 
+def _check_points_within_limits(points: list[ForestPoint],
+                                 references: list[ForestPoint]) -> None:
+    """Raise loudly if any point's κ_quad or CI bound falls outside X_LIMITS.
+
+    A bound outside the axes gets silently clipped at the spine by
+    matplotlib — the error bar (or reference line) still renders, just
+    truncated, with no visual or programmatic signal that data was cut off.
+    That is exactly the kind of silent data misrepresentation this project's
+    error-handling rule forbids, so it is checked and raised here rather than
+    left to be caught (or missed) by eyeballing the figure.
+    """
+    x_lo, x_hi = X_LIMITS
+    offenders: list[str] = []
+    for point in (*points, *references):
+        values = [v for v in (point.k_quad, point.ci_lo, point.ci_hi)
+                  if v is not None]
+        out_of_range = [v for v in values if v < x_lo or v > x_hi]
+        if out_of_range:
+            offenders.append(
+                f"{point.label!r} (observed {min(out_of_range):.4f} to "
+                f"{max(out_of_range):.4f})"
+            )
+    if offenders:
+        raise ValueError(
+            f"Forest plot data falls outside X_LIMITS {X_LIMITS}: "
+            f"{'; '.join(offenders)}. Widen X_LIMITS in figure1_forest.py "
+            "to at least the observed data range so no error bar or "
+            "reference line is silently clipped at the axes."
+        )
+
+
 def render_figure(points: list[ForestPoint], references: list[ForestPoint],
                   output_dir: Path) -> list[Path]:
     """Draw the forest plot and write PDF + PNG. Returns the written paths.
@@ -120,6 +151,7 @@ def render_figure(points: list[ForestPoint], references: list[ForestPoint],
     if not points:
         raise ValueError("No plottable forest points — refusing to draw an "
                          "empty figure.")
+    _check_points_within_limits(points, references)
 
     n_rows = len(points)
     # Reserve headroom above the rows for the staggered reference-rule labels.
