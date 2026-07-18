@@ -29,12 +29,12 @@ Coverage of the table fills in as Phase 5 evaluation runs complete. Empty model 
 | qwen3_6_35b_fulltext_pass1 | 78 | 0.500 | 0.208 | 0.213 [0.060, 0.364] | 0.219 |
 | qwen3_6_35b_fulltext_pass2 | 78 | 0.487 | 0.195 | 0.229 [0.082, 0.368] | 0.273 |
 | qwen3_6_35b_fulltext_pass3 | 78 | 0.449 | 0.148 | 0.173 [0.034, 0.321] | 0.203 |
-| sonnet_4_6_abstract_pass1 | 78 | 0.462 | 0.089 | 0.124 [0.014, 0.247] | 0.187 |
-| sonnet_4_6_abstract_pass2 | 78 | 0.462 | 0.089 | 0.082 [-0.010, 0.191] | 0.071 |
-| sonnet_4_6_abstract_pass3 | 78 | 0.487 | 0.136 | 0.155 [0.047, 0.288] | 0.189 |
-| sonnet_4_6_fulltext_pass1 | 78 | 0.462 | 0.111 | 0.140 [0.001, 0.254] | 0.186 |
-| sonnet_4_6_fulltext_pass2 | 78 | 0.474 | 0.145 | 0.210 [0.067, 0.349] | 0.309 |
-| sonnet_4_6_fulltext_pass3 | 78 | 0.474 | 0.152 | 0.191 [0.033, 0.338] | 0.246 |
+| sonnet_4_6_abstract_pass1 | 78 | 0.462 | 0.089 | 0.124 [0.019, 0.243] | 0.187 |
+| sonnet_4_6_abstract_pass2 | 78 | 0.462 | 0.089 | 0.082 [-0.011, 0.190] | 0.071 |
+| sonnet_4_6_abstract_pass3 | 78 | 0.487 | 0.136 | 0.155 [0.035, 0.283] | 0.189 |
+| sonnet_4_6_fulltext_pass1 | 78 | 0.462 | 0.111 | 0.140 [0.015, 0.262] | 0.186 |
+| sonnet_4_6_fulltext_pass2 | 78 | 0.474 | 0.145 | 0.210 [0.069, 0.339] | 0.309 |
+| sonnet_4_6_fulltext_pass3 | 78 | 0.474 | 0.152 | 0.191 [0.054, 0.330] | 0.246 |
 
 *Reference:* EM Claude 2 published κ_quad ≈ 0.22.
 
@@ -59,14 +59,14 @@ Each signalling domain (d1–d5) is a strict majority vote across the three pass
 
 | Source | n | raw agr | κ_unw | κ_lin (95% CI) | κ_quad |
 |---|---:|---:|---:|---|---:|
-| gpt_oss_20b_abstract_ensemble | 78 | 0.436 | 0.054 | 0.023 [-0.052, 0.126] | -0.031 |
-| gpt_oss_20b_fulltext_ensemble | 78 | 0.449 | 0.157 | 0.186 [0.067, 0.313] | 0.223 |
-| gemma4_26b_abstract_ensemble | 78 | 0.462 | 0.122 | 0.127 [0.008, 0.255] | 0.134 |
-| gemma4_26b_fulltext_ensemble | 78 | 0.436 | 0.146 | 0.176 [0.045, 0.315] | 0.212 |
-| qwen3_6_35b_abstract_ensemble | 78 | 0.423 | 0.046 | 0.077 [-0.019, 0.178] | 0.126 |
-| qwen3_6_35b_fulltext_ensemble | 78 | 0.500 | 0.207 | 0.227 [0.072, 0.373] | 0.253 |
-| sonnet_4_6_abstract_ensemble | 78 | 0.474 | 0.110 | 0.124 [0.022, 0.241] | 0.148 |
-| sonnet_4_6_fulltext_ensemble | 78 | 0.474 | 0.141 | 0.182 [0.041, 0.306] | 0.246 |
+| gpt_oss_20b_abstract_ensemble | 78 | 0.436 | 0.054 | 0.023 [-0.057, 0.125] | -0.031 |
+| gpt_oss_20b_fulltext_ensemble | 78 | 0.449 | 0.157 | 0.186 [0.063, 0.322] | 0.223 |
+| gemma4_26b_abstract_ensemble | 78 | 0.462 | 0.122 | 0.127 [0.000, 0.248] | 0.134 |
+| gemma4_26b_fulltext_ensemble | 78 | 0.436 | 0.146 | 0.176 [0.052, 0.311] | 0.212 |
+| qwen3_6_35b_abstract_ensemble | 78 | 0.423 | 0.046 | 0.077 [-0.032, 0.195] | 0.126 |
+| qwen3_6_35b_fulltext_ensemble | 78 | 0.500 | 0.207 | 0.227 [0.086, 0.369] | 0.253 |
+| sonnet_4_6_abstract_ensemble | 78 | 0.474 | 0.110 | 0.124 [0.018, 0.242] | 0.148 |
+| sonnet_4_6_fulltext_ensemble | 78 | 0.474 | 0.141 | 0.182 [0.049, 0.314] | 0.246 |
 
 ## 4. Per-domain κ_quad across all sources
 
@@ -127,20 +127,20 @@ Each signalling domain (d1–d5) is a strict majority vote across the three pass
 | Qwen 3.6 35B-A3B (fulltext, pass 1) | 0.219 | 0.213 [0.060, 0.364] | 78 |
 | Qwen 3.6 35B-A3B (fulltext, pass 2) | 0.273 | 0.229 [0.082, 0.368] | 78 |
 | Qwen 3.6 35B-A3B (fulltext, pass 3) | 0.203 | 0.173 [0.034, 0.321] | 78 |
-| Claude Sonnet 4.6 (abstract, pass 1) | 0.187 | 0.124 [0.014, 0.247] | 78 |
-| Claude Sonnet 4.6 (abstract, pass 2) | 0.071 | 0.082 [-0.010, 0.191] | 78 |
-| Claude Sonnet 4.6 (abstract, pass 3) | 0.189 | 0.155 [0.047, 0.288] | 78 |
-| Claude Sonnet 4.6 (fulltext, pass 1) | 0.186 | 0.140 [0.001, 0.254] | 78 |
-| Claude Sonnet 4.6 (fulltext, pass 2) | 0.309 | 0.210 [0.067, 0.349] | 78 |
-| Claude Sonnet 4.6 (fulltext, pass 3) | 0.246 | 0.191 [0.033, 0.338] | 78 |
-| gpt-oss 20B (abstract, ensemble) | -0.031 | 0.023 [-0.052, 0.126] | 78 |
-| gpt-oss 20B (fulltext, ensemble) | 0.223 | 0.186 [0.067, 0.313] | 78 |
-| Gemma 4 26B-A4B (abstract, ensemble) | 0.134 | 0.127 [0.008, 0.255] | 78 |
-| Gemma 4 26B-A4B (fulltext, ensemble) | 0.212 | 0.176 [0.045, 0.315] | 78 |
-| Qwen 3.6 35B-A3B (abstract, ensemble) | 0.126 | 0.077 [-0.019, 0.178] | 78 |
-| Qwen 3.6 35B-A3B (fulltext, ensemble) | 0.253 | 0.227 [0.072, 0.373] | 78 |
-| Claude Sonnet 4.6 (abstract, ensemble) | 0.148 | 0.124 [0.022, 0.241] | 78 |
-| Claude Sonnet 4.6 (fulltext, ensemble) | 0.246 | 0.182 [0.041, 0.306] | 78 |
+| Claude Sonnet 4.6 (abstract, pass 1) | 0.187 | 0.124 [0.019, 0.243] | 78 |
+| Claude Sonnet 4.6 (abstract, pass 2) | 0.071 | 0.082 [-0.011, 0.190] | 78 |
+| Claude Sonnet 4.6 (abstract, pass 3) | 0.189 | 0.155 [0.035, 0.283] | 78 |
+| Claude Sonnet 4.6 (fulltext, pass 1) | 0.186 | 0.140 [0.015, 0.262] | 78 |
+| Claude Sonnet 4.6 (fulltext, pass 2) | 0.309 | 0.210 [0.069, 0.339] | 78 |
+| Claude Sonnet 4.6 (fulltext, pass 3) | 0.246 | 0.191 [0.054, 0.330] | 78 |
+| gpt-oss 20B (abstract, ensemble) | -0.031 | 0.023 [-0.057, 0.125] | 78 |
+| gpt-oss 20B (fulltext, ensemble) | 0.223 | 0.186 [0.063, 0.322] | 78 |
+| Gemma 4 26B-A4B (abstract, ensemble) | 0.134 | 0.127 [0.000, 0.248] | 78 |
+| Gemma 4 26B-A4B (fulltext, ensemble) | 0.212 | 0.176 [0.052, 0.311] | 78 |
+| Qwen 3.6 35B-A3B (abstract, ensemble) | 0.126 | 0.077 [-0.032, 0.195] | 78 |
+| Qwen 3.6 35B-A3B (fulltext, ensemble) | 0.253 | 0.227 [0.086, 0.369] | 78 |
+| Claude Sonnet 4.6 (abstract, ensemble) | 0.148 | 0.124 [0.018, 0.242] | 78 |
+| Claude Sonnet 4.6 (fulltext, ensemble) | 0.246 | 0.182 [0.049, 0.314] | 78 |
 | EM Claude 2 (published, single pass) | 0.220 | — | — |
 | Minozzi 2020 — trained humans, no ID | 0.160 | — | — |
 | Minozzi 2021 — trained humans, with ID | 0.420 | — | — |

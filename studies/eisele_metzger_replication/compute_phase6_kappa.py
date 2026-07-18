@@ -162,6 +162,16 @@ def _fallback_filter(*aliases: str) -> str:
 
 def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
                domain: str) -> list[tuple[str, str]]:
+    """Paired (reference, model) judgments for one domain, ordered by rct_id.
+
+    The ORDER BY is load-bearing, not cosmetic: ``bootstrap_kappa_ci``
+    resamples this list by index, so an unspecified SQLite row order makes
+    the resulting confidence intervals irreproducible between runs. The
+    ensemble sources are rewritten via INSERT OR REPLACE on every run,
+    which changes their physical placement and previously caused exactly
+    that drift. Cohen's kappa itself is order-invariant, so this affects
+    CIs only — never a point estimate.
+    """
     wp_sql, wp_params = wrong_paper_filter(
         "a", "b", exclusion_set=_active_wrong_paper_set())
     return conn.execute(
@@ -173,7 +183,8 @@ def load_pairs(conn: sqlite3.Connection, source_a: str, source_b: str,
              AND a.judgment IS NOT NULL AND b.judgment IS NOT NULL
              AND a.valid = 1 AND b.valid = 1"""
         + _fallback_filter("a", "b")
-        + wp_sql,
+        + wp_sql
+        + " ORDER BY a.rct_id",
         (source_a, source_b, domain, *wp_params),
     ).fetchall()
 
