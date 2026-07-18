@@ -39,6 +39,9 @@ FIG_TOP_MARGIN_IN = 1.0
 DPI = 300
 X_LIMITS = (-0.30, 0.55)
 X_TICK_STEP = 0.1
+# Float-equality slack for keeping a tick that lands exactly on an X_LIMITS
+# bound (rounding a repeating binary fraction can miss the bound by an ulp).
+X_TICK_BOUNDS_TOLERANCE = 1e-9
 
 SINGLE_PASS_MARKER = "o"
 ENSEMBLE_MARKER = "D"
@@ -135,6 +138,28 @@ def _check_points_within_limits(points: list[ForestPoint],
             "to at least the observed data range so no error bar or "
             "reference line is silently clipped at the axes."
         )
+
+
+def _compute_x_ticks(x_limits: tuple[float, float], step: float,
+                      tolerance: float) -> list[float]:
+    """Generate x-axis tick positions, filtered to fall within ``x_limits``.
+
+    Ticks are generated at ``step`` intervals starting from ``x_limits[0]``.
+    The raw count is derived from ``round((hi - lo) / step)``, which can
+    overshoot by one step whenever that ratio lands on an odd-integer ``.5``
+    (Python's round-half-to-even rounds e.g. 7.5 up to 8, not down to 7). A
+    tick generated past ``x_limits[1]`` must never reach ``ax.set_xticks()``:
+    matplotlib silently widens the axes' ``set_xlim()`` to include any tick
+    value outside the current range, which would override ``x_limits``
+    without any visible or programmatic signal. Filtering here — rather than
+    trusting the arithmetic to produce exactly the right count — makes that
+    outcome structurally impossible. ``tolerance`` keeps a tick that lands
+    within floating-point noise of a bound instead of dropping it.
+    """
+    lo, hi = x_limits
+    raw_count = int(round((hi - lo) / step)) + 1
+    ticks = [round(lo + i * step, 2) for i in range(raw_count)]
+    return [tick for tick in ticks if lo - tolerance <= tick <= hi + tolerance]
 
 
 def render_figure(points: list[ForestPoint], references: list[ForestPoint],
@@ -234,10 +259,14 @@ def render_figure(points: list[ForestPoint], references: list[ForestPoint],
                     ha="right", va="center", fontsize=MODEL_LABEL_FONTSIZE,
                     fontweight="bold", annotation_clip=False)
 
+    ax.set_xticks(_compute_x_ticks(X_LIMITS, X_TICK_STEP,
+                                    X_TICK_BOUNDS_TOLERANCE))
+    # set_xlim MUST run after set_xticks, not before: matplotlib's
+    # set_xticks() silently widens set_xlim() to include any tick value
+    # outside the current axes range (verified empirically), so calling
+    # set_xlim afterward makes X_LIMITS authoritative regardless of what
+    # set_xticks attempted. Do not "tidy" this back to xlim-then-xticks.
     ax.set_xlim(*X_LIMITS)
-    ax.set_xticks([round(X_LIMITS[0] + i * X_TICK_STEP, 2)
-                   for i in range(int(round((X_LIMITS[1] - X_LIMITS[0])
-                                      / X_TICK_STEP)) + 1)])
     ax.tick_params(axis="x", labelsize=TICK_FONTSIZE)
     ax.set_xlabel("Cohen's κ (quadratic weights) vs Cochrane RoB 2, overall "
                   "judgement", fontsize=AXIS_LABEL_FONTSIZE)
