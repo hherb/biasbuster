@@ -70,9 +70,28 @@ UNRECOVERABLE_WRONG_PAPER_RCTS: frozenset[str] = frozenset({
     "RCT080",  # Rogde et al 2016, education journal — not PubMed-indexed
 })
 
+# The wrong-paper RCTs whose correct primary trial IS obtainable (PubMed-indexed)
+# and can be re-fetched + re-assessed by recover_wrong_papers.py. The primary
+# analysis excludes them (they still hold stale wrong-document judgements); the
+# recovered-corpus **sensitivity** analysis re-includes them and excludes only
+# ``UNRECOVERABLE_WRONG_PAPER_RCTS``. Derived so the two subsets always partition
+# ``WRONG_PAPER_RCTS`` exactly.
+RECOVERABLE_WRONG_PAPER_RCTS: frozenset[str] = (
+    WRONG_PAPER_RCTS - UNRECOVERABLE_WRONG_PAPER_RCTS
+)
 
-def wrong_paper_filter(*aliases: str) -> tuple[str, list[str]]:
-    """SQL fragment + bound params excluding ``WRONG_PAPER_RCTS`` rows.
+# Stable substring that ``recover_wrong_papers.apply_recovery`` appends to
+# ``benchmark_rct.notes`` when it re-fetches a wrong paper's correct document.
+# Single-sourced here so the recovery writer and the sensitivity-precondition
+# detector (``compute_phase6_kappa.recovered_wrong_paper_rcts``) key on one
+# constant. Changing it re-defines what counts as "recovered".
+RECOVERY_NOTE_MARKER: str = "#29 wrong-paper recovery"
+
+
+def wrong_paper_filter(
+    *aliases: str, exclusion_set: frozenset[str] | None = None,
+) -> tuple[str, list[str]]:
+    """SQL fragment + bound params excluding wrong-paper rows.
 
     Mirrors the alias convention of ``compute_phase6_kappa._fallback_filter``:
     pass the table alias used for each ``benchmark_judgment`` reference in the
@@ -80,8 +99,14 @@ def wrong_paper_filter(*aliases: str) -> tuple[str, list[str]]:
     returned fragment starts with ``" AND "`` so it can be concatenated
     directly onto an existing ``WHERE`` clause.
 
-    Returns ``("", [])`` when the exclusion set is empty (so callers stay
-    correct if ``WRONG_PAPER_RCTS`` is ever cleared). Uses bound parameters —
+    ``exclusion_set`` selects which RCTs to exclude: the default (``None``)
+    uses the module-level ``WRONG_PAPER_RCTS`` (the primary analysis); the
+    sensitivity analysis passes ``UNRECOVERABLE_WRONG_PAPER_RCTS`` so only the
+    two unindexed wrong papers are dropped. Reading ``WRONG_PAPER_RCTS`` lazily
+    (rather than binding it as a default) keeps the empty-set no-op behaviour
+    correct when the set is monkeypatched or cleared.
+
+    Returns ``("", [])`` when the active set is empty. Uses bound parameters —
     never string-interpolated ids — so the caller appends the returned params
     to its own parameter tuple in the same left-to-right order the aliases are
     passed.
@@ -91,9 +116,10 @@ def wrong_paper_filter(*aliases: str) -> tuple[str, list[str]]:
         sql, params = wrong_paper_filter("a", "b")
         conn.execute(base_sql + sql, (source_a, source_b, domain, *params))
     """
-    if not WRONG_PAPER_RCTS:
+    active = WRONG_PAPER_RCTS if exclusion_set is None else exclusion_set
+    if not active:
         return "", []
-    ids = sorted(WRONG_PAPER_RCTS)
+    ids = sorted(active)
     placeholders = ",".join("?" * len(ids))
     parts: list[str] = []
     params: list[str] = []

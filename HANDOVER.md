@@ -1,16 +1,15 @@
 # HANDOVER — BiasBuster
 
-_Last updated: 2026-07-17 (issue #29: RCT030 exclusion centralised in
-`exclusions.py` (PR #30). A follow-up completeness audit found RCT030 is NOT the
-only wrong-paper acquisition — 13 in total (Tier-A wrong documents + a Tier-B
-"wrong report" class). The owner DECISION is made and applied: the primary
-analysis excludes all 13, with a recovered-corpus sensitivity analysis still to
-run (Open work #0). `WRONG_PAPER_RCTS` expanded to 13, both κ modes + the
-algorithm-conformance audit regenerated on n=78, and both drafts updated.
-Reproducible audit + surgical recovery tools committed with tests. Suite green at
-609 passed. Maintenance scaffolding (HANDOVER/ROADMAP + `nextsession`/`fixall`
-skills) seeded 2026-07-16 from the runbook archived at
-`docs/history/EISELE_METZGER_RUNBOOK_2026-07.md`.)_
+_Last updated: 2026-07-18 (session-start reconciliation). Since the last HANDOVER
+(2026-07-17 morning) PRs #31–#39 all merged: the wrong-paper **hybrid was executed**
+(all 13 excluded from the primary; both drafts regenerated on n=78 with the reframed
+finding #1 — PR #31); the **OA-first RoB benchmark Stage A** shipped as a new parallel
+objective-3 workstream (PRs #32, #37); CI test workflow + weekly lockfile refresh added
+(#34, #36); **all 33 Dependabot alerts resolved** (#35, #38); a GUI log-spam fix (#39).
+This file was stale by nine PRs — the state, open-work, and housekeeping sections below
+are rewritten to match the merged tree. This session also **built the `--sensitivity`
+κ flag** (Open work #A.1) with a recovery-precondition guard + 15 tests. Suite green at
+**697 passed**._
 
 This file briefs the next session on what is done, what is still open, and the
 conventions to keep. Update it whenever a session materially changes the plan; delete
@@ -21,164 +20,101 @@ in CLAUDE.md.
 
 ## State of play
 
-The active work is the **Eisele-Metzger 2025 RoB 2 replication study** (objective 3).
-Core context: memory file `project_claude2_rob_paper.md`; the pre-registration is
+Objective 3 now has **two active workstreams**, both at owner-gated checkpoints:
+
+### A. Eisele-Metzger 2025 RoB 2 replication study (manuscript-finalisation stage)
+
+Core context: memory `project_claude2_rob_paper.md`; the pre-registration is
 **LOCKED** at commit `7854a1c`
 (`docs/papers/eisele_metzger_replication/preanalysis_plan.md` + `prompt_v1.md`).
-The §9 publishability gate was already cleared with gpt-oss:20b and Sonnet 4.6.
+The §9 publishability gate was cleared with gpt-oss:20b and Sonnet 4.6.
 
-- **The Phase 5 evaluation matrix is complete in the DB** (verified 2026-07-16):
-  all four models (gpt-oss:20b, Sonnet 4.6, gemma4:26b, qwen3.6:35b) ×
-  {abstract, fulltext} × 3 passes, plus ensemble rows, are in
-  `dataset/eisele_metzger_benchmark.db` (546 rows = 91 RCTs × 6 domains per pass;
-  gpt-oss/qwen fulltext have a handful of invalid rows, e.g. the known RCT030
-  wrong-paper acquisition). A gpt-oss **fulltext temperature sweep**
-  (T = 0/0.3/0.6/0.8/1.2 × 3 passes on a 10-RCT subset) is also present.
-- **The 2026-07-16 code audit is fully fixed**: all 16 findings + regression B0
-  (two were paper-critical: untagged live-path FALLBACK ingest, and κ scripts that
-  could not exclude FALLBACK rows). PR #20 merged; issues #7–#19 closed. The full
-  finding-by-finding record is in the archived runbook.
-- **Test suite: 609 passed, 0 failed** (`uv run pytest`). Stale tests #21/#22
-  were realigned 2026-07-17; the wrong-paper audit + recovery tools added audit,
-  exclusion, and surgical-recovery tests.
-- **`phase6_results*.{md,csv}` and both drafts have been regenerated on n=78**
-  (all 13 wrong papers excluded — Open work #0). The regenerated headline numbers
-  and the finding-#1 reframe are in Open work #0; the owner still needs to weave
-  them into the prose before submission. Do not submit until that prose pass is
-  done.
-- **RCT030 wrong-paper exclusion is now enforced in BOTH paths** (PR #30 merged
-  2026-07-17): `studies/eisele_metzger_replication/exclusions.py` is the single
-  source of truth (`WRONG_PAPER_RCTS` + `wrong_paper_filter()` SQL helper), imported
-  by `recover_parse_failures.py` (recovery guard) and by the analysis loaders in
-  `compute_phase6_kappa.py` / `interim_analysis.py` / `temperature_analysis.py`.
-  Deliberately NOT applied in `sanity_check_kappa.py` (it reproduces EM's published
-  κ from EM's own correctly-acquired data). Tests in
-  `tests/test_kappa_exclusions.py` + `tests/test_recover_parse_failures.py`.
-  FALLBACK total stands at 91 (all Sonnet).
+- **Phase 5 evaluation matrix is complete in the DB**: all four models (gpt-oss:20b,
+  Sonnet 4.6, gemma4:26b, qwen3.6:35b) × {abstract, fulltext} × 3 passes, plus
+  ensemble rows, in `dataset/eisele_metzger_benchmark.db`. A gpt-oss fulltext
+  **temperature sweep** (T = 0/0.3/0.6/0.8/1.2 × 3 passes on a 10-RCT subset) is also
+  present.
+- **Wrong-paper hybrid DONE** (PR #31): `WRONG_PAPER_RCTS` holds all 13;
+  `UNRECOVERABLE_WRONG_PAPER_RCTS = {RCT030, RCT080}` is defined for the sensitivity
+  analysis. Both phase-6 κ modes + the algorithm-conformance audit were regenerated on
+  **n=78**, and both drafts updated (numbers + reframed finding #1). Enforcement is
+  centralised in `studies/eisele_metzger_replication/exclusions.py`, imported by every
+  κ loader (deliberately NOT `sanity_check_kappa.py`, which reproduces EM's own κ).
+- **Headline (regenerated, n=78):** best-pass κ_quad fulltext (strict) — gpt-oss
+  **0.321**, Sonnet **0.281**, qwen **0.273**, gemma **0.259** (spread 0.062; the old
+  "tight clustering" finding is gone). Ceiling 0.04–0.10 above EM's 0.22 but still far
+  below human-usable. Ensemble-loses-to-best-pass and run-to-run ordering both SURVIVE;
+  conformance lenient-asymmetry sharpened to 8.5:1 pooled / 11.7:1 at 4/4 consensus.
+- **Test suite: 697 passed, 0 failed** (`uv run pytest`).
+
+### B. OA-first Risk-of-Bias benchmark (Stage A shipped; owner actions pending)
+
+New benchmark started 2026-07-17 to fix the paywalled/wrong-paper sourcing that broke
+the earlier corpora — it **inverts sourcing** (enumerate the OA population first, admit
+a trial only when full text is in hand AND it carries a verified human-expert RoB 2
+label). Context: memory `project_oa_first_rob_benchmark.md`; spec
+`docs/superpowers/specs/2026-07-17-oa-first-rob-benchmark-design.md`; plan
+`docs/superpowers/plans/2026-07-17-oa-rob-benchmark-stage-a.md`.
+
+- Stage A code shipped (PRs #32, #37): study package `studies/oa_rob_benchmark/`,
+  isolated store `dataset/oa_rob_benchmark.db` (append/upsert only; never touches
+  `biasbuster.db` or the EM benchmark DB), a four-part litmus test enforced on every
+  admitted item. ROBoto2 real data landed and the ingest was rewritten for its actual
+  shape (`convert_roboto2_csv.py` → `dataset/roboto2/roboto2.json`; `title_resolver.py`
+  for title→PMID via PubMed esearch + similarity ≥0.90).
+- **This is a data-construction workstream, not yet a study** — Stage B (the fresh
+  Europe-PMC OA-first harvest, spec §7) is designed but unplanned. See Open work #B.
 
 ## Open work (in priority order)
 
-### 0. DECISION MADE (2026-07-17): hybrid — exclude-all primary + recovered sensitivity
+### A. EM replication — finish the manuscript
 
-Owner chose the **hybrid**: the pre-registered **primary** excludes ALL 13
-wrong papers; the **recovered corpus** is a secondary **sensitivity** analysis.
+1. **Sensitivity analysis (owner-gated data work — expensive model re-run).** The
+   `--sensitivity` flag on `compute_phase6_kappa.py` is **now built + unit-tested**
+   (this session): it excludes only `UNRECOVERABLE_WRONG_PAPER_RCTS`, writes to
+   `phase6_results.sensitivity.{md,csv}` (composes with `--exclude-fallback` →
+   `.sensitivity.strict.*`), and **refuses to run** until every
+   `RECOVERABLE_WRONG_PAPER_RCTS` carries the recovery marker in
+   `benchmark_rct.notes` — so it cannot silently score stale wrong-document
+   judgements. What remains is the owner-gated data pipeline: recover the ~11
+   obtainable RCTs, re-assess only the deleted rows, THEN run the flag:
+   ```bash
+   # 1. recover (surgical: re-fetch correct doc, update benchmark_rct, delete stale
+   #    MODEL rows only; backs up the DB first). Dry-run first, then --apply.
+   uv run python studies/eisele_metzger_replication/recover_wrong_papers.py apply \
+     RCT008 RCT009 RCT019 RCT040 RCT064 RCT074 RCT095 RCT100 \
+     RCT017=31968595 RCT088=32871238 RCT093=34800427 --apply
+   # 2. re-assess ONLY the deleted rows (existence check skips the rest):
+   uv run python studies/eisele_metzger_replication/run_evaluation.py --model gpt_oss_20b --protocol abstract   # ×{abstract,fulltext}×{gpt_oss_20b,gemma4_26b,qwen3_6_35b}
+   uv run python studies/eisele_metzger_replication/run_evaluation_anthropic.py --protocol abstract            # Sonnet ×{abstract,fulltext}
+   # 3. compute the sensitivity κ (the guard confirms the DB is recovered first):
+   uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --sensitivity
+   uv run python studies/eisele_metzger_replication/compute_phase6_kappa.py --sensitivity --exclude-fallback  # strict variant
+   ```
+2. **Pre-manuscript spot-checks** (from the runbook): right-for-the-right-reasons audit
+   of Sonnet's `low` judgements; check whether Sonnet/gemma/qwen share gpt-oss's D1
+   instability (§3.6); one more Limitations pass with all four models in.
+3. **Final prose pass on both drafts** — the n=78 numbers and reframed finding #1 are in
+   (PR #31), but the owner still wants a read-through before submission.
+4. **Stretch (only if numbers are unequivocal):** forest-plot figure from
+   `phase6_forest_data.csv` (Figure 1); confidence-calibrated ensemble as a future-work
+   appendix (primary use would need a pre-reg amendment); OSF mirror of the pre-reg.
 
-**Done this session (committed):** `WRONG_PAPER_RCTS` expanded to all 13;
-`UNRECOVERABLE_WRONG_PAPER_RCTS = {RCT030, RCT080}` added for the sensitivity;
-both phase-6 κ modes and the algorithm-conformance audit regenerated on n=78
-(the audit now computes its cross-model consensus in-script — previously ad hoc);
-`recovery_obtainability.md` finalised (11 recoverable incl. RCT017=31968595,
-2 exclude).
+### B. OA-first benchmark — owner actions before Stage B
 
-**Material result the owner must weave into the prose:** excluding the 13
-removes spurious disagreements and **raises κ unevenly**, breaking the old
-"tight clustering" finding. Best-pass κ_quad fulltext (strict) went
-0.257/0.254/0.253/0.236 (spread 0.021) → **gpt-oss 0.321, Sonnet 0.281, qwen
-0.273, gemma 0.259 (spread 0.062)**; gpt-oss now +0.10 above EM's 0.22.
-Reframed finding #1 (owner-approved): *after correcting the wrong-paper
-acquisitions, best-pass κ_quad spans 0.26–0.32; the ceiling is modestly above
-EM's 0.22 but still far below human-usable; run-to-run and ensemble findings
-unchanged.* Ensemble-loses-to-best-pass and run-to-run ordering both SURVIVE.
+These are **owner tasks, not code** (network I/O over the full cohort, kept out of CI
+per the >2-min rule):
+1. **Confirm ROBoto2 license reuse terms** with its authors before *publishing* any
+   ROBoto2-derived rows (spec risk R1). Raw CSV + derived JSON are gitignored until then.
+2. **Run the two terminal ingests** from your own terminal:
+   `uv run python -m studies.oa_rob_benchmark.convert_roboto2_csv` (CSV → JSON) then
+   `... ingest_roboto2` and `... ingest_em_candidates`.
+3. **Review the 20-row manual-gate manifest** (`manual_gate.py`; ≥19/20 must match)
+   before Stage B is planned.
+4. **Stage B** — the fresh Europe-PMC OA-first harvest (spec §7) — is a separate
+   follow-up, unplanned until the gate passes.
 
-**Draft updates (numbers → prose):** the **primary** draft
-(`20260501_*`) is being updated by Claude this session (finding #1 reframe,
-§3.1 wrong-paper class, §3.2 tables, n=78). The **companion** draft
-(`20260423_*`) is under concurrent owner edit — number map below; note its
-match-rate cell read 45.5% but the regenerated value is **47.9%**.
-Regenerated conformance numbers (n=4,676 cells / 78 RCTs): self-conformance
-**95.9%**, Cochrane match **47.9%**, more-lenient **46.6%**, more-strict
-**5.5%**, asymmetry **8.5:1**; 4/4 consensus **236** cells, **105** unanimous
-lenient disagreements (102 low→some_concerns), evidence-quote full coverage
-**86/105 (81.9%)**, pooled **1216/1260 (96.5%)**, D1 100% on 38 cells; 4/4
-sharpened asymmetry **11.7:1**.
-
-**Sensitivity analysis (owner-gated, NOT run — expensive model re-run):**
-recover the 11 obtainable RCTs, re-assess, then compute κ excluding only
-`UNRECOVERABLE_WRONG_PAPER_RCTS`. Steps:
-```bash
-# 1. recover (surgical: re-fetch correct doc, update benchmark_rct, delete stale
-#    MODEL rows only; backs up the DB first). Dry-run first, then --apply.
-uv run python studies/eisele_metzger_replication/recover_wrong_papers.py apply \
-  RCT008 RCT009 RCT019 RCT040 RCT064 RCT074 RCT095 RCT100 \
-  RCT017=31968595 RCT088=32871238 RCT093=34800427 --apply
-# 2. re-assess ONLY the deleted rows (existence check skips the rest):
-uv run python studies/eisele_metzger_replication/run_evaluation.py --model gpt_oss_20b --protocol abstract   # ×{abstract,fulltext}×{gpt_oss_20b,gemma4_26b,qwen3_6_35b}
-uv run python studies/eisele_metzger_replication/run_evaluation_anthropic.py --protocol abstract            # Sonnet ×{abstract,fulltext}
-# 3. compute the sensitivity κ (needs a --sensitivity flag on compute_phase6_kappa
-#    that swaps in UNRECOVERABLE_WRONG_PAPER_RCTS — small add, do it against the
-#    re-assessed DB so it can be validated).
-```
-
-### 1. Wrong-paper exclusion set is BIGGER than {RCT030} — (resolved, see §0)
-
-The 2026-07-17 completeness audit (issue #29 step 5, full evidence in the issue
-comment) found **RCT030 is not the only wrong-paper acquisition**. Phase 1
-mis-resolved the fetched document for several more RCTs; regenerating the κ
-tables with only RCT030 excluded would still ship polluted numbers. Resolved by
-the §0 decision (exclude all 13); the drafts and κ tables were regenerated on
-n=78 accordingly.
-
-- **Tier A — wrong document entirely, recommend excluding**: RCT008 (systematic
-  review, not the Jolly RCT), RCT080 (Scandinavian mortality stats, not the
-  kindergarten language RCT), RCT088 (concrete engineering, not the calcifediol
-  COVID RCT), RCT093 (RECOVERY *empagliflozin* arm, not the intended *aspirin*
-  arm) — alongside RCT030. All model-confirmed via rationales.
-- **Tier B — right trial, wrong report (protocol/sub-analysis/different
-  follow-up), owner adjudicates**: RCT017, RCT074 (protocols not results),
-  RCT100 (pooled 4-trial analysis vs single COVE trial), RCT095 (STOIC
-  mechanistic sub-study), RCT040 (insulin antibody 104-wk vs 52-wk efficacy —
-  verify), RCT009 (TTM2 oxygen sub-analysis), RCT064 (PRET-PD cognition report),
-  RCT019 (fluocinolone 3-yr vs 12-mo results).
-- Reproducible tools: `audit_wrong_paper_acquisitions.py` (detection) and
-  `recover_wrong_papers.py` (obtainability + surgical recovery), tests in
-  `tests/test_wrong_paper_audit.py` + `tests/test_recover_wrong_papers.py`.
-
-**Exclude vs recover — obtainability audit (2026-07-17, `recovery_obtainability.md`):**
-most of these are *recoverable*, not just excludable, because the `cochrane` /
-`em_claude2_*` ground truth is already for the correct trial — only the fetched
-document is wrong. `recover_wrong_papers.py report` re-resolves each intended
-trial (validated by title coverage vs `em_rct_ref` — the gate that would have
-prevented the bug):
-- **8 auto-recoverable** (correct PMID found): RCT008, RCT009, RCT019, RCT040,
-  RCT064, RCT074, RCT095, RCT100.
-- **2 manual-recoverable** (verified PMID, resolver can't select): RCT088=32871238
-  (compound surname), RCT093=34800427 (same-platform arm). `MANUAL_PMIDS` holds these.
-- **3 to exclude / manual-lookup**: RCT030, RCT080 (correct paper not PubMed-indexed
-  → genuine exclude); RCT017 (results paper exists but resolver locks on the
-  near-identical protocol PMID — needs a manual PMID lookup).
-
-**Owner decision:** exclude-all (simplest, conservative) vs recover the ~10-11
-obtainable ones (restores n, needs a pre-reg §12 amendment + a targeted model
-re-run). `recover_wrong_papers.py apply RCTxxx [RCTyyy=PMID] --apply` does the
-surgery (re-fetch correct doc → update `benchmark_rct` → delete stale *model*
-rows only, never ground truth; DB backed up first) and prints the
-`run_evaluation.py` re-assess commands (its existence check recomputes only the
-deleted rows). The model re-run is expensive/owner-gated — NOT run automatically.
-
-Whichever path: add exclude-only IDs to `exclusions.WRONG_PAPER_RCTS` (enforced
-across all κ loaders by #30), then regenerate both κ modes, re-derive both drafts,
-and rewrite §3.1 to name a **wrong-paper class** distinct from the 9 unrecoverable
-regional-journal RCTs. RCT030-only magnitude was small (+0.007–0.009 κ_quad, PR
-#30 pre-check); the full set moves figures more.
-
-### 2. Papers
-
-- Primary draft: `docs/papers/drafts/20260501_medrxiv_harness_vs_naive_rob2_v1.md`
-  (thesis: harness over model).
-- Companion draft: `docs/papers/drafts/20260423_medrxiv_assessor_algorithm_conformance_v1.md`
-  (thesis: AI follows the algorithm; experts deviate).
-- `docs/papers/drafts/medrxiv_V5/` holds the **Cochrane corpus rebuild design**
-  (`REBUILD_DESIGN.md`, status: design, awaiting owner sign-off; forensics in
-  `FORENSICS.md`). Rebuilds Stage A ground truth only — separate from the EM study.
-- Pre-manuscript spot-checks (from the runbook): right-for-the-right-reasons audit of
-  Sonnet's `low` judgements; check whether Sonnet/gemma/qwen share gpt-oss's D1
-  instability (§3.6); one more Limitations pass with all four models in.
-- Stretch (only if numbers are unequivocal): forest-plot figure from
-  `phase6_forest_data.csv` (Figure 1); confidence-calibrated ensemble as a
-  future-work appendix (primary use would need a pre-reg amendment); OSF mirror of
-  the pre-registration.
-
-### 3. Decisions needed from the repo owner
+### C. Decisions needed from the repo owner (EM study)
 
 - Personal review of the 5 systematic-failure RCTs (RCT024, RCT025, RCT034, RCT038,
   RCT062) before publication.
@@ -187,43 +123,46 @@ regional-journal RCTs. RCT030-only magnitude was small (+0.007–0.009 κ_quad, 
   once final numbers are in.
 - Submission ordering — recommendation: harness-vs-naive first, then companion.
   Confirm before posting either.
-- Sign-off on the medrxiv_V5 Cochrane corpus rebuild design.
+- Sign-off on the `docs/papers/drafts/medrxiv_V5/` Cochrane corpus rebuild design
+  (separate from both active workstreams; forensics in `FORENSICS.md`).
 
-### 4. Housekeeping (no issue filed)
+### D. Housekeeping (no issue filed)
 
-- **33 Dependabot vulnerabilities** (12 high, 13 moderate, 8 low) flagged on the
-  default branch — worth a triage pass.
-- `dataset/` contains stray `* copy.db` files — confirm with the owner they are
-  disposable before removing.
-- **#26**: the skills' `allowed-tools` need converting to the `Bash(cmd:*)` prefix
-  form (exact lines in the issue) — owner must apply by hand; the permission
-  classifier blocks agents from editing their own permission surface.
+- `dataset/` still contains two stray `* copy.db` files
+  (`eisele_metzger_benchmark copy.db`, `eisele_metzger_benchmark.spark copy.db`) —
+  confirm with the owner they are disposable before removing.
+- Only **one** GitHub issue is open: **#29** (RCT030/wrong-paper κ pollution). The code
+  fix + drafts are done (PRs #30, #31); it stays open to track the owner-gated
+  sensitivity analysis (Open work #A.1). Close it once the sensitivity κ ships or the
+  owner decides to skip it.
 
 ## Conventions and gotchas
 
 - Run the suite with `uv run pytest` (`testpaths = ["tests"]` keeps collection away
-  from the stray root `worktrees/` checkouts).
+  from stray root `worktrees/` checkouts). CI now runs it on every push (PR #34); a
+  weekly workflow refreshes the lockfile (#36).
 - **Do not modify the locked pre-analysis plan or prompt spec** at `7854a1c` — any
   change requires a numbered amendment (§12 of the pre-reg).
 - **Never re-run `build_benchmark_db.py`** after evaluation rows exist — it DROPs and
   rebuilds all tables, destroying the model evaluation data. Copy data out first if
   the schema must change.
-- **Never commit `DATA/`** — EM 2025 supplementary-data redistribution rights are
-  unresolved (`.gitignore`).
-- **Do not re-run the full Sonnet batch** — $30–80 of API credits; results are in
-  the DB.
+- **The OA benchmark store is isolated** — `studies/oa_rob_benchmark/store.py` writes
+  only `dataset/oa_rob_benchmark.db` (append/upsert, never DROP) and must never touch
+  `biasbuster.db` or the EM benchmark DB. `upsert_item` preserves human curation
+  (`manual_verified`) on conflict via `_CURATION_FIELDS`.
+- **Never commit `DATA/`** (EM 2025 supplementary data — redistribution unresolved) or
+  the raw/derived ROBoto2 files (license R1 unconfirmed); all are `.gitignore`d.
+- **Do not re-run the full Sonnet batch** — $30–80 of API credits; results are in the DB.
 - Do not push to branches other than feature branches + PR to `main` without
   confirming with the owner.
 - Two near-identical filenames in `biasbuster/methodologies/cochrane_rob2/`:
-  `algorithm.py` (consistency checking) vs `algorithms.py` (per-domain truth
-  tables). Both carry cross-reference notes — mind which one you touch.
-- **Wrong-paper acquisitions are a class, not just RCT030** — RCT030 is the only
-  one *enforced* in `exclusions.WRONG_PAPER_RCTS` today, but the audit found
-  more (Open work #1). Before any κ regeneration, run
-  `audit_wrong_paper_acquisitions.py` and get the owner's sign-off on the set.
-  RCT030's 29 parse-failure rows must always stay out of recovery
-  (`recover_parse_failures.py` guards via `WRONG_PAPER_RCTS`). Never "recover"
-  them.
+  `algorithm.py` (consistency checking) vs `algorithms.py` (per-domain truth tables).
+  Both carry cross-reference notes — mind which one you touch.
+- **Wrong-paper acquisitions are a class of 13, not just RCT030** — all 13 are now
+  enforced in `exclusions.WRONG_PAPER_RCTS` and excluded from every κ loader. Before any
+  further κ regeneration, re-run `audit_wrong_paper_acquisitions.py` and get owner
+  sign-off if the set changes. Parse-failure rows for wrong papers must always stay out
+  of recovery (`recover_parse_failures.py` guards via `WRONG_PAPER_RCTS`).
 - All κ / ensemble / synthesis numbers are computed in code, never by the model.
 - Repo-wide rules (CLAUDE.md): `uv` only; prompts single-sourced in `prompts*.py`;
   processes >2 min are printed for the user to run, never run in-session; anything
@@ -237,17 +176,18 @@ regional-journal RCTs. RCT030-only magnitude was small (+0.007–0.009 κ_quad, 
 | Locked pre-analysis plan / prompt | `docs/papers/eisele_metzger_replication/{preanalysis_plan,prompt_v1}.md` |
 | Preprint drafts | `docs/papers/drafts/20260501_*.md` (primary), `20260423_*.md` (companion) |
 | Cochrane corpus rebuild design | `docs/papers/drafts/medrxiv_V5/` |
-| Study scripts (phases 1–6) | `studies/eisele_metzger_replication/` |
+| EM study scripts (phases 1–6) | `studies/eisele_metzger_replication/` |
 | Cross-model κ report | `studies/eisele_metzger_replication/compute_phase6_kappa.py` → `phase6_results*.{md,csv}` |
-| Recovery / retro-tagging | `studies/eisele_metzger_replication/{recover_parse_failures,retro_tag_live_fallback}.py` |
 | Wrong-paper exclusion set / audit / recovery | `studies/eisele_metzger_replication/{exclusions,audit_wrong_paper_acquisitions,recover_wrong_papers}.py`; obtainability at `recovery_obtainability.md` |
 | Shard merge (Mac ⇄ DGX) | `studies/eisele_metzger_replication/merge_eval_dbs.py` |
 | Per-domain Cochrane algorithms | `biasbuster/methodologies/cochrane_rob2/algorithms.py` |
-| Benchmark DB (gitignored) | `dataset/eisele_metzger_benchmark.db` (+ `.spark.db` shard) |
+| EM benchmark DB (gitignored) | `dataset/eisele_metzger_benchmark.db` (+ `.spark.db` shard) |
+| OA benchmark study package | `studies/oa_rob_benchmark/` (spec + plan under `docs/superpowers/{specs,plans}/2026-07-17-oa-*`) |
+| OA benchmark store (gitignored DB) | `dataset/oa_rob_benchmark.db`; ROBoto2 raw/derived under `dataset/roboto2*` (gitignored) |
 | EM 2025 source data (gitignored, no redistribution) | `DATA/20240318_Data_for_analysis_full/` |
 | COI divergence rationale (standing design) | `docs/harness/DESIGN_RATIONALE_COI.md` |
 
-### Quick state check
+### Quick state check (EM benchmark)
 
 ```bash
 sqlite3 dataset/eisele_metzger_benchmark.db <<'SQL'
