@@ -162,9 +162,24 @@ Each model evaluated on n=78 RCTs — the 100-RCT EM corpus minus the 9 publishe
 | gemma4:26b-A4B (open-weights, MoE) | **0.259** | +0.04 |
 | **range across 4 models** | **0.062** | |
 
-The four models span ~25× parameter range and three architectures (dense, MoE, frontier). On the corrected corpus (wrong-paper acquisitions removed, §3.1) their best fulltext pass against single-rater Cochrane spans **0.259–0.321** (0.062-wide band). Correcting the acquisition errors — which had injected spurious model-vs-Cochrane disagreements — lifts every model's κ off the previous ~0.25 cluster, most for gpt-oss (0.321) and least for gemma (0.259); the ceiling is modestly above EM's published Claude 2 0.22 (by 0.04–0.10) but remains far below any human-usable threshold. **The κ-vs-Cochrane ceiling is bounded by the reference standard, not model capability:** even the frontier API (Sonnet 0.281) and a 20B open-weights model (gpt-oss 0.321) land in the same 0.26–0.32 range, and none approaches the reliability a replacement rater would need. (Under the inclusive sensitivity analysis Sonnet's best pass rises to 0.309, tightening the top of the band; the 0.26–0.32 picture is robust to either reporting mode.)
+The four models span ~25× parameter range and three architectures (dense, MoE, frontier). On the corrected corpus (wrong-paper acquisitions removed, §3.1) their best fulltext pass against single-rater Cochrane spans **0.259–0.321** (0.062-wide band) (Figure 1). Correcting the acquisition errors — which had injected spurious model-vs-Cochrane disagreements — lifts every model's κ off the previous ~0.25 cluster, most for gpt-oss (0.321) and least for gemma (0.259); the ceiling is modestly above EM's published Claude 2 0.22 (by 0.04–0.10) but remains far below any human-usable threshold. **The κ-vs-Cochrane ceiling is bounded by the reference standard, not model capability:** even the frontier API (Sonnet 0.281) and a 20B open-weights model (gpt-oss 0.321) land in the same 0.26–0.32 range, and none approaches the reliability a replacement rater would need. (Under the inclusive sensitivity analysis Sonnet's best pass rises to 0.309, tightening the top of the band; the 0.26–0.32 picture is robust to either reporting mode.)
 
 **Mean κ_quad on full-text** across the three open-weights models is 0.25 / 0.22 / 0.23 (gpt-oss / gemma / qwen), confirming the best-pass values are not single-pass cherry-picks. Sonnet's strict mean is 0.21 (pass 1 loses the most rows to the FALLBACK exclusion, n=64, κ_quad 0.101); its inclusive mean is 0.25, in line with the others.
+
+![Figure 1](../../../studies/eisele_metzger_replication/figures/figure1_forest.png)
+
+**Figure 1. Agreement with Cochrane RoB 2 overall judgements (κ_quad) for all
+four models, both protocols, and all three passes.** Points are single passes
+(open circles) and the per-domain ensemble-of-3 majority vote (filled diamonds);
+horizontal bars are percentile bootstrap 95% confidence intervals (500
+resamples) at quadratic weighting. Vertical rules mark Eisele-Metzger 2025's
+published Claude 2 result (κ = 0.22) and two human-reliability reference points
+from Minozzi et al. (2020, κ = 0.16 without item descriptions; 2021, κ = 0.42
+with them). n = 78 RCTs — the pre-registered primary corpus, excluding the 13
+wrong-paper acquisitions. Every model's fulltext intervals overlap Eisele-Metzger's
+point estimate; every point estimate — across all models, passes, and ensembles —
+sits below the with-descriptions human benchmark, though several fulltext interval
+upper bounds cross above it.
 
 ### 3.3 LLM-internal run-to-run reliability — the headline result
 

@@ -35,7 +35,9 @@ current session-level detail lives in HANDOVER.md, historical records in
 | ✅ Done | Parse-failure recovery | Live-path + post-hoc algorithmic fallback, tagged `FALLBACK`; strict (pre-registered primary) vs inclusive κ modes |
 | ✅ Done | Phase 6 cross-model comparison | Per-domain κ, run-to-run reliability, ensemble via majority-vote domains + worst-wins overall, forest-plot data |
 | ✅ Done | gpt-oss temperature sweep | T = 0–1.2 fulltext × 3 passes on a 10-RCT subset (in benchmark DB) |
-| 🔶 In progress | Manuscript finalisation | Both drafts regenerated on n=78 (all 13 wrong papers excluded) with reframed finding #1 (PR #31); ensemble loses for all 4 models; run-to-run ordering survives. Spot-checks done 2026-07-18 (Sonnet `low` audit + corpus-wide per-domain instability; §3.5/§3.6/§5 updated). Remaining: owner's final prose read-through |
+| ✅ Done | Deterministic κ pair loading | `load_pairs` in `compute_phase6_kappa.py` had no `ORDER BY`, so bootstrap resampling-by-index let ensemble-row CIs drift between runs; point estimates were unaffected (κ is order-invariant) and no published number moved. Fixed with `ORDER BY a.rct_id` + 2 regression tests (2026-07-19) |
+| ✅ Done | Quadratic-weighted bootstrap CIs | Added `ci_quad_lo`/`ci_quad_hi` to the phase-6 pipeline (500-resample percentile bootstrap) — κ_quad is the manuscript's primary metric but only linear CIs existed before (2026-07-19) |
+| 🔶 In progress | Manuscript finalisation | Both drafts regenerated on n=78 (all 13 wrong papers excluded) with reframed finding #1 (PR #31); ensemble loses for all 4 models; run-to-run ordering survives. Spot-checks done 2026-07-18 (Sonnet `low` audit + corpus-wide per-domain instability; §3.5/§3.6/§5 updated). Figure 1 forest plot wired into §3.2 (2026-07-19). Remaining: owner's final prose read-through |
 | ✅ Done | Pre-manuscript spot-check tooling | `premanuscript_spotchecks.py` (+ tests) — Sonnet `low`-judgement right-for-the-right-reasons audit and full-corpus per-domain run-to-run instability; found §3.6's D1 concentration is audit-set-specific, not corpus-wide (2026-07-18) |
 | ✅ Done | Wrong-paper recovery guard | `WRONG_PAPER_RCTS` in `recover_parse_failures.py` + tests; RCT030 rows reverted and documented in `benchmark_rct.notes` (2026-07-17). Recovery path only — analysis-path exclusion tracked in #29 |
 | ✅ Done | Enforce RCT030 exclusion in κ scripts (#29 code fix) | `exclusions.py` single source of truth, enforced in `compute_phase6_kappa.py`/`interim_analysis.py`/`temperature_analysis.py`; deliberately not in `sanity_check_kappa.py` (EM reproduction) — PR #30, 2026-07-17 |
@@ -47,7 +49,7 @@ current session-level detail lives in HANDOVER.md, historical records in
 | ✅ Done | OA-first RoB benchmark — Stage A | Inverts sourcing (enumerate OA population first); isolated `dataset/oa_rob_benchmark.db` + four-part litmus test; ROBoto2 + EM-OA seed pools; real ROBoto2 ingest via CSV converter + title→PMID resolver (PRs #32, #37) |
 | ⛔ Blocked | OA benchmark — owner actions | Confirm ROBoto2 license (R1); run the two terminal ingests; review the 20-row manual gate (≥19/20) — all gate Stage B |
 | ⬜ Planned | OA benchmark — Stage B | Fresh Europe-PMC OA-first harvest (spec §7); unplanned until the manual gate passes |
-| ⬜ Planned | Forest-plot figure | Figure 1 for the primary draft, from `phase6_forest_data.csv` |
+| ✅ Done | Forest-plot figure | Figure 1 for the primary draft — κ_quad vs Cochrane, all four models × both protocols × three passes + ensembles, bootstrap 95% CIs at quadratic weighting; wired into §3.2 (2026-07-19) |
 | ⬜ Planned | OSF pre-registration mirror | Pre-reg currently locked in git history only (commit `7854a1c`) |
 | ⬜ Planned | Confidence-calibrated ensemble | Future-work appendix; use as a primary metric would require a pre-reg amendment |
 | ⬜ Decision | OpenAthens full-text ceiling lift | Manual fetch for ~50 PMID-only RCTs (41/100 → ~85+/100); optional polish, owner decides |
