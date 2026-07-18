@@ -105,6 +105,15 @@ def load_forest_points(csv_path: Path) -> list[ForestPoint]:
                     "point needs a quadratic-weighted κ."
                 )
             model, protocol, pass_id = parse_label(label)
+            kind = row["kind"]
+            if (model, protocol, pass_id) == (None, None, None) and kind not in REFERENCE_KINDS:
+                raise ValueError(
+                    f"Forest row {label!r} (kind={kind!r}) failed to parse as a "
+                    "model row and is not a reference kind, so it would plot as "
+                    "'None · None'. Check the label format against _LABEL_RE, or "
+                    "add its kind to REFERENCE_KINDS if it is a legitimate "
+                    "reference row."
+                )
             n_raw = row.get("n")
             points.append(ForestPoint(
                 label=label,

@@ -104,6 +104,27 @@ def test_reference_row_without_k_quad_is_a_hard_error(tmp_path: Path) -> None:
         load_forest_points(p)
 
 
+def test_non_reference_row_with_unparseable_label_is_a_hard_error(
+        tmp_path: Path) -> None:
+    """A non-reference row whose label fails to parse must raise, not plot
+    silently as 'None · None'.
+
+    `parse_label` legitimately returns an all-None triple for reference rows
+    (no model/protocol parenthetical). But a *non*-reference row (`kind` not
+    in `REFERENCE_KINDS`) that fails to parse — e.g. a future model label
+    with different formatting — must not become an all-None `ForestPoint`
+    that renders in the published figure with the row label literally
+    "None · None".
+    """
+    p = tmp_path / "malformed.csv"
+    p.write_text(
+        "label,k_lin,k_quad,ci_lin_lo,ci_lin_hi,ci_quad_lo,ci_quad_hi,n,kind\n"
+        '"Future Model 99B fulltext pass 1",0.26,0.32,0.12,0.40,0.15,0.45,78,single_pass\n',
+        encoding="utf-8")
+    with pytest.raises(ValueError, match="Future Model 99B fulltext pass 1"):
+        load_forest_points(p)
+
+
 def test_missing_csv_names_the_regeneration_command(tmp_path: Path) -> None:
     """A missing CSV must raise with the exact command to regenerate it."""
     with pytest.raises(FileNotFoundError, match="compute_phase6_kappa"):
