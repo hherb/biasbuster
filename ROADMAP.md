@@ -35,13 +35,17 @@ current session-level detail lives in HANDOVER.md, historical records in
 | ✅ Done | Parse-failure recovery | Live-path + post-hoc algorithmic fallback, tagged `FALLBACK`; strict (pre-registered primary) vs inclusive κ modes |
 | ✅ Done | Phase 6 cross-model comparison | Per-domain κ, run-to-run reliability, ensemble via majority-vote domains + worst-wins overall, forest-plot data |
 | ✅ Done | gpt-oss temperature sweep | T = 0–1.2 fulltext × 3 passes on a 10-RCT subset (in benchmark DB) |
-| 🔶 In progress | κ regeneration + manuscript update | Retro-tag (no-op) → strict+inclusive tables regenerated → both drafts on strict-primary numbers; ensemble now loses for all 4 models (2026-07-17). **Blocked: tables polluted by RCT030 wrong-paper judgements — must regenerate after issue #29** |
+| 🔶 In progress | Manuscript finalisation | Both drafts regenerated on n=78 (all 13 wrong papers excluded) with reframed finding #1 (PR #31); ensemble loses for all 4 models; run-to-run ordering survives. Remaining: final prose pass + pre-manuscript spot-checks |
 | ✅ Done | Wrong-paper recovery guard | `WRONG_PAPER_RCTS` in `recover_parse_failures.py` + tests; RCT030 rows reverted and documented in `benchmark_rct.notes` (2026-07-17). Recovery path only — analysis-path exclusion tracked in #29 |
 | ✅ Done | Enforce RCT030 exclusion in κ scripts (#29 code fix) | `exclusions.py` single source of truth, enforced in `compute_phase6_kappa.py`/`interim_analysis.py`/`temperature_analysis.py`; deliberately not in `sanity_check_kappa.py` (EM reproduction) — PR #30, 2026-07-17 |
 | ✅ Done | Wrong-paper completeness audit (#29 step 5) | `audit_wrong_paper_acquisitions.py` + tests; found ≥4 more Tier-A wrong docs (RCT008/080/088/093) + a Tier-B "wrong report" class — RCT030 is not unique (2026-07-17) |
 | ✅ Done | Obtainability audit + recovery tool | `recover_wrong_papers.py` (validated re-resolver, `report`/`apply`, surgical DB update, `MANUAL_PMIDS`) + tests; `recovery_obtainability.md`: 8 auto- + 2 manual-recoverable, 2 genuine excludes, RCT017 needs manual PMID (2026-07-17) |
-| ⛔ Blocked | Exclude-vs-recover decision (owner) | Exclude-all (simple) vs recover the ~10-11 obtainable (restores n; needs pre-reg §12 amendment + targeted model re-run). Sets denominator + §3.1 narrative; gates κ regeneration |
-| 🔶 In progress | Regenerate κ tables + drafts post-#29 | **Blocked** on the exclusion-set decision above; then regenerate both κ modes + re-derive both drafts (wrong-paper exclusion class distinct from the 9 regional-journal RCTs) |
+| ✅ Done | Exclude-vs-recover decision (owner) | Hybrid chosen (2026-07-17): pre-registered primary excludes all 13; recovered corpus is a secondary sensitivity analysis. `WRONG_PAPER_RCTS` = 13, `UNRECOVERABLE_WRONG_PAPER_RCTS` = {RCT030, RCT080} (PR #31) |
+| ✅ Done | Regenerate κ tables + drafts post-#29 | Both κ modes + the algorithm-conformance audit regenerated on n=78; both drafts re-derived; §3.1 names a wrong-paper exclusion class distinct from the 9 regional-journal RCTs (PR #31) |
+| 🔶 In progress | Recovered-corpus sensitivity analysis | `--sensitivity` flag built + guarded + unit-tested (2026-07-18): excludes only `UNRECOVERABLE_WRONG_PAPER_RCTS`, refuses to run until the recoverable RCTs are recovered. **Blocked** on the owner-gated recovery + targeted model re-run before the κ can be produced |
+| ✅ Done | OA-first RoB benchmark — Stage A | Inverts sourcing (enumerate OA population first); isolated `dataset/oa_rob_benchmark.db` + four-part litmus test; ROBoto2 + EM-OA seed pools; real ROBoto2 ingest via CSV converter + title→PMID resolver (PRs #32, #37) |
+| ⛔ Blocked | OA benchmark — owner actions | Confirm ROBoto2 license (R1); run the two terminal ingests; review the 20-row manual gate (≥19/20) — all gate Stage B |
+| ⬜ Planned | OA benchmark — Stage B | Fresh Europe-PMC OA-first harvest (spec §7); unplanned until the manual gate passes |
 | ⬜ Planned | Forest-plot figure | Figure 1 for the primary draft, from `phase6_forest_data.csv` |
 | ⬜ Planned | OSF pre-registration mirror | Pre-reg currently locked in git history only (commit `7854a1c`) |
 | ⬜ Planned | Confidence-calibrated ensemble | Future-work appendix; use as a primary metric would require a pre-reg amendment |
@@ -52,6 +56,7 @@ current session-level detail lives in HANDOVER.md, historical records in
 | ✅ Done | Single-sourced prompts | Severity boundaries, domain criteria, verification-database guidance in `prompts*.py`, shared by annotators and export |
 | ✅ Done | Single-paper import & annotation | `annotate_single_paper.py` — PMID/DOI resolve, fetch, enrich, validate, annotate, `--force` re-annotation |
 | ✅ Done | Session maintenance scaffolding | HANDOVER.md, ROADMAP.md, `nextsession`/`fixall` skills (2026-07-16) |
-| ⬜ Planned | Dependabot triage | 33 alerts (12 high) on the default branch |
+| ✅ Done | CI test workflow | GitHub Actions runs `uv run pytest` on every push (PR #34); weekly scheduled lockfile refresh (PR #36) |
+| ✅ Done | Dependabot triage | All 33 alerts (12 high, 13 moderate, 8 low) resolved via dependency upgrades (PRs #35, #38) |
 | ✅ Done | pytest collection scoping | `testpaths = ["tests"]` so bare `uv run pytest` no longer collects stray `worktrees/` checkouts (2026-07-16) |
 | ✅ Done | Fix stale tests | #21 (export split fixture vs PMID grouping), #22 (RoB 2 missing-judgement fallback expectation) — realigned 2026-07-17 |
